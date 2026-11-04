@@ -38,12 +38,12 @@ import fr.husi.resources.Res
 import fr.husi.resources.invalid_server
 import fr.husi.resources.profile_empty
 import fr.husi.resources.service_failed
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -59,7 +59,6 @@ import java.io.File
 import java.io.IOException
 import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
-import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 data class CoreHostState(
@@ -741,24 +740,20 @@ internal class CoreHostController(
     }
 
     private suspend fun waitForHostReady() {
-        var delayDuration = 50.milliseconds
-        val deadline = System.nanoTime() + HOST_READY_TIMEOUT.inWholeNanoseconds
-        while (System.nanoTime() < deadline) {
-            if (sessionProcess?.isAlive != true) {
-                throw IOException("husi-core session exited before becoming ready")
-            }
-            if (probeHost()) return
-            delay(delayDuration)
-            delayDuration = (delayDuration * 2).coerceAtMost(500.milliseconds)
+        awaitCoreHostReady(socketBasePath, HOST_READY_TIMEOUT, { sessionProcess?.isAlive == true }) {
+            coreClient.probe()
         }
-        throw IOException("timed out waiting for husi-core session on $socketBasePath")
     }
 
     private suspend fun probeHost(): Boolean {
-        return runCatching {
+        return try {
             coreClient.probe()
             true
-        }.getOrDefault(false)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private suspend fun closeSessionLocked(
