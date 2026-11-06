@@ -12,7 +12,7 @@ permissions:
 jobs:
   apk:
     name: FOSS release (${{ matrix.abi }})
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -46,25 +46,33 @@ jobs:
           go-version-file: libcore/go.mod
           cache-dependency-path: libcore/go.sum
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
+      - name: Set up Android NDK r29
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          add-to-path: true
+          ndk-version: r29
+          local-cache: false
 
-      - name: Install the pinned Android build tools and NDK
+      - name: Verify the hosted Android SDK
         shell: bash
         run: |
           set -euo pipefail
-          # The app and its dependencies require API 37. It is published on
-          # the Canary channel, which also includes Beta and Stable packages.
-          android --sdk="$ANDROID_HOME" sdk install --canary \
-            platforms/android-37 \
-            build-tools/37.0.0 \
-            ndk/29.0.14206865
-          test -d "$ANDROID_HOME/platforms/android-37"
-          test -x "$ANDROID_HOME/build-tools/37.0.0/apksigner"
-          test -f "$ANDROID_HOME/ndk/29.0.14206865/source.properties"
+          : "${ANDROID_HOME:?The hosted runner did not set ANDROID_HOME.}"
+          test -f "$ANDROID_HOME/platforms/android-37/android.jar" || {
+            echo "The selected hosted runner lacks Android API 37." >&2
+            find "$ANDROID_HOME/platforms" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort >&2 || true
+            exit 1
+          }
+          test -x "$ANDROID_HOME/build-tools/37.0.0/apksigner" || {
+            echo "The selected hosted runner lacks Android Build Tools 37.0.0." >&2
+            find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort >&2 || true
+            exit 1
+          }
+          test -f "${{ steps.setup-ndk.outputs.ndk-path }}/source.properties"
           {
-            echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865"
-            echo "NDK=$ANDROID_HOME/ndk/29.0.14206865"
+            echo "ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}"
+            echo "NDK=${{ steps.setup-ndk.outputs.ndk-path }}"
           } >> "$GITHUB_ENV"
 
       - name: Restore the release keystore
@@ -88,6 +96,7 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x gradlew run
+          printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
           case "$ABI" in
             arm64-v8a) task=assembleFossReleaseArm64 ;;
             armeabi-v7a) task=assembleFossReleaseArm ;;
