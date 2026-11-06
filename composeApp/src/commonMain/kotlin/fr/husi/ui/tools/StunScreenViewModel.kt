@@ -4,35 +4,44 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import fr.husi.core.CoreClient
+import fr.husi.core.NatBehaviour
+import fr.husi.core.StunPhase
+import fr.husi.core.failure
+import fr.husi.core.remote.RemoteControlManager
 import fr.husi.ktx.Logs
 import fr.husi.ktx.blankAsNull
-import fr.husi.ktx.currentSocks5
-import fr.husi.ktx.onIoDispatcher
-import fr.husi.libcore.STUNTestHandler
-import fr.husi.libcore.STUNTestReport
-import fr.husi.libcore.StunTester
+import fr.husi.ktx.readableMessage
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.koin.core.context.GlobalContext
+
+private const val DEFAULT_STUN_SERVER = "stun.voipgate.com:3478"
 
 @Immutable
 internal data class StunScreenUiState(
-    val server: String = "stun.voipgate.com:3478",
-    val proxy: String = "",
+    val server: String = DEFAULT_STUN_SERVER,
+    /** Empty means the service's default outbound; ignored when it is not running. */
+    val outboundTag: String = "",
     val isDoing: Boolean = false,
     val report: StunReport? = null,
 )
 
 @Immutable
 internal data class StunReport(
+    val phase: StunPhase = StunPhase.Binding,
     val externalAddress: String? = null,
     val latencyMs: Int? = null,
-    val natMapping: Int = 0,
-    val natFiltering: Int = 0,
+    val mapping: NatBehaviour = NatBehaviour.Unknown,
+    val filtering: NatBehaviour = NatBehaviour.Unknown,
     val natTypeUnsupported: Boolean = true,
 )
 
@@ -42,94 +51,106 @@ internal sealed interface StunScreenUiEvent {
 }
 
 @Stable
-internal class StunScreenViewModel : ViewModel() {
+internal class StunScreenViewModel(
+    coreClient: CoreClient? = null,
+    private val remoteControl: RemoteControlManager? = null,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+) : ViewModel() {
+    private val coreClientOverride = coreClient
+
+    private val coreClient: CoreClient
+        get() = coreClientOverride
+            ?: remoteControl?.activeClient?.value
+            ?: GlobalContext.get().get()
 
     val uiState: StateFlow<StunScreenUiState>
         field = MutableStateFlow(StunScreenUiState())
     val uiEvent: SharedFlow<StunScreenUiEvent>
         field = MutableSharedFlow()
-    private val tester = StunTester()
-
-    init {
-        initialize()
-    }
+    private var testJob: Job? = null
 
     override fun onCleared() {
-        tester.cancel()
+        testJob?.cancel()
         super.onCleared()
     }
 
-    fun initialize() {
-        uiState.update {
-            it.copy(proxy = currentSocks5()?.string.orEmpty())
-        }
-    }
-
-    fun doTest() = viewModelScope.launch(Dispatchers.IO) {
-        var server = ""
-        var proxy = ""
-        uiState.update { state ->
-            state.copy(
-                isDoing = true,
-                report = StunReport(),
-            ).also {
-                server = it.server
-                proxy = it.proxy
-            }
-        }
-        tester.start(server, proxy, handler)
-    }
-
-    private val handler = object : STUNTestHandler {
-        override fun onError(message: String) {
-            tester.cancel()
+    /**
+     * [serviceRunning] is the *target's* service, not this device's: a remote
+     * endpoint has its own. The caller collects it, so this stays testable
+     * without a live RemoteControlManager.
+     */
+    fun doTest(serviceRunning: Boolean) {
+        testJob?.cancel()
+        testJob = viewModelScope.launch(ioDispatcher) {
+            var server = ""
+            var outboundTag = ""
             uiState.update { state ->
-                val report = state.report
                 state.copy(
-                    isDoing = false,
-                    report = report?.copy(
-                        externalAddress = report.externalAddress ?: "-",
-                        latencyMs = report.latencyMs ?: -1,
-                    ),
-                )
-            }
-            viewModelScope.launch {
-                uiEvent.emit(StunScreenUiEvent.Alert(message))
-                onIoDispatcher {
-                    Logs.e(message)
+                    isDoing = true,
+                    report = StunReport(),
+                ).also {
+                    server = it.server
+                    outboundTag = it.outboundTag
                 }
             }
+            val progresses = if (serviceRunning) {
+                coreClient.stunTest(server, outboundTag)
+            } else {
+                coreClient.standaloneStunTest(server)
+            }
+            progresses
+                .catch { e ->
+                    fail(e.readableMessage)
+                    Logs.e(e)
+                }
+                .collect { progress ->
+                    val failure = progress.failure
+                    if (failure != null) {
+                        fail(failure)
+                        return@collect
+                    }
+                    uiState.update { state ->
+                        state.copy(
+                            isDoing = !progress.isFinal,
+                            report = StunReport(
+                                phase = StunPhase.ofWire(progress.phase),
+                                externalAddress = progress.externalAddr.blankAsNull(),
+                                latencyMs = progress.latencyMs.takeIf { it > 0 },
+                                mapping = NatBehaviour.ofMapping(progress.natMapping),
+                                filtering = NatBehaviour.ofFiltering(progress.natFiltering),
+                                natTypeUnsupported = !progress.natTypeSupported,
+                            ),
+                        )
+                    }
+                }
         }
+    }
 
-        override fun onReport(report: STUNTestReport, done: Boolean) {
-            if (done) {
-                tester.cancel()
-            }
-            uiState.update { state ->
-                state.copy(
-                    isDoing = !done,
-                    report = StunReport(
-                        externalAddress = report.externalAddr.blankAsNull(),
-                        latencyMs = report.latencyMs.takeIf { it > 0 },
-                        natMapping = report.natMapping,
-                        natFiltering = report.natFiltering,
-                        natTypeUnsupported = !report.natTypeSupported,
-                    ),
-                )
-            }
+    private suspend fun fail(message: String) {
+        uiState.update { state ->
+            val report = state.report
+            state.copy(
+                isDoing = false,
+                report = report?.copy(
+                    externalAddress = report.externalAddress ?: "-",
+                    latencyMs = report.latencyMs ?: -1,
+                ),
+            )
         }
+        uiEvent.emit(StunScreenUiEvent.Alert(message))
     }
 
     fun setServer(server: String) {
         uiState.update { it.copy(server = server) }
     }
 
-    fun setProxy(proxy: String) {
-        uiState.update { it.copy(proxy = proxy) }
+    fun setOutboundTag(outboundTag: String) {
+        uiState.update { it.copy(outboundTag = outboundTag) }
     }
 
     fun cancel() {
-        tester.cancel()
+        testJob?.cancel()
+        testJob = null
         uiState.update { it.copy(isDoing = false) }
     }
 }

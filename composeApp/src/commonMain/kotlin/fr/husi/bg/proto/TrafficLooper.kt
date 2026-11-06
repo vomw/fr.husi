@@ -1,47 +1,50 @@
 package fr.husi.bg.proto
 
-import fr.husi.Key
 import fr.husi.bg.BackendState
 import fr.husi.bg.ServiceState
 import fr.husi.bg.SpeedStats
+import fr.husi.core.CoreClient
 import fr.husi.database.DataStore
 import fr.husi.database.ProfileManager
 import fr.husi.database.ProxyEntity
-import fr.husi.fmt.ConfigBuildResult
-import fr.husi.fmt.TAG_DIRECT
+import fr.husi.fmt.ConfigMetadata
 import fr.husi.ktx.Logs
-import fr.husi.libcore.ConnectionEvent
-import fr.husi.libcore.ConnectionSubscription
-import fr.husi.libcore.Libcore
-import fr.husi.libcore.Service
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.milliseconds
 
 class TrafficLooper(
-    private val box: Service,
-    private val config: ConfigBuildResult,
+    private val coreClient: CoreClient,
+    private val metadata: ConfigMetadata,
     private val scope: CoroutineScope,
     private val onSpeedUpdate: (suspend (SpeedStats) -> Unit)? = null,
 ) {
 
-    private var job: Job? = null
-    private var subscription: ConnectionSubscription? = null
-    private val aggregator = OutboundTrafficAggregator()
-    private val idMap = mutableMapOf<Long, TrafficUpdater.TrafficLooperData>() // id to 1 data
-    private val tagMap = mutableMapOf<String, TrafficUpdater.TrafficLooperData>() // tag to 1 data
+    /** Lifetime totals of one profile, seeded from what the database already holds. */
+    private class ProfileTraffic(val entity: ProxyEntity) {
+        var tx = entity.tx
+        var rx = entity.rx
+    }
 
-    private val ticks = Channel<Unit>(Channel.CONFLATED)
+    private var job: Job? = null
+    private val aggregator = OutboundTrafficAggregator(metadata.trafficGraph)
+    private val profiles = metadata.trafficProfiles.associate { it.id to ProfileTraffic(it) }
+
+    /** Proxied bytes since this service started, for the session counter in the UI. */
+    private var sessionTx = 0L
+    private var sessionRx = 0L
 
     suspend fun stop() {
         job?.cancel()
-        subscription?.let { sub -> runCatching { sub.close() } }
-        subscription = null
-        if (!DataStore.profileTrafficStatistics) return
+        job = null
+        if (!DataStore.profileTrafficStatistics.get()) return
         updateDb()
         Logs.d("finally traffic post done")
     }
@@ -50,133 +53,84 @@ class TrafficLooper(
         job = scope.launch { loop() }
     }
 
-    fun updateSelectedTag(groupName: String, old: String, new: String) {
-        val group = config.trafficMap[groupName] ?: return
-        val oldID = config.tagToID[old]
-        val newID = config.tagToID[new]
-        for (entity in group) {
-            when (entity.id) {
-                oldID -> {
-                    idMap[oldID]?.ignore = true
-                }
-
-                newID -> {
-                    idMap[newID]?.ignore = false
-                }
-            }
-        }
-    }
-
-    private fun onConnectionEvent(event: ConnectionEvent) {
-        if (event.type == Libcore.ConnectionEventTick) {
-            ticks.trySend(Unit)
-        } else {
-            aggregator.onEvent(event)
-        }
-    }
-
     private suspend fun loop() = coroutineScope {
-        val speedInterval = DataStore.configurationStore
-            .intFlow(Key.SPEED_INTERVAL, 1000)
-            .stateIn(scope, SharingStarted.Eagerly, 1000)
-        val showDirectSpeed = DataStore.configurationStore
-            .booleanFlow(Key.SHOW_DIRECT_SPEED, true)
-            .stateIn(scope, SharingStarted.Eagerly, true)
-        val profileTrafficStatistics = DataStore.configurationStore
-            .booleanFlow(Key.PROFILE_TRAFFIC_STATISTICS, true)
-            .stateIn(scope, SharingStarted.Eagerly, true)
-        // update database / 10s
+        val speedIntervalPref = DataStore.speedInterval
+        val speedInterval = speedIntervalPref.flow()
+            .stateIn(this, SharingStarted.Eagerly, speedIntervalPref.get())
+        val profileTrafficStatisticsPref = DataStore.profileTrafficStatistics
+        val profileTrafficStatistics = profileTrafficStatisticsPref.flow()
+            .stateIn(this, SharingStarted.Eagerly, profileTrafficStatisticsPref.get())
         val persistEveryMs = 10_000L
 
-        // for display
-        val itemBypass = TrafficUpdater.TrafficLooperData(tag = TAG_DIRECT)
-
-        // initialize
-        idMap.clear()
-        idMap[-1] = itemBypass
-        val mainID = config.tagToID[config.mainTag]
-        config.trafficMap.forEach { (tag, entities) ->
-            val isProxySet = entities.any { it.type == ProxyEntity.TYPE_PROXY_SET }
-            for (ent in entities) {
-                val item = TrafficUpdater.TrafficLooperData(
-                    tag = tag,
-                    rx = ent.rx,
-                    tx = ent.tx,
-                    rxBase = ent.rx,
-                    txBase = ent.tx,
-                    ignore = isProxySet && ent.id != mainID,
-                )
-                idMap[ent.id] = item
-                tagMap[tag] = item
-                Logs.d("traffic count $tag to ${ent.id}")
+        launch {
+            coreClient.subscribeGroups().collect { groups ->
+                for (group in groups.groupList) {
+                    aggregator.updateSelection(group.tag, group.selected)
+                }
             }
         }
-        val trafficUpdater = TrafficUpdater(
-            aggregator = aggregator, items = idMap.values.toList(),
-        )
-        box.initializeProxySet()
-        subscription = runCatching { box.subscribeConnections(::onConnectionEvent, speedInterval.value) }
-            .onFailure { Logs.w("subscribe connections", it) }
-            .getOrNull()
 
         launch {
-            speedInterval.collect { interval ->
-                subscription?.updateInterval(interval)
+            speedInterval.collectLatest { intervalMs ->
+                if (intervalMs <= 0) return@collectLatest
+                coreClient.subscribeConnections(intervalMs.milliseconds).collect { events ->
+                    aggregator.onEvents(events)
+                }
             }
         }
 
         var lastPersist = System.currentTimeMillis()
-        for (tick in ticks) {
-            if (speedInterval.value <= 0) continue
-
-            trafficUpdater.updateAll()
-
-            // add all non-bypass to "main"
-            var mainTxRate = 0L
-            var mainRxRate = 0L
-            var mainTx = 0L
-            var mainRx = 0L
-            tagMap.forEach { (_, it) ->
-                if (!it.ignore) {
-                    mainTxRate += it.txRate
-                    mainRxRate += it.rxRate
-                }
-                mainTx += it.tx - it.txBase
-                mainRx += it.rx - it.rxBase
+        var lastDrain = System.currentTimeMillis()
+        while (isActive) {
+            val intervalMs = speedInterval.value.toLong().coerceAtLeast(0L)
+            if (intervalMs <= 0L) {
+                delay(200.milliseconds)
+                continue
             }
+            delay(intervalMs.milliseconds)
 
-            // speed
-            val speedStats = SpeedStats(
-                txRateProxy = mainTxRate,
-                rxRateProxy = mainRxRate,
-                txRateDirect = if (showDirectSpeed.value) itemBypass.txRate else 0L,
-                rxRateDirect = if (showDirectSpeed.value) itemBypass.rxRate else 0L,
-                txTotal = mainTx,
-                rxTotal = mainRx,
-            )
+            val now = System.currentTimeMillis()
+            val elapsedMs = (now - lastDrain).coerceAtLeast(1L)
+            lastDrain = now
+            val speedStats = drain(elapsedMs)
 
-            // Update shared speed state
             if (DataStore.serviceState == ServiceState.Connected) {
                 BackendState.updateSpeed(speedStats)
                 onSpeedUpdate?.invoke(speedStats)
             }
 
-            if (profileTrafficStatistics.value) {
-                val now = System.currentTimeMillis()
-                if (now - lastPersist >= persistEveryMs) {
-                    updateDb()
-                    lastPersist = now
-                }
+            if (profileTrafficStatistics.value && now - lastPersist >= persistEveryMs) {
+                updateDb()
+                lastPersist = now
             }
         }
     }
 
+    private fun drain(elapsedMs: Long): SpeedStats {
+        val snapshot = aggregator.drain()
+        for ((id, delta) in snapshot.byProfile) {
+            val profile = profiles[id] ?: continue
+            profile.tx += delta.upload
+            profile.rx += delta.download
+        }
+        sessionTx += snapshot.proxied.upload
+        sessionRx += snapshot.proxied.download
+
+        fun bytesPerSecond(bytes: Long) = bytes * 1000 / elapsedMs
+
+        return SpeedStats(
+            txRateProxy = bytesPerSecond(snapshot.proxied.upload),
+            rxRateProxy = bytesPerSecond(snapshot.proxied.download),
+            txRateDirect = bytesPerSecond(snapshot.direct.upload),
+            rxRateDirect = bytesPerSecond(snapshot.direct.download),
+            txTotal = sessionTx,
+            rxTotal = sessionRx,
+        )
+    }
+
     private suspend fun updateDb() {
-        config.trafficMap.forEach { (_, entities) ->
-            for (entity in entities) {
-                val item = idMap[entity.id] ?: return@forEach
-                ProfileManager.updateTraffic(entity, item.tx, item.rx)
-            }
+        for (profile in profiles.values) {
+            ProfileManager.updateTraffic(profile.entity, profile.tx, profile.rx)
         }
     }
 }

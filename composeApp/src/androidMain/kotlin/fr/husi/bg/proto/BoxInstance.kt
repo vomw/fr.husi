@@ -1,68 +1,79 @@
 package fr.husi.bg.proto
 
 import fr.husi.bg.AbstractInstance
-import fr.husi.bg.GuardedProcessPool
+import fr.husi.bg.buildPluginSpecs
 import fr.husi.bg.initPlugins
-import fr.husi.bg.launchPlugins
 import fr.husi.database.ProxyEntity
 import fr.husi.fmt.ConfigBuildResult
+import fr.husi.fmt.ConfigMetadata
 import fr.husi.fmt.buildConfig
 import fr.husi.ktx.Logs
-import fr.husi.ktx.readableMessage
-import fr.husi.ktx.runOnDefaultDispatcher
-import fr.husi.repository.resolveRepository
-import kotlinx.coroutines.DelicateCoroutinesApi
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.plus
+import fr.husi.proto.v1.clientMetadata
+import fr.husi.proto.v1.startServiceRequest
+import fr.husi.repository.resolveAndroidRepository
 import java.io.File
-import kotlin.system.exitProcess
 
 abstract class BoxInstance(
     val profile: ProxyEntity,
 ) : AbstractInstance {
 
-    lateinit var config: ConfigBuildResult
+    lateinit var metadata: ConfigMetadata
+
+    private var pendingConfigJson: String? = null
 
     val pluginConfigs = hashMapOf<Int, Pair<Int, String>>()
     private val externalInstances = hashMapOf<Int, AbstractInstance>()
-    open lateinit var processes: GuardedProcessPool
     private var cacheFiles = ArrayList<File>()
-    private var isVPN: Boolean = false
+
+    /**
+     * Config has been built. The box instance itself is only created at
+     * [launch] via [startService], so call sites that only need the config
+     * must not wait for [hasInstance].
+     */
     fun isInitialized(): Boolean {
-        return ::config.isInitialized && resolveRepository().boxService?.hasInstance() == true
+        return ::metadata.isInitialized
     }
 
-    protected open fun buildConfig() {
-        config = buildConfig(profile)
+    protected open suspend fun buildConfig(): ConfigBuildResult {
+        return buildConfig(profile)
     }
 
-    protected open suspend fun loadConfig() {
-        resolveRepository().boxService!!.newInstance(config.config)
-    }
-
-    open suspend fun init(isVPN: Boolean) {
-        this.isVPN = isVPN
-        buildConfig()
-        pluginConfigs.putAll(initPlugins(config, isVPN, cacheFiles))
-        loadConfig()
+    open suspend fun init() {
+        val result = buildConfig()
+        metadata = result.metadata
+        pendingConfigJson = result.configJson
+        // Fail fast on missing plugins before the foreground service escalates.
+        pluginConfigs.putAll(initPlugins(metadata, cacheFiles))
     }
 
     override fun launch() {
-        for ((chain) in config.externalIndex) {
+        for ((chain) in metadata.externalIndex) {
             chain.entries.forEach { (port, _) ->
                 if (externalInstances.containsKey(port)) {
                     externalInstances[port]!!.launch()
                 }
             }
         }
-        launchPlugins(config, pluginConfigs, processes, cacheFiles, isVPN)
-        resolveRepository().boxService!!.startInstance()
+        val specs = buildPluginSpecs(metadata, pluginConfigs)
+        val configJson = checkNotNull(pendingConfigJson) { "instance already launched" }
+        pendingConfigJson = null
+        val request = startServiceRequest {
+            this.config = configJson
+            plugins.addAll(specs)
+            clientMetadata = clientMetadata {
+                profileId = profile.id
+                profileName = profile.displayNameForService()
+            }
+        }
+        // Match the Kotlin pool's working dir: keep plugin files out of backup.
+        val pluginDir = resolveAndroidRepository().noBackupFilesDir.resolve("plugin")
+        pluginDir.mkdirs()
+        resolveAndroidRepository().boxService!!.startService(
+            request.toByteArray(),
+            pluginDir.absolutePath,
+        )
     }
 
-    @OptIn(DelicateCoroutinesApi::class)
-    @Suppress("EXPERIMENTAL_API_USAGE")
     override fun close() {
         for (instance in externalInstances.values) {
             runCatching {
@@ -72,20 +83,14 @@ abstract class BoxInstance(
 
         cacheFiles.removeAll { it.delete(); true }
 
-        if (::processes.isInitialized) processes.close(GlobalScope + Dispatchers.IO)
-
-        if (resolveRepository().boxService?.hasInstance() == true) {
-            try {
-                resolveRepository().boxService!!.stopInstance()
-            } catch (e: Exception) {
-                Logs.w(e)
-                // Kill the process if it is not closed properly to clean exist inbound listeners.
-                // Do not kill in main process, whose test not starts any listener.
-                if (!resolveRepository().isMainProcess && e.readableMessage.contains("sing-box did not close in time")) runOnDefaultDispatcher {
-                    delay(500) // Wait for error handling
-                    exitProcess(0)
-                }
-            }
+        // Unconditional: stopService also tears down the Go plugin pool, and the
+        // plugin processes must not outlive an instance that already went away.
+        // A core that cannot close ends this process itself, so there is nothing
+        // to recover from here.
+        runCatching {
+            resolveAndroidRepository().boxService?.stopService()
+        }.onFailure {
+            Logs.w(it)
         }
     }
 

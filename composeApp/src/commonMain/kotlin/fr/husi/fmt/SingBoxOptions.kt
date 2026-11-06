@@ -10,7 +10,10 @@ import kotlinx.serialization.Serializable as KxsSerializable
 import kotlinx.serialization.json.JsonElement
 
 object SingBoxOptions {
-    // Generate on line +427
+    // Generate on line +452
+
+    const val RULE_SET_TAG_PLACEHOLDER = "{tag}"
+    const val RULE_SET_FILE_SUFFIX = ".srs"
 
     const val NetworkTCP = "tcp"
     const val NetworkUDP = "udp"
@@ -39,11 +42,20 @@ object SingBoxOptions {
     const val TYPE_VMESS = "vmess"
     const val TYPE_VLESS = "vless"
     const val TYPE_WIREGUARD = "wireguard"
+    const val TYPE_OPENCONNECT = "openconnect"
+    const val TYPE_OPENVPN_CLIENT = "openvpn-client"
     const val TYPE_SHADOWTLS = "shadowtls"
     const val TYPE_ANYTLS = "anytls"
     const val TYPE_NAIVE = "naive"
     const val TYPE_TRUST_TUNNEL = "trusttunnel"
     const val TYPE_BRIDGE = "bridge"
+    const val TYPE_BALANCER = "balancer"
+    const val TYPE_MASQUE_CLIENT = "masque-client"
+    const val TYPE_TAILSCALE = "tailscale"
+    const val TYPE_TAILCAT = "tailcat"
+
+    const val TYPE_PROTECT = "protect"
+    const val TYPE_ANCHOR = "anchor"
 
     const val TRANSPORT_WS = "ws"
     const val TRANSPORT_HTTPUPGRADE = "httpupgrade"
@@ -88,6 +100,9 @@ object SingBoxOptions {
 
     // Custom for URL, not belongs to box.
     const val DNS_TYPE_LOCAL = "local"
+    const val DNS_TYPE_OPENCONNECT = "openconnect"
+    const val DNS_TYPE_OPENVPN = "openvpn"
+    const val DNS_TYPE_TAILSCALE = "tailscale"
     const val DNS_TYPE_UDP = "udp"
     const val DNS_TYPE_TCP = "tcp"
     const val DNS_TYPE_TLS = "tls"
@@ -145,6 +160,9 @@ object SingBoxOptions {
 
     open class MyOptions : SingBoxOption() {
         @JvmField
+        var `$schema`: String? = null
+
+        @JvmField
         var log: LogOptions? = null
 
         @JvmField
@@ -152,6 +170,9 @@ object SingBoxOptions {
 
         @JvmField
         var ntp: NTPOptions? = null
+
+        @JvmField
+        var http_clients: MutableList<HTTPClient>? = null
 
         @JvmField
         var inbounds: MutableList<Inbound>? = null
@@ -164,6 +185,9 @@ object SingBoxOptions {
 
         @JvmField
         var route: MyRouteOptions? = null
+
+        @JvmField
+        var services: MutableList<Service>? = null
 
         @JvmField
         var experimental: ExperimentalOptions? = null
@@ -254,6 +278,9 @@ object SingBoxOptions {
 
         @JvmField
         var default_fallback_delay: String? = null
+
+        @JvmField
+        var default_http_client: String? = null
 
     }
 
@@ -465,6 +492,9 @@ object SingBoxOptions {
         var http_clients: MutableList<HTTPClient>? = null
 
         @JvmField
+        var network_namespaces: MutableList<NetworkNamespace>? = null
+
+        @JvmField
         var endpoints: MutableList<Endpoint>? = null
 
         @JvmField
@@ -524,6 +554,7 @@ object SingBoxOptions {
         @JvmField
         var detour: String? = null
 
+        // Generate note: nested type AbstractDialerOptions
         @JvmField
         var bind_interface: String? = null
 
@@ -723,13 +754,19 @@ object SingBoxOptions {
         var store_fakeip: Boolean? = null
 
         @JvmField
+        var store_dns: Boolean? = null
+
+        @JvmField
+        var buffer_size: Int? = null
+
+        @JvmField
+        var flush_interval: String? = null
+
+        @JvmField
         var store_rdrc: Boolean? = null
 
         @JvmField
         var rdrc_timeout: String? = null
-
-        @JvmField
-        var store_dns: Boolean? = null
 
     }
 
@@ -901,7 +938,7 @@ object SingBoxOptions {
         var type: String? = null
 
         @JvmField
-        var tag: String? = null
+        var tag: MutableList<String>? = null
 
         @JvmField
         var format: String? = null
@@ -1090,6 +1127,9 @@ object SingBoxOptions {
         var certificate_path: String? = null
 
         @JvmField
+        var certificate_sha256: MutableList<String>? = null
+
+        @JvmField
         var certificate_public_key_sha256: MutableList<String>? = null
 
         @JvmField
@@ -1230,6 +1270,9 @@ object SingBoxOptions {
         var client_certificate_path: MutableList<String>? = null
 
         @JvmField
+        var client_certificate_sha256: MutableList<String>? = null
+
+        @JvmField
         var client_certificate_public_key_sha256: MutableList<String>? = null
 
         @JvmField
@@ -1295,7 +1338,27 @@ object SingBoxOptions {
         var stun_servers: MutableList<String>? = null
 
         @JvmField
+        var ip_version: Int? = null
+
+        @JvmField
+        var port_mapping: Hysteria2RealmPortMapping? = null
+
+        @JvmField
         var http_client: HTTPClientOptions? = null
+
+    }
+
+    @KxsSerializable
+    open class Hysteria2RealmPortMapping : SingBoxOption() {
+
+        @JvmField
+        var enabled: Boolean? = null
+
+        @JvmField
+        var timeout: String? = null
+
+        @JvmField
+        var lifetime: String? = null
 
     }
 
@@ -1322,6 +1385,325 @@ object SingBoxOptions {
 
         @JvmField
         var reserved: String? = null
+
+    }
+
+    @KxsSerializable
+    open class OpenConnectTLSOptions : SingBoxOption() {
+
+        @JvmField
+        var insecure: Boolean? = null
+
+        @JvmField
+        var server_name: String? = null
+
+        @JvmField
+        var peer_fingerprint: MutableList<String>? = null
+
+        @JvmField
+        var system_trust_disabled: Boolean? = null
+
+        @JvmField
+        var certificate_authority: MutableList<String>? = null
+
+        @JvmField
+        var certificate_authority_path: String? = null
+
+        @JvmField
+        var client_certificate: MutableList<String>? = null
+
+        @JvmField
+        var client_certificate_path: String? = null
+
+        @JvmField
+        var client_key: MutableList<String>? = null
+
+        @JvmField
+        var client_key_path: String? = null
+
+        @JvmField
+        var client_key_password: String? = null
+
+        @JvmField
+        var mca_certificate: MutableList<String>? = null
+
+        @JvmField
+        var mca_certificate_path: String? = null
+
+        @JvmField
+        var mca_key: MutableList<String>? = null
+
+        @JvmField
+        var mca_key_path: String? = null
+
+        @JvmField
+        var mca_key_password: String? = null
+
+    }
+
+    @KxsSerializable
+    open class OpenConnectTokenOptions : SingBoxOption() {
+
+        @JvmField
+        var mode: String? = null
+
+        @JvmField
+        var secret: String? = null
+
+        @JvmField
+        var secret_path: String? = null
+
+        @JvmField
+        var pin: String? = null
+
+        @JvmField
+        var password: String? = null
+
+        @JvmField
+        var device_id: String? = null
+
+        @JvmField
+        var counter: Long? = null
+
+    }
+
+    @KxsSerializable
+    open class OpenConnectCSDOptions : SingBoxOption() {
+
+        @JvmField
+        var wrapper_path: String? = null
+
+    }
+
+    @KxsSerializable
+    open class OpenConnectHIPOptions : SingBoxOption() {
+
+        @JvmField
+        var wrapper_path: String? = null
+
+    }
+
+    @KxsSerializable
+    open class OpenConnectTNCCOptions : SingBoxOption() {
+
+        @JvmField
+        var wrapper_path: String? = null
+
+        @JvmField
+        var device_id: String? = null
+
+        @JvmField
+        var user_agent: String? = null
+
+        @JvmField
+        var machine_identification_enabled: Boolean? = null
+
+        @JvmField
+        var certificates: MutableList<OpenConnectTNCCCertificateOptions>? = null
+
+    }
+
+    @KxsSerializable
+    open class OpenConnectTNCCCertificateOptions : SingBoxOption() {
+
+        @JvmField
+        var certificate: MutableList<String>? = null
+
+        @JvmField
+        var certificate_path: String? = null
+
+    }
+
+    @KxsSerializable
+    open class OpenConnectFormEntryOptions : SingBoxOption() {
+
+        @JvmField
+        var form_id: String? = null
+
+        @JvmField
+        var submission_key: String? = null
+
+        @JvmField
+        var name: String? = null
+
+        @JvmField
+        var value: String? = null
+
+        @JvmField
+        var promote: Boolean? = null
+
+    }
+
+    @KxsSerializable
+    open class OpenConnectFortinetHostCheckOptions : SingBoxOption() {
+
+        @JvmField
+        var hostcheck: String? = null
+
+        @JvmField
+        var check_virtual_desktop: String? = null
+
+    }
+
+    @KxsSerializable
+    open class OpenConnectMobileOptions : SingBoxOption() {
+
+        @JvmField
+        var platform_version: String? = null
+
+        @JvmField
+        var device_type: String? = null
+
+        @JvmField
+        var device_unique_id: String? = null
+
+    }
+
+    @KxsSerializable
+    open class OpenVPNOutboundTLSOptions : SingBoxOption() {
+
+        @JvmField
+        var server_name: String? = null
+
+        @JvmField
+        var server_name_type: String? = null
+
+        @JvmField
+        var certificate: MutableList<String>? = null
+
+        @JvmField
+        var certificate_path: String? = null
+
+        @JvmField
+        var client_certificate: MutableList<String>? = null
+
+        @JvmField
+        var client_certificate_path: String? = null
+
+        @JvmField
+        var client_key: MutableList<String>? = null
+
+        @JvmField
+        var client_key_path: String? = null
+
+        @JvmField
+        var peer_fingerprint: MutableList<String>? = null
+
+        @JvmField
+        var crl_path: String? = null
+
+        @JvmField
+        var remote_certificate_ku: MutableList<String>? = null
+
+        @JvmField
+        var remote_certificate_eku: String? = null
+
+        @JvmField
+        var remote_certificate_tls: String? = null
+
+        @JvmField
+        var certificate_profile: String? = null
+
+        @JvmField
+        var ns_certificate_type: String? = null
+
+        @JvmField
+        var version_min: String? = null
+
+        @JvmField
+        var version_max: String? = null
+
+        @JvmField
+        var cipher: String? = null
+
+        @JvmField
+        var groups: String? = null
+
+        @JvmField
+        var control_wrap: OpenVPNControlWrapOptions? = null
+
+    }
+
+    @KxsSerializable
+    open class OpenVPNControlWrapOptions : SingBoxOption() {
+
+        @JvmField
+        var type: String? = null
+
+        @JvmField
+        var key: MutableList<String>? = null
+
+        @JvmField
+        var key_path: String? = null
+
+        @JvmField
+        var direction: String? = null
+
+    }
+
+    @KxsSerializable
+    open class OpenVPNRemoteOptions : SingBoxOption() {
+
+        // Generate note: nested type ServerOptions
+        @JvmField
+        var server: String? = null
+
+        @JvmField
+        var server_port: Int? = null
+
+        @JvmField
+        var network: String? = null
+
+    }
+
+    @KxsSerializable
+    open class OpenVPNPullFilterOptions : SingBoxOption() {
+
+        @JvmField
+        var action: String? = null
+
+        @JvmField
+        var text: String? = null
+
+    }
+
+    @KxsSerializable
+    open class TailscaleSSHServerOptions : SingBoxOption() {
+
+        @JvmField
+        var enabled: Boolean? = null
+
+        @JvmField
+        var disable_pty: Boolean? = null
+
+        @JvmField
+        var disable_sftp: Boolean? = null
+
+        @JvmField
+        var disable_forwarding: Boolean? = null
+
+    }
+
+    @KxsSerializable
+    open class TailcatDERPServer : SingBoxOption() {
+
+        @JvmField
+        var host: String? = null
+
+        @JvmField
+        var ipv4: String? = null
+
+        @JvmField
+        var ipv6: String? = null
+
+        @JvmField
+        var derp_port: Int? = null
+
+        @JvmField
+        var stun_port: Int? = null
+
+        @JvmField
+        var cert_name: String? = null
 
     }
 
@@ -1393,6 +1775,7 @@ object SingBoxOptions {
         @JvmField
         var detour: String? = null
 
+        // Generate note: nested type AbstractDialerOptions
         @JvmField
         var bind_interface: String? = null
 
@@ -1507,6 +1890,7 @@ object SingBoxOptions {
         @JvmField
         var detour: String? = null
 
+        // Generate note: nested type AbstractDialerOptions
         @JvmField
         var bind_interface: String? = null
 
@@ -1592,6 +1976,25 @@ object SingBoxOptions {
 
         @JvmField
         var disable_path_mtu_discovery: Boolean? = null
+
+    }
+
+    @KxsSerializable
+    open class NetworkNamespace : SingBoxOption() {
+
+        @JvmField
+        var type: String? = null
+
+        @JvmField
+        var tag: String? = null
+
+        // Generate note: inlined from DefaultNetworkNamespaceOptions
+        @JvmField
+        var path: String? = null
+
+        // Generate note: inlined from UnshareNetworkNamespaceOptions
+        @JvmField
+        var pid_file: String? = null
 
     }
 
@@ -1720,6 +2123,12 @@ object SingBoxOptions {
         var preferred_by: MutableList<String>? = null
 
         @JvmField
+        var dns_server_address: MutableMap<String, MutableList<String>>? = null
+
+        @JvmField
+        var dns_search_domain: MutableMap<String, MutableList<String>>? = null
+
+        @JvmField
         var rule_set: MutableList<String>? = null
 
         @JvmField
@@ -1774,63 +2183,6 @@ object SingBoxOptions {
 
         @JvmField
         var tls_spoof_method: String? = null
-
-        @JvmField
-        var detour: String? = null
-
-        @JvmField
-        var bind_interface: String? = null
-
-        @JvmField
-        var inet4_bind_address: String? = null
-
-        @JvmField
-        var inet6_bind_address: String? = null
-
-        @JvmField
-        var bind_address_no_port: Boolean? = null
-
-        @JvmField
-        var protect_path: String? = null
-
-        @JvmField
-        var routing_mark: Int? = null
-
-        @JvmField
-        var reuse_addr: Boolean? = null
-
-        @JvmField
-        var netns: String? = null
-
-        @JvmField
-        var connect_timeout: String? = null
-
-        @JvmField
-        var tcp_fast_open: Boolean? = null
-
-        @JvmField
-        var tcp_multi_path: Boolean? = null
-
-        @JvmField
-        var disable_tcp_keep_alive: Boolean? = null
-
-        @JvmField
-        var tcp_keep_alive: String? = null
-
-        @JvmField
-        var tcp_keep_alive_interval: String? = null
-
-        @JvmField
-        var udp_fragment: Boolean? = null
-
-        @JvmField
-        var domain_resolver: DomainResolveOptions? = null
-
-        @JvmField
-        var fallback_network_type: MutableList<String>? = null
-
-        @JvmField
-        var domain_strategy: String? = null
 
         // Generate note: nested type RawRouteOptionsActionOptions
         @JvmField
@@ -1922,66 +2274,6 @@ object SingBoxOptions {
         @JvmField
         var tls_spoof_method: String? = null
 
-        @JvmField
-        var detour: String? = null
-
-        @JvmField
-        var bind_interface: String? = null
-
-        @JvmField
-        var inet4_bind_address: String? = null
-
-        @JvmField
-        var inet6_bind_address: String? = null
-
-        @JvmField
-        var bind_address_no_port: Boolean? = null
-
-        @JvmField
-        var protect_path: String? = null
-
-        @JvmField
-        var routing_mark: Int? = null
-
-        @JvmField
-        var reuse_addr: Boolean? = null
-
-        @JvmField
-        var netns: String? = null
-
-        @JvmField
-        var connect_timeout: String? = null
-
-        @JvmField
-        var tcp_fast_open: Boolean? = null
-
-        @JvmField
-        var tcp_multi_path: Boolean? = null
-
-        @JvmField
-        var disable_tcp_keep_alive: Boolean? = null
-
-        @JvmField
-        var tcp_keep_alive: String? = null
-
-        @JvmField
-        var tcp_keep_alive_interval: String? = null
-
-        @JvmField
-        var udp_fragment: Boolean? = null
-
-        @JvmField
-        var domain_resolver: DomainResolveOptions? = null
-
-        @JvmField
-        var network_type: MutableList<String>? = null
-
-        @JvmField
-        var fallback_network_type: MutableList<String>? = null
-
-        @JvmField
-        var domain_strategy: String? = null
-
         // Generate note: nested type RawRouteOptionsActionOptions
         @JvmField
         var method: String? = null
@@ -2027,6 +2319,12 @@ object SingBoxOptions {
 
         @JvmField
         var query_type: MutableList<String>? = null
+
+        @JvmField
+        var query_client_subnet: MutableList<String>? = null
+
+        @JvmField
+        var query_dnssec: Boolean? = null
 
         @JvmField
         var network: MutableList<String>? = null
@@ -2128,13 +2426,19 @@ object SingBoxOptions {
         var preferred_by: MutableList<String>? = null
 
         @JvmField
+        var dns_server_address: MutableMap<String, MutableList<String>>? = null
+
+        @JvmField
+        var dns_search_domain: MutableMap<String, MutableList<String>>? = null
+
+        @JvmField
         var rule_set: MutableList<String>? = null
 
         @JvmField
         var rule_set_ip_cidr_match_source: Boolean? = null
 
         @JvmField
-        var match_response: Boolean? = null
+        var match_response: JsonElement? = null
 
         @JvmField
         var ip_cidr: MutableList<String>? = null
@@ -2180,8 +2484,15 @@ object SingBoxOptions {
         var action: String? = null
 
         @JvmField
+        var race: Boolean? = null
+
+        @JvmField
         var server: String? = null
 
+        @JvmField
+        var speculative: Boolean? = null
+
+        // Generate note: nested type AbstractDNSRouteActionOptions
         @JvmField
         var timeout: String? = null
 
@@ -2200,6 +2511,13 @@ object SingBoxOptions {
         @JvmField
         var client_subnet: String? = null
 
+        @JvmField
+        var remove_client_subnet: Boolean? = null
+
+        @JvmField
+        var tag: String? = null
+
+        // Generate note: nested type AbstractDNSRouteActionOptions
         @JvmField
         var rcode: String? = null
 
@@ -2238,8 +2556,15 @@ object SingBoxOptions {
         var action: String? = null
 
         @JvmField
+        var race: Boolean? = null
+
+        @JvmField
         var server: String? = null
 
+        @JvmField
+        var speculative: Boolean? = null
+
+        // Generate note: nested type AbstractDNSRouteActionOptions
         @JvmField
         var timeout: String? = null
 
@@ -2258,6 +2583,13 @@ object SingBoxOptions {
         @JvmField
         var client_subnet: String? = null
 
+        @JvmField
+        var remove_client_subnet: Boolean? = null
+
+        @JvmField
+        var tag: String? = null
+
+        // Generate note: nested type AbstractDNSRouteActionOptions
         @JvmField
         var rcode: String? = null
 
@@ -2299,6 +2631,9 @@ object SingBoxOptions {
 
         @JvmField
         var url: String? = null
+
+        @JvmField
+        var initial_path: String? = null
 
         @JvmField
         var http_client: HTTPClientOptions? = null
@@ -2477,6 +2812,9 @@ object SingBoxOptions {
         var interface_name: String? = null
 
         @JvmField
+        var netns: String? = null
+
+        @JvmField
         var mtu: Int? = null
 
         @JvmField
@@ -2508,6 +2846,9 @@ object SingBoxOptions {
 
         @JvmField
         var auto_redirect_reset_mark: Int? = null
+
+        @JvmField
+        var auto_redirect_tproxy_mark: Int? = null
 
         @JvmField
         var auto_redirect_nfqueue: Int? = null
@@ -2573,7 +2914,16 @@ object SingBoxOptions {
         var udp_timeout: Long? = null
 
         @JvmField
-        var stack: String? = null
+        var udp_mapping: Int? = null
+
+        @JvmField
+        var udp_filtering: Int? = null
+
+        @JvmField
+        var udp_nat_max: Int? = null
+
+        @JvmField
+        var multi_queue: Boolean? = null
 
         @JvmField
         var platform: Inbound_TunPlatformOptions? = null
@@ -2593,6 +2943,9 @@ object SingBoxOptions {
 
         @JvmField
         var udp_disable_domain_unmapping: Boolean? = null
+
+        @JvmField
+        var stack: String? = null
 
         @JvmField
         var gso: Boolean? = null
@@ -2735,6 +3088,7 @@ object SingBoxOptions {
         @JvmField
         var detour: String? = null
 
+        // Generate note: nested type AbstractDialerOptions
         @JvmField
         var bind_interface: String? = null
 
@@ -2816,6 +3170,7 @@ object SingBoxOptions {
         @JvmField
         var detour: String? = null
 
+        // Generate note: nested type AbstractDialerOptions
         @JvmField
         var bind_interface: String? = null
 
@@ -2916,6 +3271,7 @@ object SingBoxOptions {
         @JvmField
         var detour: String? = null
 
+        // Generate note: nested type AbstractDialerOptions
         @JvmField
         var bind_interface: String? = null
 
@@ -3043,6 +3399,7 @@ object SingBoxOptions {
         @JvmField
         var detour: String? = null
 
+        // Generate note: nested type AbstractDialerOptions
         @JvmField
         var bind_interface: String? = null
 
@@ -3133,11 +3490,11 @@ object SingBoxOptions {
     @KxsSerializable
     open class Outbound_HTTPOptions : Outbound() {
 
-        // Generate note: nested type HTTPOutboundOptions
         // Generate note: nested type DialerOptions
         @JvmField
         var detour: String? = null
 
+        // Generate note: nested type AbstractDialerOptions
         @JvmField
         var bind_interface: String? = null
 
@@ -3225,7 +3582,10 @@ object SingBoxOptions {
         var headers: MutableMap<String, MutableList<String>>? = null
 
         @JvmField
-        var udp_over_tcp: UDPOverTCPOptions? = null
+        var version: Int? = null
+
+        @JvmField
+        var disable_version_fallback: Boolean? = null
 
     }
 
@@ -3236,6 +3596,7 @@ object SingBoxOptions {
         @JvmField
         var detour: String? = null
 
+        // Generate note: nested type AbstractDialerOptions
         @JvmField
         var bind_interface: String? = null
 
@@ -3348,6 +3709,7 @@ object SingBoxOptions {
         @JvmField
         var detour: String? = null
 
+        // Generate note: nested type AbstractDialerOptions
         @JvmField
         var bind_interface: String? = null
 
@@ -3443,6 +3805,7 @@ object SingBoxOptions {
         @JvmField
         var detour: String? = null
 
+        // Generate note: nested type AbstractDialerOptions
         @JvmField
         var bind_interface: String? = null
 
@@ -3588,6 +3951,7 @@ object SingBoxOptions {
         @JvmField
         var detour: String? = null
 
+        // Generate note: nested type AbstractDialerOptions
         @JvmField
         var bind_interface: String? = null
 
@@ -3716,6 +4080,9 @@ object SingBoxOptions {
         var brutal_debug: Boolean? = null
 
         @JvmField
+        var disable_chrome_parrot: Boolean? = null
+
+        @JvmField
         var realm: Hysteria2Realm? = null
 
     }
@@ -3727,6 +4094,7 @@ object SingBoxOptions {
         @JvmField
         var detour: String? = null
 
+        // Generate note: nested type AbstractDialerOptions
         @JvmField
         var bind_interface: String? = null
 
@@ -3858,6 +4226,7 @@ object SingBoxOptions {
         @JvmField
         var detour: String? = null
 
+        // Generate note: nested type AbstractDialerOptions
         @JvmField
         var bind_interface: String? = null
 
@@ -3962,6 +4331,7 @@ object SingBoxOptions {
         @JvmField
         var detour: String? = null
 
+        // Generate note: nested type AbstractDialerOptions
         @JvmField
         var bind_interface: String? = null
 
@@ -4072,6 +4442,7 @@ object SingBoxOptions {
         @JvmField
         var detour: String? = null
 
+        // Generate note: nested type AbstractDialerOptions
         @JvmField
         var bind_interface: String? = null
 
@@ -4158,6 +4529,9 @@ object SingBoxOptions {
         @JvmField
         var min_idle_session: Int? = null
 
+        @JvmField
+        var client_metadata: String? = null
+
     }
 
     @KxsSerializable
@@ -4167,6 +4541,7 @@ object SingBoxOptions {
         @JvmField
         var detour: String? = null
 
+        // Generate note: nested type AbstractDialerOptions
         @JvmField
         var bind_interface: String? = null
 
@@ -4259,6 +4634,7 @@ object SingBoxOptions {
         @JvmField
         var detour: String? = null
 
+        // Generate note: nested type AbstractDialerOptions
         @JvmField
         var bind_interface: String? = null
 
@@ -4369,6 +4745,7 @@ object SingBoxOptions {
         @JvmField
         var detour: String? = null
 
+        // Generate note: nested type AbstractDialerOptions
         @JvmField
         var bind_interface: String? = null
 
@@ -4466,10 +4843,15 @@ object SingBoxOptions {
     @KxsSerializable
     open class Outbound_SnellOptions : Outbound() {
 
+        @JvmField
+        var version: Int? = null
+
+        // Generate note: nested type AbstractSnellOutboundOptions
         // Generate note: nested type DialerOptions
         @JvmField
         var detour: String? = null
 
+        // Generate note: nested type AbstractDialerOptions
         @JvmField
         var bind_interface: String? = null
 
@@ -4541,9 +4923,6 @@ object SingBoxOptions {
         var server_port: Int? = null
 
         @JvmField
-        var version: Int? = null
-
-        @JvmField
         var psk: String? = null
 
         @JvmField
@@ -4569,56 +4948,38 @@ object SingBoxOptions {
     }
 
     @KxsSerializable
-    open class Outbound_BridgeOptions : Outbound() {
-
-        @JvmField
-        var `interface`: String? = null
-
-        @JvmField
-        var bridge_name: String? = null
-
-        @JvmField
-        var iproute2_table_index: Int? = null
-
-        @JvmField
-        var iproute2_rule_index: Int? = null
-
-    }
-
-    @KxsSerializable
-    open class Endpoint_WireGuardOptions : Endpoint() {
-
-        @JvmField
-        var system: Boolean? = null
-
-        @JvmField
-        var name: String? = null
-
-        @JvmField
-        var mtu: Int? = null
-
-        @JvmField
-        var address: MutableList<String>? = null
+    open class Outbound_TailcatOptions : Outbound() {
 
         @JvmField
         var private_key: String? = null
 
         @JvmField
-        var listen_port: Int? = null
+        var server_public_key: String? = null
 
         @JvmField
-        var peers: MutableList<WireGuardPeer>? = null
+        var server_disco_key: String? = null
 
         @JvmField
-        var udp_timeout: String? = null
+        var pre_shared_key: String? = null
+
+        // Generate note: nested type TailcatDERPOptions
+        @JvmField
+        var derp_map_url: String? = null
 
         @JvmField
-        var workers: Int? = null
+        var derp_region: Int? = null
+
+        @JvmField
+        var derp_servers: MutableList<TailcatDERPServer>? = null
+
+        @JvmField
+        var http_client: HTTPClientOptions? = null
 
         // Generate note: nested type DialerOptions
         @JvmField
         var detour: String? = null
 
+        // Generate note: nested type AbstractDialerOptions
         @JvmField
         var bind_interface: String? = null
 
@@ -4685,6 +5046,959 @@ object SingBoxOptions {
     }
 
     @KxsSerializable
+    open class Outbound_BridgeOptions : Outbound() {
+
+        @JvmField
+        var `interface`: String? = null
+
+        @JvmField
+        var bridge_name: String? = null
+
+        @JvmField
+        var iproute2_table_index: Int? = null
+
+        @JvmField
+        var iproute2_rule_index: Int? = null
+
+    }
+
+    @KxsSerializable
+    open class Outbound_BalancerOptions : Outbound() {
+
+        @JvmField
+        var outbounds: MutableList<String>? = null
+
+        @JvmField
+        var interval: String? = null
+
+    }
+
+    @KxsSerializable
+    open class Endpoint_WireGuardOptions : Endpoint() {
+
+        @JvmField
+        var system: Boolean? = null
+
+        @JvmField
+        var name: String? = null
+
+        @JvmField
+        var mtu: Int? = null
+
+        @JvmField
+        var address: MutableList<String>? = null
+
+        @JvmField
+        var private_key: String? = null
+
+        @JvmField
+        var listen_port: Int? = null
+
+        @JvmField
+        var peers: MutableList<WireGuardPeer>? = null
+
+        @JvmField
+        var udp_timeout: String? = null
+
+        @JvmField
+        var udp_mapping: Int? = null
+
+        @JvmField
+        var udp_filtering: Int? = null
+
+        @JvmField
+        var udp_nat_max: Int? = null
+
+        @JvmField
+        var workers: Int? = null
+
+        @JvmField
+        var on_demand: Boolean? = null
+
+        // Generate note: nested type DialerOptions
+        @JvmField
+        var detour: String? = null
+
+        // Generate note: nested type AbstractDialerOptions
+        @JvmField
+        var bind_interface: String? = null
+
+        @JvmField
+        var inet4_bind_address: String? = null
+
+        @JvmField
+        var inet6_bind_address: String? = null
+
+        @JvmField
+        var bind_address_no_port: Boolean? = null
+
+        @JvmField
+        var protect_path: String? = null
+
+        @JvmField
+        var routing_mark: Int? = null
+
+        @JvmField
+        var reuse_addr: Boolean? = null
+
+        @JvmField
+        var netns: String? = null
+
+        @JvmField
+        var connect_timeout: String? = null
+
+        @JvmField
+        var tcp_fast_open: Boolean? = null
+
+        @JvmField
+        var tcp_multi_path: Boolean? = null
+
+        @JvmField
+        var disable_tcp_keep_alive: Boolean? = null
+
+        @JvmField
+        var tcp_keep_alive: String? = null
+
+        @JvmField
+        var tcp_keep_alive_interval: String? = null
+
+        @JvmField
+        var udp_fragment: Boolean? = null
+
+        @JvmField
+        var domain_resolver: DomainResolveOptions? = null
+
+        @JvmField
+        var network_strategy: String? = null
+
+        @JvmField
+        var network_type: MutableList<String>? = null
+
+        @JvmField
+        var fallback_network_type: MutableList<String>? = null
+
+        @JvmField
+        var fallback_delay: String? = null
+
+        @JvmField
+        var domain_strategy: String? = null
+
+    }
+
+    @KxsSerializable
+    open class Endpoint_OpenConnectOptions : Endpoint() {
+
+        // Generate note: nested type DialerOptions
+        @JvmField
+        var detour: String? = null
+
+        // Generate note: nested type AbstractDialerOptions
+        @JvmField
+        var bind_interface: String? = null
+
+        @JvmField
+        var inet4_bind_address: String? = null
+
+        @JvmField
+        var inet6_bind_address: String? = null
+
+        @JvmField
+        var bind_address_no_port: Boolean? = null
+
+        @JvmField
+        var protect_path: String? = null
+
+        @JvmField
+        var routing_mark: Int? = null
+
+        @JvmField
+        var reuse_addr: Boolean? = null
+
+        @JvmField
+        var netns: String? = null
+
+        @JvmField
+        var connect_timeout: String? = null
+
+        @JvmField
+        var tcp_fast_open: Boolean? = null
+
+        @JvmField
+        var tcp_multi_path: Boolean? = null
+
+        @JvmField
+        var disable_tcp_keep_alive: Boolean? = null
+
+        @JvmField
+        var tcp_keep_alive: String? = null
+
+        @JvmField
+        var tcp_keep_alive_interval: String? = null
+
+        @JvmField
+        var udp_fragment: Boolean? = null
+
+        @JvmField
+        var domain_resolver: DomainResolveOptions? = null
+
+        @JvmField
+        var network_strategy: String? = null
+
+        @JvmField
+        var network_type: MutableList<String>? = null
+
+        @JvmField
+        var fallback_network_type: MutableList<String>? = null
+
+        @JvmField
+        var fallback_delay: String? = null
+
+        @JvmField
+        var domain_strategy: String? = null
+
+        @JvmField
+        var system: Boolean? = null
+
+        @JvmField
+        var name: String? = null
+
+        @JvmField
+        var udp_timeout: String? = null
+
+        @JvmField
+        var udp_mapping: Int? = null
+
+        @JvmField
+        var udp_filtering: Int? = null
+
+        @JvmField
+        var udp_nat_max: Int? = null
+
+        @JvmField
+        var server: String? = null
+
+        @JvmField
+        var flavor: String? = null
+
+        @JvmField
+        var username: String? = null
+
+        @JvmField
+        var password: String? = null
+
+        @JvmField
+        var auth_group: String? = null
+
+        @JvmField
+        var cookie: String? = null
+
+        @JvmField
+        var token: OpenConnectTokenOptions? = null
+
+        @JvmField
+        var reported_os: String? = null
+
+        @JvmField
+        var user_agent: String? = null
+
+        @JvmField
+        var version: String? = null
+
+        @JvmField
+        var local_hostname: String? = null
+
+        @JvmField
+        var mobile: OpenConnectMobileOptions? = null
+
+        @JvmField
+        var csd: OpenConnectCSDOptions? = null
+
+        @JvmField
+        var hip: OpenConnectHIPOptions? = null
+
+        @JvmField
+        var tncc: OpenConnectTNCCOptions? = null
+
+        @JvmField
+        var fortinet_host_check: OpenConnectFortinetHostCheckOptions? = null
+
+        @JvmField
+        var no_udp: Boolean? = null
+
+        @JvmField
+        var dtls_local_port: Int? = null
+
+        @JvmField
+        var compression_disabled: Boolean? = null
+
+        @JvmField
+        var compression_mode: String? = null
+
+        @JvmField
+        var ipv6_disabled: Boolean? = null
+
+        @JvmField
+        var http_keepalive_disabled: Boolean? = null
+
+        @JvmField
+        var xml_post_disabled: Boolean? = null
+
+        @JvmField
+        var external_auth_disabled: Boolean? = null
+
+        @JvmField
+        var password_authentication_disabled: Boolean? = null
+
+        @JvmField
+        var tcp_keep_alive_enabled: Boolean? = null
+
+        @JvmField
+        var pfs: Boolean? = null
+
+        @JvmField
+        var mtu: Int? = null
+
+        @JvmField
+        var base_mtu: Int? = null
+
+        @JvmField
+        var dpd_interval: String? = null
+
+        @JvmField
+        var reconnect_timeout: String? = null
+
+        @JvmField
+        var trojan_interval: String? = null
+
+        @JvmField
+        var queue_length: Int? = null
+
+        @JvmField
+        var allow_insecure_crypto: Boolean? = null
+
+        @JvmField
+        var tls: OpenConnectTLSOptions? = null
+
+        @JvmField
+        var form_entries: MutableList<OpenConnectFormEntryOptions>? = null
+
+        @JvmField
+        var on_demand: Boolean? = null
+
+    }
+
+    @KxsSerializable
+    open class Endpoint_OpenVPNClientOptions : Endpoint() {
+
+        // Generate note: nested type DialerOptions
+        @JvmField
+        var detour: String? = null
+
+        // Generate note: nested type AbstractDialerOptions
+        @JvmField
+        var bind_interface: String? = null
+
+        @JvmField
+        var inet4_bind_address: String? = null
+
+        @JvmField
+        var inet6_bind_address: String? = null
+
+        @JvmField
+        var bind_address_no_port: Boolean? = null
+
+        @JvmField
+        var protect_path: String? = null
+
+        @JvmField
+        var routing_mark: Int? = null
+
+        @JvmField
+        var reuse_addr: Boolean? = null
+
+        @JvmField
+        var netns: String? = null
+
+        @JvmField
+        var connect_timeout: String? = null
+
+        @JvmField
+        var tcp_fast_open: Boolean? = null
+
+        @JvmField
+        var tcp_multi_path: Boolean? = null
+
+        @JvmField
+        var disable_tcp_keep_alive: Boolean? = null
+
+        @JvmField
+        var tcp_keep_alive: String? = null
+
+        @JvmField
+        var tcp_keep_alive_interval: String? = null
+
+        @JvmField
+        var udp_fragment: Boolean? = null
+
+        @JvmField
+        var domain_resolver: DomainResolveOptions? = null
+
+        @JvmField
+        var network_strategy: String? = null
+
+        @JvmField
+        var network_type: MutableList<String>? = null
+
+        @JvmField
+        var fallback_network_type: MutableList<String>? = null
+
+        @JvmField
+        var fallback_delay: String? = null
+
+        @JvmField
+        var domain_strategy: String? = null
+
+        // Generate note: nested type ServerOptions
+        @JvmField
+        var server: String? = null
+
+        @JvmField
+        var server_port: Int? = null
+
+        // Generate note: nested type OpenVPNEndpointOptions
+        @JvmField
+        var system: Boolean? = null
+
+        @JvmField
+        var name: String? = null
+
+        @JvmField
+        var mtu: Int? = null
+
+        @JvmField
+        var udp_mapping: Int? = null
+
+        @JvmField
+        var udp_filtering: Int? = null
+
+        @JvmField
+        var udp_nat_max: Int? = null
+
+        @JvmField
+        var mode: String? = null
+
+        @JvmField
+        var network: String? = null
+
+        @JvmField
+        var servers: MutableList<OpenVPNRemoteOptions>? = null
+
+        @JvmField
+        var remote_random: Boolean? = null
+
+        @JvmField
+        var address: MutableList<String>? = null
+
+        @JvmField
+        var peer_address: String? = null
+
+        @JvmField
+        var peer_address_ipv6: String? = null
+
+        @JvmField
+        var topology: String? = null
+
+        @JvmField
+        var username: String? = null
+
+        @JvmField
+        var password: String? = null
+
+        @JvmField
+        var auth_retry: String? = null
+
+        @JvmField
+        var static_challenge: String? = null
+
+        @JvmField
+        var static_challenge_echo: Boolean? = null
+
+        @JvmField
+        var static_key: MutableList<String>? = null
+
+        @JvmField
+        var static_key_path: String? = null
+
+        @JvmField
+        var key_direction: String? = null
+
+        @JvmField
+        var tls: OpenVPNOutboundTLSOptions? = null
+
+        @JvmField
+        var cipher: String? = null
+
+        @JvmField
+        var data_ciphers: MutableList<String>? = null
+
+        @JvmField
+        var data_ciphers_fallback: String? = null
+
+        @JvmField
+        var auth: String? = null
+
+        @JvmField
+        var mss_fix: Int? = null
+
+        @JvmField
+        var mss_fix_disabled: Boolean? = null
+
+        @JvmField
+        var mss_fix_mode: String? = null
+
+        @JvmField
+        var fragment: Int? = null
+
+        @JvmField
+        var replay_window: Int? = null
+
+        @JvmField
+        var replay_window_time: String? = null
+
+        @JvmField
+        var compression: String? = null
+
+        @JvmField
+        var compression_lzo: String? = null
+
+        @JvmField
+        var allow_compression: String? = null
+
+        @JvmField
+        var route_no_pull: Boolean? = null
+
+        @JvmField
+        var pull_filters: MutableList<OpenVPNPullFilterOptions>? = null
+
+        @JvmField
+        var routes: MutableList<String>? = null
+
+        @JvmField
+        var route_gateway: String? = null
+
+        @JvmField
+        var route_metric: Int? = null
+
+        @JvmField
+        var redirect_gateway: Boolean? = null
+
+        @JvmField
+        var redirect_gateway_flags: MutableList<String>? = null
+
+        @JvmField
+        var redirect_private: Boolean? = null
+
+        @JvmField
+        var block_ipv6: Boolean? = null
+
+        @JvmField
+        var ping_interval: String? = null
+
+        @JvmField
+        var ping_restart: String? = null
+
+        @JvmField
+        var ping_restart_disabled: Boolean? = null
+
+        @JvmField
+        var renegotiate_interval: String? = null
+
+        @JvmField
+        var renegotiate_disabled: Boolean? = null
+
+        @JvmField
+        var renegotiate_bytes: Long? = null
+
+        @JvmField
+        var renegotiate_packets: Long? = null
+
+        @JvmField
+        var tls_timeout: String? = null
+
+        @JvmField
+        var handshake_window: String? = null
+
+        @JvmField
+        var explicit_exit_notify: Int? = null
+
+        @JvmField
+        var udp_timeout: Long? = null
+
+        @JvmField
+        var on_demand: Boolean? = null
+
+    }
+
+    @KxsSerializable
+    open class Endpoint_MASQUEClientOptions : Endpoint() {
+
+        // Generate note: nested type DialerOptions
+        @JvmField
+        var detour: String? = null
+
+        // Generate note: nested type AbstractDialerOptions
+        @JvmField
+        var bind_interface: String? = null
+
+        @JvmField
+        var inet4_bind_address: String? = null
+
+        @JvmField
+        var inet6_bind_address: String? = null
+
+        @JvmField
+        var bind_address_no_port: Boolean? = null
+
+        @JvmField
+        var protect_path: String? = null
+
+        @JvmField
+        var routing_mark: Int? = null
+
+        @JvmField
+        var reuse_addr: Boolean? = null
+
+        @JvmField
+        var netns: String? = null
+
+        @JvmField
+        var connect_timeout: String? = null
+
+        @JvmField
+        var tcp_fast_open: Boolean? = null
+
+        @JvmField
+        var tcp_multi_path: Boolean? = null
+
+        @JvmField
+        var disable_tcp_keep_alive: Boolean? = null
+
+        @JvmField
+        var tcp_keep_alive: String? = null
+
+        @JvmField
+        var tcp_keep_alive_interval: String? = null
+
+        @JvmField
+        var udp_fragment: Boolean? = null
+
+        @JvmField
+        var domain_resolver: DomainResolveOptions? = null
+
+        @JvmField
+        var network_strategy: String? = null
+
+        @JvmField
+        var network_type: MutableList<String>? = null
+
+        @JvmField
+        var fallback_network_type: MutableList<String>? = null
+
+        @JvmField
+        var fallback_delay: String? = null
+
+        @JvmField
+        var domain_strategy: String? = null
+
+        // Generate note: nested type ServerOptions
+        @JvmField
+        var server: String? = null
+
+        @JvmField
+        var server_port: Int? = null
+
+        // Generate note: nested type MASQUEEndpointOptions
+        @JvmField
+        var system: Boolean? = null
+
+        @JvmField
+        var name: String? = null
+
+        @JvmField
+        var mtu: Int? = null
+
+        @JvmField
+        var udp_mapping: Int? = null
+
+        @JvmField
+        var udp_filtering: Int? = null
+
+        @JvmField
+        var udp_nat_max: Int? = null
+
+        @JvmField
+        var username: String? = null
+
+        @JvmField
+        var password: String? = null
+
+        // Generate note: nested type OutboundTLSOptionsContainer
+        @JvmField
+        var tls: OutboundTLSOptions? = null
+
+        @JvmField
+        var path: String? = null
+
+        @JvmField
+        var headers: MutableMap<String, MutableList<String>>? = null
+
+        @JvmField
+        var version: Int? = null
+
+        @JvmField
+        var disable_version_fallback: Boolean? = null
+
+        @JvmField
+        var advertise_routes: MutableList<String>? = null
+
+        @JvmField
+        var udp_timeout: String? = null
+
+        @JvmField
+        var on_demand: Boolean? = null
+
+    }
+
+    @KxsSerializable
+    open class Endpoint_TailscaleOptions : Endpoint() {
+
+        // Generate note: nested type DialerOptions
+        @JvmField
+        var detour: String? = null
+
+        // Generate note: nested type AbstractDialerOptions
+        @JvmField
+        var bind_interface: String? = null
+
+        @JvmField
+        var inet4_bind_address: String? = null
+
+        @JvmField
+        var inet6_bind_address: String? = null
+
+        @JvmField
+        var bind_address_no_port: Boolean? = null
+
+        @JvmField
+        var protect_path: String? = null
+
+        @JvmField
+        var routing_mark: Int? = null
+
+        @JvmField
+        var reuse_addr: Boolean? = null
+
+        @JvmField
+        var netns: String? = null
+
+        @JvmField
+        var connect_timeout: String? = null
+
+        @JvmField
+        var tcp_fast_open: Boolean? = null
+
+        @JvmField
+        var tcp_multi_path: Boolean? = null
+
+        @JvmField
+        var disable_tcp_keep_alive: Boolean? = null
+
+        @JvmField
+        var tcp_keep_alive: String? = null
+
+        @JvmField
+        var tcp_keep_alive_interval: String? = null
+
+        @JvmField
+        var udp_fragment: Boolean? = null
+
+        @JvmField
+        var domain_resolver: DomainResolveOptions? = null
+
+        @JvmField
+        var network_strategy: String? = null
+
+        @JvmField
+        var network_type: MutableList<String>? = null
+
+        @JvmField
+        var fallback_network_type: MutableList<String>? = null
+
+        @JvmField
+        var fallback_delay: String? = null
+
+        @JvmField
+        var domain_strategy: String? = null
+
+        @JvmField
+        var state_directory: String? = null
+
+        @JvmField
+        var auth_key: String? = null
+
+        @JvmField
+        var control_url: String? = null
+
+        @JvmField
+        var ephemeral: Boolean? = null
+
+        @JvmField
+        var hostname: String? = null
+
+        @JvmField
+        var accept_routes: Boolean? = null
+
+        @JvmField
+        var exit_node: String? = null
+
+        @JvmField
+        var exit_node_allow_lan_access: Boolean? = null
+
+        @JvmField
+        var advertise_routes: MutableList<String>? = null
+
+        @JvmField
+        var advertise_exit_node: Boolean? = null
+
+        @JvmField
+        var advertise_tags: MutableList<String>? = null
+
+        @JvmField
+        var listen_port: Int? = null
+
+        @JvmField
+        var relay_server_port: Int? = null
+
+        @JvmField
+        var relay_server_static_endpoints: MutableList<String>? = null
+
+        @JvmField
+        var system_interface: Boolean? = null
+
+        @JvmField
+        var system_interface_name: String? = null
+
+        @JvmField
+        var system_interface_mtu: Int? = null
+
+        @JvmField
+        var udp_timeout: Long? = null
+
+        @JvmField
+        var ssh_server: TailscaleSSHServerOptions? = null
+
+        @JvmField
+        var taildrop_directory: String? = null
+
+        @JvmField
+        var on_demand: Boolean? = null
+
+    }
+
+    @KxsSerializable
+    open class Service_ProtectOptions : Service() {
+
+        @JvmField
+        var path: String? = null
+
+        @JvmField
+        var verify_peer: Boolean? = null
+
+    }
+
+    @KxsSerializable
+    open class Service_AnchorOptions : Service() {
+
+        // Generate note: nested type ListenOptions
+        @JvmField
+        var listen: String? = null
+
+        @JvmField
+        var listen_port: Int? = null
+
+        @JvmField
+        var bind_interface: String? = null
+
+        @JvmField
+        var routing_mark: Int? = null
+
+        @JvmField
+        var reuse_addr: Boolean? = null
+
+        @JvmField
+        var netns: String? = null
+
+        @JvmField
+        var disable_tcp_keep_alive: Boolean? = null
+
+        @JvmField
+        var tcp_keep_alive: String? = null
+
+        @JvmField
+        var tcp_keep_alive_interval: String? = null
+
+        @JvmField
+        var tcp_fast_open: Boolean? = null
+
+        @JvmField
+        var tcp_multi_path: Boolean? = null
+
+        @JvmField
+        var udp_fragment: Boolean? = null
+
+        @JvmField
+        var udp_timeout: Long? = null
+
+        @JvmField
+        var detour: String? = null
+
+        @JvmField
+        var proxy_protocol: Boolean? = null
+
+        @JvmField
+        var proxy_protocol_accept_no_header: Boolean? = null
+
+        // Generate note: nested type InboundOptions
+        @JvmField
+        var sniff: Boolean? = null
+
+        @JvmField
+        var sniff_override_destination: Boolean? = null
+
+        @JvmField
+        var sniff_timeout: String? = null
+
+        @JvmField
+        var domain_strategy: String? = null
+
+        @JvmField
+        var udp_disable_domain_unmapping: Boolean? = null
+
+        @JvmField
+        var dns_port: Int? = null
+
+        @JvmField
+        var device_name: String? = null
+
+        @JvmField
+        var socks_port: Int? = null
+
+        @JvmField
+        var allowed_ssids: MutableList<String>? = null
+
+    }
+
+    @KxsSerializable
     open class NewDNSServerOptions_HostsDNSServerOptions : NewDNSServerOptions() {
 
         @JvmField
@@ -4703,6 +6017,7 @@ object SingBoxOptions {
         @JvmField
         var detour: String? = null
 
+        // Generate note: nested type AbstractDialerOptions
         @JvmField
         var bind_interface: String? = null
 
@@ -4782,6 +6097,7 @@ object SingBoxOptions {
         @JvmField
         var detour: String? = null
 
+        // Generate note: nested type AbstractDialerOptions
         @JvmField
         var bind_interface: String? = null
 
@@ -4851,96 +6167,6 @@ object SingBoxOptions {
 
         @JvmField
         var server_port: Int? = null
-
-    }
-
-    @KxsSerializable
-    open class NewDNSServerOptions_RemoteTCPDNSServerOptions : NewDNSServerOptions() {
-
-        // Generate note: nested type RemoteDNSServerOptions
-        // Generate note: nested type RawLocalDNSServerOptions
-        // Generate note: nested type DialerOptions
-        @JvmField
-        var detour: String? = null
-
-        @JvmField
-        var bind_interface: String? = null
-
-        @JvmField
-        var inet4_bind_address: String? = null
-
-        @JvmField
-        var inet6_bind_address: String? = null
-
-        @JvmField
-        var bind_address_no_port: Boolean? = null
-
-        @JvmField
-        var protect_path: String? = null
-
-        @JvmField
-        var routing_mark: Int? = null
-
-        @JvmField
-        var reuse_addr: Boolean? = null
-
-        @JvmField
-        var netns: String? = null
-
-        @JvmField
-        var connect_timeout: String? = null
-
-        @JvmField
-        var tcp_fast_open: Boolean? = null
-
-        @JvmField
-        var tcp_multi_path: Boolean? = null
-
-        @JvmField
-        var disable_tcp_keep_alive: Boolean? = null
-
-        @JvmField
-        var tcp_keep_alive: String? = null
-
-        @JvmField
-        var tcp_keep_alive_interval: String? = null
-
-        @JvmField
-        var udp_fragment: Boolean? = null
-
-        @JvmField
-        var domain_resolver: DomainResolveOptions? = null
-
-        @JvmField
-        var network_strategy: String? = null
-
-        @JvmField
-        var network_type: MutableList<String>? = null
-
-        @JvmField
-        var fallback_network_type: MutableList<String>? = null
-
-        @JvmField
-        var fallback_delay: String? = null
-
-        @JvmField
-        var domain_strategy: String? = null
-
-        // Generate note: nested type DNSServerAddressOptions
-        @JvmField
-        var server: String? = null
-
-        @JvmField
-        var server_port: Int? = null
-
-        @JvmField
-        var reuse: Boolean? = null
-
-        @JvmField
-        var pipeline: Boolean? = null
-
-        @JvmField
-        var max_queries: Int? = null
 
     }
 
@@ -4953,6 +6179,7 @@ object SingBoxOptions {
         @JvmField
         var detour: String? = null
 
+        // Generate note: nested type AbstractDialerOptions
         @JvmField
         var bind_interface: String? = null
 
@@ -5027,12 +6254,6 @@ object SingBoxOptions {
         @JvmField
         var tls: OutboundTLSOptions? = null
 
-        @JvmField
-        var pipeline: Boolean? = null
-
-        @JvmField
-        var max_queries: Int? = null
-
     }
 
     @KxsSerializable
@@ -5045,6 +6266,7 @@ object SingBoxOptions {
         @JvmField
         var detour: String? = null
 
+        // Generate note: nested type AbstractDialerOptions
         @JvmField
         var bind_interface: String? = null
 
@@ -5150,6 +6372,7 @@ object SingBoxOptions {
         @JvmField
         var detour: String? = null
 
+        // Generate note: nested type AbstractDialerOptions
         @JvmField
         var bind_interface: String? = null
 
@@ -5221,6 +6444,48 @@ object SingBoxOptions {
 
         @JvmField
         var `interface`: MutableList<String>? = null
+
+    }
+
+    @KxsSerializable
+    open class NewDNSServerOptions_OpenConnectDNSServerOptions : NewDNSServerOptions() {
+
+        @JvmField
+        var endpoint: String? = null
+
+        @JvmField
+        var accept_default_resolvers: Boolean? = null
+
+        @JvmField
+        var accept_search_domain: Boolean? = null
+
+    }
+
+    @KxsSerializable
+    open class NewDNSServerOptions_OpenVPNDNSServerOptions : NewDNSServerOptions() {
+
+        @JvmField
+        var endpoint: String? = null
+
+        @JvmField
+        var accept_default_resolvers: Boolean? = null
+
+        @JvmField
+        var accept_search_domain: Boolean? = null
+
+    }
+
+    @KxsSerializable
+    open class NewDNSServerOptions_TailscaleDNSServerOptions : NewDNSServerOptions() {
+
+        @JvmField
+        var endpoint: String? = null
+
+        @JvmField
+        var accept_default_resolvers: Boolean? = null
+
+        @JvmField
+        var accept_search_domain: Boolean? = null
 
     }
 

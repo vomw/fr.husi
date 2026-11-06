@@ -5,10 +5,11 @@ import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Build.VERSION.SDK_INT
 import android.os.Process
+import android.provider.Settings
 import android.system.OsConstants
-import androidx.annotation.RequiresApi
-import fr.husi.database.DataStore
 import fr.husi.ktx.Logs
+import fr.husi.ktx.blankAsNull
+import fr.husi.ktx.defaultOr
 import fr.husi.ktx.toPrefix
 import fr.husi.ktx.toStringIterator
 import fr.husi.libcore.ConnectionOwner
@@ -22,13 +23,12 @@ import fr.husi.repository.resolveAndroidRepository
 import fr.husi.utils.PackageCache
 import java.net.InetSocketAddress
 import java.net.NetworkInterface
+import java.util.*
 import fr.husi.libcore.NetworkInterface as LibcoreNetworkInterface
 
 class AndroidPlatformInterface : PlatformInterface {
 
     //  libbox interface
-
-    override fun anchorSSID(): String = DataStore.anchorSSID
 
     override fun autoDetectInterfaceControl(fd: Int): Boolean {
         return ServiceRegistry.vpnService?.protect(fd) == true
@@ -42,16 +42,11 @@ class AndroidPlatformInterface : PlatformInterface {
         DefaultNetworkMonitor.setListener(null)
     }
 
-    override fun deviceName(): String = Build.MODEL
-
     override fun openTun(): Int {
         if (ServiceRegistry.vpnService == null) throw NullPointerException("no vpnService")
         return ServiceRegistry.vpnService!!.startVpn()
     }
 
-    override fun useProcFS(): Boolean = SDK_INT < Build.VERSION_CODES.Q
-
-    @RequiresApi(Build.VERSION_CODES.Q)
     override fun findConnectionOwner(
         ipProtocol: Int,
         sourceAddress: String,
@@ -60,11 +55,21 @@ class AndroidPlatformInterface : PlatformInterface {
         destinationPort: Int,
     ): ConnectionOwner {
         try {
-            val uid = resolveAndroidRepository().connectivity.getConnectionOwnerUid(
-                ipProtocol,
-                InetSocketAddress(sourceAddress, sourcePort),
-                InetSocketAddress(destinationAddress, destinationPort),
-            )
+            val uid = if (SDK_INT >= Build.VERSION_CODES.Q) {
+                resolveAndroidRepository().connectivity.getConnectionOwnerUid(
+                    ipProtocol,
+                    InetSocketAddress(sourceAddress, sourcePort),
+                    InetSocketAddress(destinationAddress, destinationPort),
+                )
+            } else {
+                Libcore.findConnectionOwnerUid(
+                    ipProtocol,
+                    sourceAddress,
+                    sourcePort,
+                    destinationAddress,
+                    destinationPort,
+                )
+            }
             if (uid == Process.INVALID_UID) error("android: connection owner not found")
             PackageCache.awaitLoadSync()
             val packages = PackageCache.uidMap[uid]
@@ -94,13 +99,19 @@ class AndroidPlatformInterface : PlatformInterface {
         for (network in networks) {
             val boxInterface = LibcoreNetworkInterface()
             val linkProperties = resolveAndroidRepository().connectivity.getLinkProperties(network) ?: continue
-            val networkCapabilities = resolveAndroidRepository().connectivity.getNetworkCapabilities(network) ?: continue
+            val networkCapabilities =
+                resolveAndroidRepository().connectivity.getNetworkCapabilities(network) ?: continue
             boxInterface.name = linkProperties.interfaceName
             val networkInterface =
                 networkInterfaces.find { it.name == boxInterface.name } ?: continue
             boxInterface.dnsServer = linkProperties.dnsServers.mapNotNull { it.hostAddress }.let {
                 it.toStringIterator(it.size)
             }
+            // LinkProperties joins the search domains with spaces.
+            boxInterface.dnsSearchDomain = linkProperties.domains.orEmpty()
+                .split(' ')
+                .filter { it.isNotEmpty() }
+                .let { it.toStringIterator(it.size) }
             boxInterface.type = when {
                 networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> Libcore.InterfaceTypeWIFI
                 networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> Libcore.InterfaceTypeCellular
@@ -141,15 +152,31 @@ class AndroidPlatformInterface : PlatformInterface {
 
     override fun localDNSTransport(): LocalDNSTransport = LocalResolver
 
-    override fun onGroupSelectedChange(group: String, old: String, now: String) {
-        ServiceRegistry.baseService?.data?.proxy?.trafficLooper?.updateSelectedTag(group, old, now)
+    override fun tailscaleHostname(): String {
+        return defaultOr(
+            "",
+            {
+                if (SDK_INT >= Build.VERSION_CODES.N_MR1) {
+                    Settings.Global.getString(
+                        resolveAndroidRepository().context.contentResolver,
+                        Settings.Global.DEVICE_NAME,
+                    ).blankAsNull()
+                } else {
+                    null
+                }
+            },
+            {
+                val manu = Build.MANUFACTURER
+                var model = Build.MODEL
+                // Strip manufacturer from model.
+                val index = model.lowercase(Locale.getDefault()).indexOf(manu.lowercase(Locale.getDefault()))
+                if (index != -1) {
+                    model = model.substring(index + manu.length).trim()
+                }
+                "$manu $model"
+            },
+        )
     }
-
-    override fun onDeepLink(deepLink: String) {
-        DeepLinkDispatcher.emit(deepLink)
-    }
-
-    override fun onTask(taskId: String) = Unit
 
     private class InterfaceArray(
         private val iterator: Iterator<LibcoreNetworkInterface>,

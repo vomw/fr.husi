@@ -1,17 +1,18 @@
 package fr.husi.ui.profile
 
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.text.AnnotatedString
 import fr.husi.compose.DurationTextField
 import fr.husi.compose.IconMaskColors
 import fr.husi.compose.IconMaskShapes
+import fr.husi.compose.ListPreference
 import fr.husi.compose.MaskedIcon
 import fr.husi.compose.MultilineTextField
 import fr.husi.compose.PasswordPreference
 import fr.husi.compose.PreferenceCategory
-import fr.husi.compose.PreferenceDivider
+import fr.husi.compose.SwitchPreference
+import fr.husi.compose.TextFieldPreference
 import fr.husi.compose.UIntegerTextField
 import fr.husi.compose.material3.Text
 import fr.husi.compose.preferenceGroup
@@ -22,7 +23,10 @@ import fr.husi.resources.allow_insecure
 import fr.husi.resources.alpn
 import fr.husi.resources.block
 import fr.husi.resources.cert_public_key_sha256
+import fr.husi.resources.certificate_sha256
 import fr.husi.resources.certificates
+import fr.husi.resources.client_certificate
+import fr.husi.resources.client_key
 import fr.husi.resources.compare_arrows
 import fr.husi.resources.copyright
 import fr.husi.resources.directions_boat
@@ -31,6 +35,7 @@ import fr.husi.resources.ech_config
 import fr.husi.resources.ech_query_server_name
 import fr.husi.resources.emoji_symbols
 import fr.husi.resources.enable
+import fr.husi.resources.encrypted
 import fr.husi.resources.flight_takeoff
 import fr.husi.resources.lock
 import fr.husi.resources.lock_open
@@ -56,7 +61,6 @@ import fr.husi.resources.security
 import fr.husi.resources.server_address
 import fr.husi.resources.server_port
 import fr.husi.resources.sni
-import fr.husi.resources.ssh_private_key
 import fr.husi.resources.texture
 import fr.husi.resources.timelapse
 import fr.husi.resources.toc
@@ -69,13 +73,9 @@ import fr.husi.resources.uuid
 import fr.husi.resources.vpn_key
 import fr.husi.resources.wb_sunny
 import fr.husi.ui.NavRoutes
-import me.zhanghai.compose.preference.ListPreference
 import me.zhanghai.compose.preference.ListPreferenceType
-import me.zhanghai.compose.preference.SwitchPreference
-import me.zhanghai.compose.preference.TextFieldPreference
 import org.jetbrains.compose.resources.stringResource
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TuicSettingsScreen(
     profileId: Long,
@@ -99,7 +99,6 @@ fun TuicSettingsScreen(
         tuicSettings(uiState as TuicUiState, viewModel)
     }
 }
-
 
 private fun LazyListScope.tuicSettings(
     uiState: TuicUiState,
@@ -137,7 +136,6 @@ private fun LazyListScope.tuicSettings(
             summary = { Text(contentOrUnset(uiState.address)) },
             valueToText = { it },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.port,
             onValueChange = { viewModel.setPort(it) },
@@ -151,11 +149,10 @@ private fun LazyListScope.tuicSettings(
             },
             summary = { Text(contentOrUnset(uiState.port)) },
             valueToText = { it.toString() },
-            textField = { value, onValueChange, onOk ->
-                UIntegerTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                UIntegerTextField(state, onOk)
             },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.uuid,
             onValueChange = { viewModel.setUuid(it) },
@@ -167,12 +164,10 @@ private fun LazyListScope.tuicSettings(
             summary = { Text(contentOrUnset(uiState.uuid)) },
             valueToText = { it },
         )
-        PreferenceDivider()
         PasswordPreference(
             value = uiState.token,
             onValueChange = { viewModel.setToken(it) },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.alpn,
             onValueChange = { viewModel.setAlpn(it) },
@@ -183,11 +178,10 @@ private fun LazyListScope.tuicSettings(
             },
             summary = { Text(contentOrUnset(uiState.alpn)) },
             valueToText = { it },
-            textField = { value, onValueChange, onOk ->
-                MultilineTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                MultilineTextField(state, onOk)
             },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.certificates,
             onValueChange = { viewModel.setCertificates(it) },
@@ -202,11 +196,28 @@ private fun LazyListScope.tuicSettings(
             },
             summary = { Text(contentOrUnset(uiState.certificates)) },
             valueToText = { it },
-            textField = { value, onValueChange, onOk ->
-                MultilineTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                MultilineTextField(state, onOk)
             },
         )
-        PreferenceDivider()
+        TextFieldPreference(
+            value = uiState.certificateSha256,
+            onValueChange = { viewModel.setCertificateSha256(it) },
+            title = { Text(stringResource(Res.string.certificate_sha256)) },
+            textToValue = { it },
+            icon = {
+                MaskedIcon(
+                    Res.drawable.encrypted,
+                    color = IconMaskColors.IconLightGreen,
+                    shape = IconMaskShapes.credential(),
+                )
+            },
+            summary = { Text(contentOrUnset(uiState.certificateSha256)) },
+            valueToText = { it },
+            textField = { state, onOk ->
+                MultilineTextField(state, onOk)
+            },
+        )
         TextFieldPreference(
             value = uiState.certPublicKeySha256,
             onValueChange = { viewModel.setCertPublicKeySha256(it) },
@@ -218,7 +229,6 @@ private fun LazyListScope.tuicSettings(
             summary = { Text(contentOrUnset(uiState.certPublicKeySha256)) },
             valueToText = { it },
         )
-        PreferenceDivider()
         ListPreference(
             value = uiState.udpRelayMode,
             values = listOf("native", "quic", "UDP over Stream"),
@@ -235,7 +245,6 @@ private fun LazyListScope.tuicSettings(
             type = ListPreferenceType.DROPDOWN_MENU,
             valueToText = { AnnotatedString(it) },
         )
-        PreferenceDivider()
         ListPreference(
             value = uiState.congestionController,
             values = congestionControls,
@@ -251,7 +260,6 @@ private fun LazyListScope.tuicSettings(
             type = ListPreferenceType.DROPDOWN_MENU,
             valueToText = { AnnotatedString(it) },
         )
-        PreferenceDivider()
         SwitchPreference(
             value = uiState.disableSNI,
             onValueChange = { viewModel.setDisableSNI(it) },
@@ -260,7 +268,6 @@ private fun LazyListScope.tuicSettings(
                 MaskedIcon(Res.drawable.block, color = IconMaskColors.IconWarmGray)
             },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.sni,
             onValueChange = { viewModel.setSni(it) },
@@ -272,7 +279,6 @@ private fun LazyListScope.tuicSettings(
             summary = { Text(contentOrUnset(uiState.sni)) },
             valueToText = { it },
         )
-        PreferenceDivider()
         SwitchPreference(
             value = uiState.zeroRTT,
             onValueChange = { viewModel.setZeroRTT(it) },
@@ -284,7 +290,6 @@ private fun LazyListScope.tuicSettings(
                 )
             },
         )
-        PreferenceDivider()
         SwitchPreference(
             value = uiState.allowInsecure,
             onValueChange = { viewModel.setAllowInsecure(it) },
@@ -320,11 +325,10 @@ private fun LazyListScope.tuicSettings(
                 Text(text)
             },
             valueToText = { it.toString() },
-            textField = { value, onValueChange, onOk ->
-                UIntegerTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                UIntegerTextField(state, onOk)
             },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.connectionReceiveWindow,
             onValueChange = { viewModel.setConnectionReceiveWindow(it) },
@@ -342,11 +346,10 @@ private fun LazyListScope.tuicSettings(
                 Text(text)
             },
             valueToText = { it.toString() },
-            textField = { value, onValueChange, onOk ->
-                UIntegerTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                UIntegerTextField(state, onOk)
             },
         )
-        PreferenceDivider()
         SwitchPreference(
             value = uiState.disablePathMtuDiscovery,
             onValueChange = { viewModel.setDisablePathMtuDiscovery(it) },
@@ -359,7 +362,6 @@ private fun LazyListScope.tuicSettings(
                 )
             },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.idleTimeout,
             onValueChange = { viewModel.setIdleTimeout(it) },
@@ -370,11 +372,10 @@ private fun LazyListScope.tuicSettings(
             },
             summary = { Text(contentOrUnset(uiState.idleTimeout)) },
             valueToText = { it },
-            textField = { value, onValueChange, onOk ->
-                DurationTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                DurationTextField(state, onOk)
             },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.keepAlivePeriod,
             onValueChange = { viewModel.setKeepAlivePeriod(it) },
@@ -385,11 +386,10 @@ private fun LazyListScope.tuicSettings(
             },
             summary = { Text(contentOrUnset(uiState.keepAlivePeriod)) },
             valueToText = { it },
-            textField = { value, onValueChange, onOk ->
-                DurationTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                DurationTextField(state, onOk)
             },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.maxConcurrentStreams,
             onValueChange = { viewModel.setMaxConcurrentStreams(it) },
@@ -407,11 +407,10 @@ private fun LazyListScope.tuicSettings(
                 Text(text)
             },
             valueToText = { it.toString() },
-            textField = { value, onValueChange, onOk ->
-                UIntegerTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                UIntegerTextField(state, onOk)
             },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.initialPacketSize,
             onValueChange = { viewModel.setInitialPacketSize(it) },
@@ -429,8 +428,8 @@ private fun LazyListScope.tuicSettings(
                 Text(text)
             },
             valueToText = { it.toString() },
-            textField = { value, onValueChange, onOk ->
-                UIntegerTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                UIntegerTextField(state, onOk)
             },
         )
     }
@@ -447,7 +446,6 @@ private fun LazyListScope.tuicSettings(
                 MaskedIcon(Res.drawable.security, IconMaskColors.IconCoral, IconMaskShapes.risk())
             },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.echConfig,
             onValueChange = { viewModel.setEchConfig(it) },
@@ -459,11 +457,10 @@ private fun LazyListScope.tuicSettings(
             enabled = uiState.ech,
             summary = { Text(contentOrUnset(uiState.echConfig)) },
             valueToText = { it },
-            textField = { value, onValueChange, onOk ->
-                MultilineTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                MultilineTextField(state, onOk)
             },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.echQueryServerName,
             onValueChange = { viewModel.setEchQueryServerName(it) },
@@ -489,7 +486,7 @@ private fun LazyListScope.tuicSettings(
         TextFieldPreference(
             value = uiState.clientCert,
             onValueChange = { viewModel.setClientCert(it) },
-            title = { Text(stringResource(Res.string.certificates)) },
+            title = { Text(stringResource(Res.string.client_certificate)) },
             textToValue = { it },
             icon = {
                 MaskedIcon(
@@ -500,15 +497,14 @@ private fun LazyListScope.tuicSettings(
             },
             summary = { Text(contentOrUnset(uiState.clientCert)) },
             valueToText = { it },
-            textField = { value, onValueChange, onOk ->
-                MultilineTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                MultilineTextField(state, onOk)
             },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.clientKey,
             onValueChange = { viewModel.setClientKey(it) },
-            title = { Text(stringResource(Res.string.ssh_private_key)) },
+            title = { Text(stringResource(Res.string.client_key)) },
             textToValue = { it },
             icon = {
                 MaskedIcon(
@@ -519,8 +515,8 @@ private fun LazyListScope.tuicSettings(
             },
             summary = { Text(contentOrUnset(uiState.clientKey)) },
             valueToText = { it },
-            textField = { value, onValueChange, onOk ->
-                MultilineTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                MultilineTextField(state, onOk)
             },
         )
     }

@@ -1,7 +1,6 @@
 package libcore
 
 import (
-	"bufio"
 	"context"
 	"io"
 	"io/fs"
@@ -10,15 +9,12 @@ import (
 	"sync"
 	"time"
 
-	"libcore/oscall"
-	"libcore/ringqueue"
-	"libcore/vario"
-
 	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing/common"
 	E "github.com/sagernet/sing/common/exceptions"
-	"github.com/sagernet/sing/common/observable"
+
+	"github.com/xchacha20-poly1305/husi/libcore/v2/oscall"
 )
 
 func LogDebug(l string) {
@@ -37,44 +33,40 @@ func LogError(l string) {
 	log.Error(l)
 }
 
-func LogClear() {
-	if platformLogWrapper == nil {
-		return
-	}
-	platformLogWrapper.Clear()
-}
-
-func SetLogLevel(level string) {
-	if logFactory == nil {
-		return
-	}
-	logLevel, err := log.ParseLevel(level)
-	if err != nil {
-		log.Error(E.Cause(err, "parse log level"))
-		return
-	}
-	logFactory.SetLevel(logLevel)
-}
-
 var (
 	platformLogWrapper *logWriter
-
-	logFactory log.ObservableFactory
+	logFactory         log.ObservableFactory
+	logMaxLines        int
 )
 
-func setupLog(maxLogLine int, path string, level log.Level, truncate bool) (err error) {
+func currentLogMaxLines() int {
+	if logMaxLines < 50 {
+		return 50
+	}
+	return logMaxLines
+}
+
+// fileLogSink returns the file-only platform writer for AttachPlatformWriter.
+// Returns a nil interface (not a typed nil) when the sink is unset so callers
+// can check `== nil` without the classic Go nil-interface trap.
+func fileLogSink() log.PlatformWriter {
+	if platformLogWrapper == nil {
+		return nil
+	}
+	return platformLogWrapper
+}
+
+func setupLog(maxLogLine int, path string, level log.Level) (err error) {
 	if platformLogWrapper != nil {
 		return
 	}
+	if maxLogLine < 50 {
+		maxLogLine = 50
+	}
+	logMaxLines = maxLogLine
 
 	var file *os.File
-	flags := os.O_CREATE | os.O_WRONLY
-	if truncate {
-		flags |= os.O_TRUNC
-	} else {
-		flags |= os.O_APPEND
-	}
-	file, err = os.OpenFile(path, flags, 0o644)
+	file, err = os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		_, _ = os.Stderr.WriteString(E.Cause(err, "open log").Error())
 		return
@@ -89,7 +81,7 @@ func setupLog(maxLogLine int, path string, level log.Level, truncate bool) (err 
 		writers = append(writers, os.Stderr)
 	}
 
-	platformLogWrapper = newLogWriter(writers, maxLogLine)
+	platformLogWrapper = newLogWriter(writers, level)
 	logFactory = log.NewDefaultFactory(
 		context.Background(),
 		log.Formatter{
@@ -103,13 +95,17 @@ func setupLog(maxLogLine int, path string, level log.Level, truncate bool) (err 
 		true,
 	)
 	logFactory.SetLevel(level)
+	err = logFactory.Start()
+	if err != nil {
+		_, _ = os.Stderr.WriteString(E.Cause(err, "start log factory").Error())
+		return
+	}
 	log.SetStdLogger(logFactory.Logger())
 
 	return
 }
 
 // cleanLogCache removes old log files from the specified cache directory.
-// Before creating this function, the generated log will not be cleaned until user clean it by themselves.
 func cleanLogCache(cacheDir string) {
 	logDir := filepath.Join(cacheDir, "log")
 	now := time.Now()
@@ -137,34 +133,16 @@ func cleanLogCache(cacheDir string) {
 	}
 }
 
-type LogItem struct {
-	Level   log.Level
-	Message string
-}
-
-func (l *LogItem) GetLevel() int32 {
-	return int32(l.Level)
-}
-
-var (
-	_ log.PlatformWriter               = (*logWriter)(nil)
-	_ observable.Observable[log.Entry] = (*logWriter)(nil)
-)
-
+// logWriter is the file-only sink (flock'd multi-writer). The ring and observer
+// live on daemon.StartedService now (D-P1.5).
 type logWriter struct {
-	writers      []io.Writer
-	bufferAccess sync.RWMutex
-	buffer       *ringqueue.RingQueue[log.Entry]
-	observer     *observable.Observer[log.Entry]
+	writers []io.Writer
+	level   log.Level
+	access  sync.Mutex
 }
 
-func newLogWriter(writers []io.Writer, bufferCapacity int) *logWriter {
-	subscriber := observable.NewSubscriber[log.Entry](128)
-	return &logWriter{
-		writers:  writers,
-		buffer:   ringqueue.New[log.Entry](bufferCapacity),
-		observer: observable.NewObserver(subscriber, 64),
-	}
+func newLogWriter(writers []io.Writer, level log.Level) *logWriter {
+	return &logWriter{writers: writers, level: level}
 }
 
 func (w *logWriter) DisableColors() bool {
@@ -172,67 +150,45 @@ func (w *logWriter) DisableColors() bool {
 }
 
 func (w *logWriter) WriteMessage(level log.Level, message string) {
-	entry := log.Entry{
-		Level:   level,
-		Message: message,
+	if level > w.level {
+		return
 	}
-	w.bufferAccess.Lock()
-	w.buffer.Add(entry)
-	w.bufferAccess.Unlock()
-	w.observer.Emit(entry)
 	_, _ = io.WriteString(w, message+"\n")
 }
 
-func (w *logWriter) Subscribe() (subscription observable.Subscription[log.Entry], done <-chan struct{}, err error) {
-	return w.observer.Subscribe()
-}
-
-func (w *logWriter) UnSubscribe(subscription observable.Subscription[log.Entry]) {
-	w.observer.UnSubscribe(subscription)
-}
-
-func (w *logWriter) All() []log.Entry {
-	w.bufferAccess.RLock()
-	defer w.bufferAccess.RUnlock()
-	return w.buffer.All()
-}
-
-var _ io.Writer = (*logWriter)(nil)
+var (
+	_ log.PlatformWriter = (*logWriter)(nil)
+	_ io.Writer          = (*logWriter)(nil)
+)
 
 func (w *logWriter) Write(p []byte) (n int, err error) {
+	w.access.Lock()
+	defer w.access.Unlock()
 	for _, writer := range w.writers {
-		var unlock func() error
-		if file, isFile := writer.(*os.File); isFile {
-			_ = oscall.Flock(file)
-			unlock = func() error { return oscall.FUnlock(file) }
-		}
-		_, _ = writer.Write(p)
-		if unlock != nil {
-			_ = unlock()
-		}
+		withFileLock(writer, func() {
+			_, _ = writer.Write(p)
+		})
 	}
 	return len(p), nil
 }
 
-func (w *logWriter) truncate() {
-	for _, writer := range w.writers {
-		if file, isFile := writer.(*os.File); isFile {
-			_ = oscall.Flock(file)
-			_ = file.Truncate(0)
-			_ = oscall.FUnlock(file)
-		}
+func withFileLock(writer io.Writer, action func()) {
+	file, isFile := writer.(*os.File)
+	if !isFile {
+		action()
+		return
 	}
+	lockTaken := oscall.Flock(file) == nil
+	if lockTaken {
+		defer func() { _ = oscall.FUnlock(file) }()
+	}
+	action()
 }
 
 func (w *logWriter) Close() error {
-	w.buffer.Clear()
+	w.access.Lock()
+	defer w.access.Unlock()
 	var errs []error
-	err := common.Close(
-		w.observer,
-	)
-	if err != nil {
-		errs = append(errs, err)
-	}
 	for _, writer := range w.writers {
 		err := common.Close(writer)
 		if err != nil {
@@ -240,102 +196,4 @@ func (w *logWriter) Close() error {
 		}
 	}
 	return E.Errors(errs...)
-}
-
-func (w *logWriter) Clear() {
-	w.truncate()
-	w.bufferAccess.Lock()
-	defer w.bufferAccess.Unlock()
-	w.buffer.Clear()
-}
-
-type LogItemFunc interface {
-	Invoke(*LogItem)
-}
-
-func (c *Client) SubscribeLogs(callback LogItemFunc) error {
-	err := vario.WriteUint8(c.conn, commandSubscribeLogs)
-	if err != nil {
-		return E.Cause(err, "write command")
-	}
-	for {
-		item, err := readLogItem(c.conn)
-		if err != nil {
-			if E.IsClosed(err) {
-				return nil
-			}
-			return E.Cause(err, "read log entry")
-		}
-		callback.Invoke(&item)
-	}
-}
-
-func (s *Service) handleSubscribeLogs(conn io.ReadWriter) error {
-	writer := bufio.NewWriter(conn)
-	buffer := platformLogWrapper.All()
-	for i := range buffer {
-		err := writeLogEntry(writer, buffer[i])
-		if err != nil {
-			return E.Cause(err, "write log entry buffer ", i)
-		}
-	}
-	err := writer.Flush()
-	if err != nil {
-		return E.Cause(err, "flush log entry buffer")
-	}
-	subscription, done, err := platformLogWrapper.Subscribe()
-	if err != nil {
-		return E.Cause(err, "subscribe log factory")
-	}
-	defer platformLogWrapper.UnSubscribe(subscription)
-	for {
-		select {
-		case entry := <-subscription:
-			err := writeLogEntry(writer, entry)
-			if err != nil {
-				return E.Cause(err, "write entry")
-			}
-			err = writer.Flush()
-			if err != nil {
-				return E.Cause(err, "flush entry")
-			}
-		case <-done:
-			return nil
-		}
-	}
-}
-
-func (c *Client) ClearLog() error {
-	err := vario.WriteUint8(c.conn, commandClearLog)
-	if err != nil {
-		return E.Cause(err, "write command")
-	}
-	return nil
-}
-
-func writeLogEntry(writer io.Writer, entry log.Entry) error {
-	err := vario.WriteUint8(writer, entry.Level)
-	if err != nil {
-		return E.Cause(err, "write level")
-	}
-	err = vario.WriteString(writer, entry.Message)
-	if err != nil {
-		return E.Cause(err, "write message")
-	}
-	return nil
-}
-
-func readLogItem(reader io.Reader) (LogItem, error) {
-	level, err := vario.ReadUint8(reader)
-	if err != nil {
-		return LogItem{}, E.Cause(err, "read level")
-	}
-	message, err := vario.ReadString(reader)
-	if err != nil {
-		return LogItem{}, E.Cause(err, "read message")
-	}
-	return LogItem{
-		Level:   level,
-		Message: message,
-	}, nil
 }

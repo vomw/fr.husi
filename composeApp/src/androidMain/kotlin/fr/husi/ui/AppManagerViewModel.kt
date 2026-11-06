@@ -1,19 +1,22 @@
 package fr.husi.ui
 
+import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
 import androidx.lifecycle.viewModelScope
-import fr.husi.Key
 import fr.husi.database.DataStore
 import fr.husi.utils.AppScanner
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 @Immutable
@@ -52,8 +55,8 @@ internal class AppManagerViewModel(
     private var scanJob: Job? = null
 
     init {
-        if (!DataStore.proxyApps) {
-            DataStore.proxyApps = true
+        if (!DataStore.proxyApps.getBlocking()) {
+            DataStore.proxyApps.setBlocking(true)
         }
         uiState.update { it.copy(mode = currentProxyMode()) }
         packageManager = pm
@@ -62,7 +65,7 @@ internal class AppManagerViewModel(
             it.copy(isLoading = true, apps = emptyList())
         }
         viewModelScope.launch(singleThreadContext) {
-            DataStore.configurationStore.stringSetFlow(Key.PACKAGES).collect { packages ->
+            DataStore.packages.flow().collect { packages ->
                 proxiedUids.clear()
                 val cachedApps = cachedApps
                 for ((packageName, packageInfo) in cachedApps) {
@@ -91,64 +94,63 @@ internal class AppManagerViewModel(
     override suspend fun afterMutation() = writeToDataStore()
 
     override suspend fun applyImport(bypass: Boolean, apps: Sequence<String>) {
-        DataStore.bypassMode = bypass
+        DataStore.bypassMode.set(bypass)
         super.applyImport(bypass, apps)
     }
 
     override suspend fun afterItemClick(app: ProxiedApp, newIsProxied: Boolean) = writeToDataStore()
 
     override fun export(): String {
-        val body = DataStore.packages.joinToString("\n")
-        return "${DataStore.bypassMode}\n${body}"
+        val body = DataStore.packages.getBlocking().joinToString("\n")
+        val bypassMode = DataStore.bypassMode.getBlocking()
+        return "$bypassMode\n$body"
     }
 
     fun scanChinaApps() {
         scanJob = viewModelScope.launch(singleThreadContext) {
             val cachedApps = cachedApps
-            val bypass = DataStore.bypassMode
+            val bypass = DataStore.bypassMode.get()
             uiState.update {
                 it.copy(
                     scanned = emptyList(),
                     scanProcess = null,
                 )
             }
-            for ((packageName, packageInfo) in cachedApps) {
-                if (!isActive) {
-                    uiState.update {
-                        it.copy(
-                            scanned = null,
-                            scanProcess = null,
-                        )
+            try {
+                val chinaAppByUid = scanConcurrently(cachedApps)
+                for ((uid, isChinaApp) in chinaAppByUid) {
+                    if (isChinaApp == bypass) {
+                        proxiedUids.add(uid)
+                    } else {
+                        proxiedUids.remove(uid)
                     }
-                    return@launch
                 }
+                writeToDataStore()
+            } finally {
+                uiState.update { it.copy(scanned = null, scanProcess = null) }
+            }
+        }
+    }
 
+    private suspend fun scanConcurrently(
+        apps: Map<String, PackageInfo>,
+    ): List<Pair<Int, Boolean>> = coroutineScope {
+        val scanDispatcher = Dispatchers.IO.limitedParallelism(
+            Runtime.getRuntime().availableProcessors(),
+        )
+        apps.map { (packageName, packageInfo) ->
+            async(scanDispatcher) {
+                val isChinaApp = AppScanner.isChinaApp(packageName, packageManager)
                 uiState.update { state ->
                     val scanned = state.scanned!! + packageName
                     state.copy(
                         scanned = scanned,
-                        scanProcess = (scanned.size.toDouble() / cachedApps.size.toDouble()).toFloat(),
+                        scanProcess = scanned.size.toFloat() / apps.size,
                     )
                 }
-
-                val appInfo = packageInfo.applicationInfo!!
-                if (AppScanner.isChinaApp(packageName, packageManager)) {
-                    if (bypass) {
-                        proxiedUids.add(appInfo.uid)
-                    } else {
-                        proxiedUids.remove(appInfo.uid)
-                    }
-                } else {
-                    if (!bypass) {
-                        proxiedUids.add(appInfo.uid)
-                    } else {
-                        proxiedUids.remove(appInfo.uid)
-                    }
-                }
+                packageInfo.applicationInfo!!.uid to isChinaApp
             }
-            writeToDataStore()
-            uiState.emit(uiState.value.copy(scanned = null, scanProcess = null))
-        }
+        }.awaitAll()
     }
 
     fun cancelScan() {
@@ -157,16 +159,18 @@ internal class AppManagerViewModel(
     }
 
     private suspend fun writeToDataStore() {
-        DataStore.packages = cachedApps.values.asSequence()
-            .filter { it.applicationInfo!!.uid in proxiedUids }
-            .map { it.packageName }
-            .toCollection(LinkedHashSet())
+        DataStore.packages.set(
+            cachedApps.values.asSequence()
+                .filter { it.applicationInfo!!.uid in proxiedUids }
+                .map { it.packageName }
+                .toCollection(LinkedHashSet()),
+        )
     }
 
     private fun currentProxyMode(): ProxyMode {
-        return if (!DataStore.proxyApps) {
+        return if (!DataStore.proxyApps.getBlocking()) {
             ProxyMode.DISABLED
-        } else if (DataStore.bypassMode) {
+        } else if (DataStore.bypassMode.getBlocking()) {
             ProxyMode.BYPASS
         } else {
             ProxyMode.PROXY
@@ -176,20 +180,20 @@ internal class AppManagerViewModel(
     fun setProxyMode(mode: ProxyMode) = viewModelScope.launch {
         when (mode) {
             ProxyMode.DISABLED -> {
-                DataStore.proxyApps = false
+                DataStore.proxyApps.set(false)
                 uiState.update { it.copy(mode = mode) }
                 uiEvent.emit(AppManagerUiEvent.Finish)
                 return@launch
             }
 
             ProxyMode.BYPASS -> {
-                DataStore.proxyApps = true
-                DataStore.bypassMode = true
+                DataStore.proxyApps.set(true)
+                DataStore.bypassMode.set(true)
             }
 
             ProxyMode.PROXY -> {
-                DataStore.proxyApps = true
-                DataStore.bypassMode = false
+                DataStore.proxyApps.set(true)
+                DataStore.bypassMode.set(false)
             }
         }
         uiState.update { it.copy(mode = mode) }

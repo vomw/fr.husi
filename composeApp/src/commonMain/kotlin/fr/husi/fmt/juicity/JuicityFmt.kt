@@ -3,55 +3,70 @@ package fr.husi.fmt.juicity
 import fr.husi.database.DataStore
 import fr.husi.fmt.LOCALHOST4
 import fr.husi.fmt.SingBoxOptions
+import fr.husi.fmt.protectPath
 import fr.husi.ktx.blankAsNull
-import fr.husi.ktx.toJsonStringKxs
 import fr.husi.ktx.parseBoolean
-import fr.husi.libcore.Libcore
+import fr.husi.ktx.toJsonStringKxs
+import io.github.xchacha20_poly1305.kpuri.Url
+import io.github.xchacha20_poly1305.kpuri.buildUrl
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 // https://github.com/juicity/juicity/blob/4af4f68b405a6b86560ebb16963d133a7196af5c/README.md
 fun parseJuicity(link: String): JuicityBean {
-    val url = Libcore.parseURL(link)
+    val url = Url.parse(link)
     return JuicityBean().apply {
-        name = url.fragment
-        uuid = url.username
-        password = url.password
-        serverAddress = url.host
-        serverPort = url.ports.toIntOrNull() ?: 443
+        name = url.fragment.orEmpty()
+        uuid = url.username.orEmpty()
+        password = url.password.orEmpty()
+        serverAddress = url.host.orEmpty()
+        serverPort = url.port?.toIntOrNull() ?: 443
 
         // url.queryParameter("congestion_control")
-        sni = url.queryParameter("sni")
-        url.parseBoolean("allow_insecure")
-        pinSHA256 = url.queryParameter("pinned_certchain_sha256")
+        sni = url.queryParameter("sni").orEmpty()
+        allowInsecure = url.parseBoolean("allow_insecure")
+        pinSHA256 = url.queryParameter("pinned_certchain_sha256").orEmpty()
     }
 }
 
-fun JuicityBean.toUri(): String {
-    return Libcore.newURL("juicity").apply {
-        username = uuid
-        password = this@toUri.password
-        host = serverAddress
-        ports = serverPort.toString()
+fun JuicityBean.toUri(): String = buildUrl("juicity") {
+    username = uuid
+    password = this@toUri.password
+    host = serverAddress
+    port = serverPort.toString()
 
-        addQueryParameter("congestion_control", "bbr")
-        if (sni.isNotBlank()) addQueryParameter("sni", sni)
-        if (allowInsecure) addQueryParameter("allow_insecure", "1")
-        if (pinSHA256.isNotBlank()) addQueryParameter("pinned_certchain_sha256", pinSHA256)
-    }.string
-}
+    addQueryParameter("congestion_control", "bbr")
+    if (sni.isNotBlank()) addQueryParameter("sni", sni)
+    if (allowInsecure) addQueryParameter("allow_insecure", "1")
+    if (pinSHA256.isNotBlank()) addQueryParameter("pinned_certchain_sha256", pinSHA256)
+}.toString()
 
 fun JuicityBean.buildJuicityConfig(port: Int, shouldProtect: Boolean): String {
-    return mutableMapOf<String, Any?>(
-        "listen" to "$LOCALHOST4:$port",
-        "server" to displayAddress(),
-        "uuid" to uuid,
-        "password" to password,
-        "sni" to sni.takeIf { it.isNotBlank() },
-        "allow_insecure" to allowInsecure.takeIf { it },
-        "congestion_control" to "bbr",
-        "pinned_certchain_sha256" to pinSHA256.takeIf { it.isNotBlank() },
-        "protect_path" to if (shouldProtect) Libcore.ProtectPath else null,
-        "log_level" to if (DataStore.logLevel > 0) "debug" else "error",
-    ).toJsonStringKxs()
+    return buildJsonObject {
+        put("listen", "$LOCALHOST4:$port")
+        put("server", pluginDialAddress())
+        put("uuid", uuid)
+        put("password", password)
+        put("sni", pluginServerName(sni))
+        if (allowInsecure) {
+            put("allow_insecure", true)
+        }
+        put("congestion_control", "bbr")
+        pinSHA256.blankAsNull()?.let {
+            put("pinned_certchain_sha256", it)
+        }
+        if (shouldProtect) {
+            put("protect_path", protectPath)
+        }
+        put(
+            "log_level",
+            if (DataStore.logLevel.getBlocking() > 0) {
+                "debug"
+            } else {
+                "error"
+            },
+        )
+    }.toJsonStringKxs()
 }
 
 fun buildSingBoxOutboundJuicityBean(bean: JuicityBean): SingBoxOptions.Outbound_JuicityOptions {

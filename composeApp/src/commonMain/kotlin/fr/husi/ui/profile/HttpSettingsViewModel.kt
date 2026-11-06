@@ -2,8 +2,10 @@ package fr.husi.ui.profile
 
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
+import androidx.compose.ui.util.fastCoerceAtMost
 import fr.husi.MuxStrategy
 import fr.husi.MuxType
+import fr.husi.fmt.HttpVersion
 import fr.husi.fmt.http.HttpBean
 import fr.husi.ktx.applyDefaultValues
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,6 +29,7 @@ internal data class HttpUiState(
     override val sni: String = "",
     override val alpn: String = "",
     override val certificate: String = "",
+    override val certificateSha256: String = "",
     override val certPublicKeySha256: String = "",
     override val allowInsecure: Boolean = false,
     override val disableSNI: Boolean = false,
@@ -56,8 +59,21 @@ internal data class HttpUiState(
 
     val username: String = "",
     val password: String = "",
-    val udpOverTcp: Boolean = false,
-) : StandardV2RayUiState
+    val httpVersion: Int = HttpVersion.HTTP_1,
+    val disableVersionFallback: Boolean = false,
+) : StandardV2RayUiState {
+
+    val isTLS get() = security == "tls"
+
+    fun withTLSConstraints(): HttpUiState = if (isTLS) {
+        this
+    } else {
+        copy(
+            httpVersion = httpVersion.fastCoerceAtMost(HttpVersion.HTTP_2),
+            disableVersionFallback = false,
+        )
+    }
+}
 
 @Stable
 internal class HttpSettingsViewModel : StandardV2RaySettingsViewModel<HttpBean>() {
@@ -84,6 +100,7 @@ internal class HttpSettingsViewModel : StandardV2RaySettingsViewModel<HttpBean>(
                 sni = sni,
                 alpn = alpn,
                 certificate = certificates,
+                certificateSha256 = certificateSha256,
                 certPublicKeySha256 = certPublicKeySha256,
                 allowInsecure = allowInsecure,
                 disableSNI = disableSNI,
@@ -113,8 +130,9 @@ internal class HttpSettingsViewModel : StandardV2RaySettingsViewModel<HttpBean>(
 
                 username = username,
                 password = password,
-                udpOverTcp = udpOverTcp,
-            )
+                httpVersion = httpVersion,
+                disableVersionFallback = disableVersionFallback,
+            ).withTLSConstraints()
         }
     }
 
@@ -136,6 +154,7 @@ internal class HttpSettingsViewModel : StandardV2RaySettingsViewModel<HttpBean>(
         sni = state.sni
         alpn = state.alpn
         certificates = state.certificate
+        certificateSha256 = state.certificateSha256
         certPublicKeySha256 = state.certPublicKeySha256
         allowInsecure = state.allowInsecure
         disableSNI = state.disableSNI
@@ -165,7 +184,8 @@ internal class HttpSettingsViewModel : StandardV2RaySettingsViewModel<HttpBean>(
 
         username = state.username
         password = state.password
-        udpOverTcp = state.udpOverTcp
+        httpVersion = state.httpVersion
+        disableVersionFallback = state.disableVersionFallback
     }
 
     override fun setCustomConfig(config: String) {
@@ -213,7 +233,7 @@ internal class HttpSettingsViewModel : StandardV2RaySettingsViewModel<HttpBean>(
     }
 
     override fun setSecurity(security: String) {
-        uiState.update { it.copy(security = security) }
+        uiState.update { it.copy(security = security).withTLSConstraints() }
     }
 
     override fun setSni(sni: String) {
@@ -226,6 +246,10 @@ internal class HttpSettingsViewModel : StandardV2RaySettingsViewModel<HttpBean>(
 
     override fun setCertificate(certificate: String) {
         uiState.update { it.copy(certificate = certificate) }
+    }
+
+    override fun setCertificateSha256(sha256: String) {
+        uiState.update { it.copy(certificateSha256 = sha256) }
     }
 
     override fun setCertPublicKeySha256(sha256: String) {
@@ -324,7 +348,11 @@ internal class HttpSettingsViewModel : StandardV2RaySettingsViewModel<HttpBean>(
         uiState.update { it.copy(password = password) }
     }
 
-    fun setUdpOverTcp(enabled: Boolean) {
-        uiState.update { it.copy(udpOverTcp = enabled) }
+    fun setHttpVersion(version: Int) {
+        uiState.update { it.copy(httpVersion = version).withTLSConstraints() }
+    }
+
+    fun setDisableVersionFallback(disable: Boolean) {
+        uiState.update { it.copy(disableVersionFallback = disable).withTLSConstraints() }
     }
 }

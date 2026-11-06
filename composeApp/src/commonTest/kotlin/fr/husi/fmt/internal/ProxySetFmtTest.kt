@@ -5,12 +5,12 @@ import fr.husi.fmt.SingBoxOptions
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
-import kotlin.test.assertTrue
+import kotlinx.coroutines.test.runTest
 
 class ProxySetFmtTest {
 
     @Test
-    fun `buildSingBoxOutboundProxySetBean should build selector outbound`() {
+    fun `buildSingBoxOutboundProxySetBean should build selector outbound`() = runTest {
         val bean = ProxySetBean().apply {
             management = ProxySetBean.MANAGEMENT_SELECTOR
             interruptExistConnections = true
@@ -22,15 +22,15 @@ class ProxySetFmtTest {
         val selector = assertIs<SingBoxOptions.Outbound_SelectorOptions>(outbound)
         assertEquals(SingBoxOptions.TYPE_SELECTOR, selector.type)
         assertEquals(outbounds, selector.outbounds?.toList())
-        assertTrue(selector.interrupt_exist_connections == true)
+        assertEquals(true, selector.interrupt_exist_connections)
     }
 
     @Test
-    fun `buildSingBoxOutboundProxySetBean should build urltest outbound`() {
+    fun `buildSingBoxOutboundProxySetBean should build urltest outbound`() = runTest {
         val bean = ProxySetBean().apply {
             management = ProxySetBean.MANAGEMENT_URLTEST
             testURL = FmtTestConstant.URLTEST_URL
-            testInterval = "3m"
+            interval = "3m"
             testIdleTimeout = "10m"
             testTolerance = 50
             interruptExistConnections = false
@@ -47,4 +47,21 @@ class ProxySetFmtTest {
         assertEquals("10m", urltest.idle_timeout)
         assertEquals(50, urltest.tolerance)
     }
+
+    @Test
+    fun `buildSingBoxOutboundProxySetBean should build random outbound`() = runTest {
+        val bean = ProxySetBean().apply {
+            management = ProxySetBean.MANAGEMENT_BALANCER
+            interval = "30s"
+        }
+
+        val outbounds = listOf("proxy-1", "proxy-2")
+        val outbound = buildSingBoxOutboundProxySetBean(bean, outbounds)
+
+        val random = assertIs<SingBoxOptions.Outbound_BalancerOptions>(outbound)
+        assertEquals(SingBoxOptions.TYPE_BALANCER, random.type)
+        assertEquals(outbounds, random.outbounds?.toList())
+        assertEquals("30s", random.interval)
+    }
+
 }

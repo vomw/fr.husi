@@ -21,6 +21,7 @@ import (
 	"github.com/sagernet/sing-box/protocol/http"
 	"github.com/sagernet/sing-box/protocol/hysteria"
 	"github.com/sagernet/sing-box/protocol/hysteria2"
+	"github.com/sagernet/sing-box/protocol/masque"
 	"github.com/sagernet/sing-box/protocol/mixed"
 	"github.com/sagernet/sing-box/protocol/shadowsocks"
 	"github.com/sagernet/sing-box/protocol/shadowtls"
@@ -32,7 +33,10 @@ import (
 	"github.com/sagernet/sing-box/protocol/tun"
 	"github.com/sagernet/sing-box/protocol/vmess"
 	"github.com/sagernet/sing-box/protocol/wireguard"
+	"github.com/sagernet/sing-box/service/oomkiller"
 	_ "github.com/sagernet/sing-box/transport/v2rayquic"
+
+	"github.com/xchacha20-poly1305/husi/libcore/v2/plugin/protect"
 )
 
 func InboundRegistry() *inbound.Registry {
@@ -67,7 +71,7 @@ func OutboundRegistry() *outbound.Registry {
 	group.RegisterURLTest(registry)
 
 	socks.RegisterOutbound(registry)
-	// http.RegisterOutbound(registry) // Move to plugin
+	http.RegisterOutbound(registry)
 	shadowsocks.RegisterOutbound(registry)
 	vmess.RegisterOutbound(registry)
 	trojan.RegisterOutbound(registry)
@@ -77,6 +81,7 @@ func OutboundRegistry() *outbound.Registry {
 	anytls.RegisterOutbound(registry)
 	snell.RegisterOutbound(registry)
 	bridge.RegisterOutbound(registry)
+	registerTailcatOutbound(registry)
 
 	registerQUICOutbounds(registry)
 	registerNaiveOutbound(registry)
@@ -90,6 +95,10 @@ func EndpointRegistry() *endpoint.Registry {
 	registry := endpoint.NewRegistry()
 
 	registerWireGuardEndpoint(registry)
+	registerOpenConnectEndpoint(registry)
+	registerOpenVPNEndpoints(registry)
+	masque.RegisterEndpoint(registry)
+	registerTailscaleEndpoint(registry)
 
 	return registry
 }
@@ -113,9 +122,9 @@ func registerWireGuardEndpoint(registry *endpoint.Registry) {
 func DNSTransportRegistry() *dns.TransportRegistry {
 	registry := dns.NewTransportRegistry()
 
-	// transport.RegisterTCP(registry) // Move to plugin
+	transport.RegisterTCP(registry)
 	transport.RegisterUDP(registry)
-	// transport.RegisterTLS(registry) // Move to plugin
+	transport.RegisterTLS(registry)
 	transport.RegisterHTTPS(registry)
 	hosts.RegisterTransport(registry)
 	local.RegisterTransport(registry)
@@ -123,8 +132,9 @@ func DNSTransportRegistry() *dns.TransportRegistry {
 	mdns.RegisterTransport(registry)
 
 	registerQUICTransports(registry)
-
-	registerPluginsDNSTransport(registry)
+	registerOpenConnectDNSTransport(registry)
+	registerOpenVPNDNSTransport(registry)
+	registerTailscaleDNSTransport(registry)
 
 	return registry
 }
@@ -136,6 +146,10 @@ func registerQUICTransports(registry *dns.TransportRegistry) {
 
 func ServiceRegistry() *service.Registry {
 	registry := service.NewRegistry()
+
+	protect.RegisterService(registry)
+	registerAnchor(registry)
+	oomkiller.RegisterService(registry)
 
 	return registry
 }

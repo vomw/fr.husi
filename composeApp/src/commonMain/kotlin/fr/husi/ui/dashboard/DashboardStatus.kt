@@ -1,64 +1,139 @@
-@file:OptIn(ExperimentalLayoutApi::class)
-
 package fr.husi.ui.dashboard
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import fr.husi.compose.material3.Button
-import fr.husi.compose.material3.ButtonDefaults
 import androidx.compose.material3.ElevatedCard
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
-import fr.husi.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboard
-import org.jetbrains.compose.resources.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import fr.husi.compose.rememberScrollHideState
-import fr.husi.compose.setPlainText
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.husi.compose.BoxedVerticalScrollbar
-import kotlinx.coroutines.launch
-import fr.husi.resources.*
-import fr.husi.libcore.Libcore
+import fr.husi.compose.SimpleIconButton
+import fr.husi.compose.material3.Button
+import fr.husi.compose.material3.ButtonDefaults
+import fr.husi.compose.material3.Icon
+import fr.husi.compose.material3.Switch
+import fr.husi.compose.material3.Text
+import fr.husi.compose.setPlainText
+import fr.husi.fmt.LOCALHOST4
+import fr.husi.ktx.formatMemoryBytes
+import fr.husi.resources.Res
+import fr.husi.resources.action_openconnect
+import fr.husi.resources.action_openvpn
+import fr.husi.resources.add
+import fr.husi.resources.clash_mode
+import fr.husi.resources.close
+import fr.husi.resources.dashboard_hidden_widgets
+import fr.husi.resources.dashboard_hide_widget
+import fr.husi.resources.dashboard_show_widget
+import fr.husi.resources.direct
+import fr.husi.resources.hide
+import fr.husi.resources.ip_test
+import fr.husi.resources.ip_test_detect
+import fr.husi.resources.loading
+import fr.husi.resources.network_interfaces
+import fr.husi.resources.no_statistics
+import fr.husi.resources.proxy
+import fr.husi.resources.show
+import fr.husi.resources.source_address
+import fr.husi.resources.status_goroutines
+import fr.husi.resources.status_memory
+import fr.husi.resources.status_status
+import fr.husi.resources.system_proxy
+import fr.husi.resources.system_proxy_unavailable_inbound_auth
+import fr.husi.resources.tailscale
+import fr.husi.resources.visibility
+import fr.husi.resources.visibility_off
+import fr.husi.tailscale.TailscaleEndpointState
+import fr.husi.tailscale.TailscaleStatusRepository
+import fr.husi.ui.openconnect.OpenConnectAuthController
+import fr.husi.ui.openvpn.OpenVPNAuthController
+import fr.husi.ui.stringOrRes
 import io.github.oikvpqya.compose.fastscroller.material3.defaultMaterialScrollbarStyle
 import io.github.oikvpqya.compose.fastscroller.rememberScrollbarAdapter
+import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.stringResource
+import org.jetbrains.compose.resources.vectorResource
+import org.koin.compose.koinInject
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun DashboardStatusScreen(
     modifier: Modifier = Modifier,
     uiState: DashboardState,
-    bottomPadding: Dp,
+    openConnectController: OpenConnectAuthController,
+    openVPNController: OpenVPNAuthController,
+    contentPadding: PaddingValues,
+    isEditing: Boolean,
+    detectIP: () -> Unit,
     selectClashMode: (mode: String) -> Unit,
+    setSystemProxyEnabled: (Boolean) -> Unit,
+    showError: (String) -> Unit,
     onCopySuccess: () -> Unit,
-    onVisibleChange: (Boolean) -> Unit,
+    onWidgetsChange: (List<DashboardWidgetEntry>) -> Unit,
+    onOpenTailscaleEndpoint: (String) -> Unit,
 ) {
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
-    val visible by rememberScrollHideState(scrollState)
+    var sourceAddressesVisible by remember { mutableStateOf(false) }
+    var networkInterfacesVisible by remember { mutableStateOf(false) }
 
-    LaunchedEffect(visible) {
-        onVisibleChange(visible)
+    val openConnectEndpoints by openConnectController.endpoints.collectAsStateWithLifecycle()
+    val openVPNEndpoints by openVPNController.endpoints.collectAsStateWithLifecycle()
+    val tailscaleRepository = koinInject<TailscaleStatusRepository>()
+    val tailscaleSnapshot by tailscaleRepository.snapshot.collectAsStateWithLifecycle()
+    val tailscaleEndpoints = tailscaleSnapshot.endpoints
+
+    val entries = uiState.dashboardWidgets
+    val hasContent = { widget: DashboardWidget ->
+        when (widget) {
+            DashboardWidget.OpenConnect -> openConnectEndpoints.isNotEmpty()
+            DashboardWidget.OpenVPN -> openVPNEndpoints.isNotEmpty()
+            DashboardWidget.Tailscale -> tailscaleEndpoints.isNotEmpty()
+            DashboardWidget.ClashMode -> uiState.clashModes.isNotEmpty()
+            // A remote core reports only its total rate, with no direct split.
+            DashboardWidget.DirectSpeed -> !uiState.isRemote
+            DashboardWidget.ExitIP -> !uiState.isRemote
+            DashboardWidget.SystemProxy -> uiState.systemProxy != null && !uiState.isRemote
+            else -> true
+        }
     }
+    val visibleWidgets = entries.visibleWidgets().let { widgets ->
+        if (isEditing) widgets else widgets.filter(hasContent)
+    }
+    val hiddenWidgets = entries.hiddenWidgets()
 
     Row(modifier = modifier.fillMaxSize()) {
         Column(
@@ -69,186 +144,562 @@ internal fun DashboardStatusScreen(
                 .padding(
                     start = 16.dp,
                     end = 16.dp,
-                    top = 8.dp,
-                    bottom = bottomPadding + 8.dp,
+                    top = contentPadding.calculateTopPadding() + 8.dp,
+                    bottom = contentPadding.calculateBottomPadding() + 8.dp,
                 ),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-        ElevatedCard(
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    text = stringResource(Res.string.status_status),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(stringResource(Res.string.status_memory))
-                    Text(Libcore.formatMemoryBytes(uiState.memory))
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(stringResource(Res.string.status_goroutines))
-                    Text(uiState.goroutines.toString())
-                }
-            }
-        }
-
-        ElevatedCard(
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    text = stringResource(Res.string.source_address),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(
-                        text = "IPv4",
-                        style = MaterialTheme.typography.bodySmall,
+            DashboardWidgetGrid(
+                widgets = visibleWidgets,
+                isReorderable = isEditing,
+                onOrderChange = { order -> onWidgetsChange(entries.reorderVisibleWidgets(order)) },
+                modifier = Modifier.fillMaxWidth(),
+                overlay = { widget ->
+                    if (isEditing) DashboardWidgetBadge(
+                        icon = vectorResource(Res.drawable.close),
+                        contentDescription = stringResource(Res.string.dashboard_hide_widget),
+                        onClick = { onWidgetsChange(entries.setWidgetVisible(widget, false)) },
                     )
-                    val text = uiState.ipv4 ?: stringResource(Res.string.no_statistics)
-                    Text(
-                        text = text,
-                        modifier = Modifier.clickable {
-                            scope.launch {
-                                clipboard.setPlainText(text)
-                            }
+                },
+            ) { widget ->
+                if (hasContent(widget)) {
+                    DashboardWidgetContent(
+                        widget = widget,
+                        uiState = uiState,
+                        openConnectController = openConnectController,
+                        openVPNController = openVPNController,
+                        sourceAddressesVisible = sourceAddressesVisible,
+                        onToggleSourceAddressesVisible = {
+                            sourceAddressesVisible = !sourceAddressesVisible
+                        },
+                        networkInterfacesVisible = networkInterfacesVisible,
+                        onToggleNetworkInterfacesVisible = {
+                            networkInterfacesVisible = !networkInterfacesVisible
+                        },
+                        detectIP = detectIP,
+                        selectClashMode = selectClashMode,
+                        setSystemProxyEnabled = setSystemProxyEnabled,
+                        showError = showError,
+                        tailscaleEndpoints = tailscaleEndpoints,
+                        onOpenTailscaleEndpoint = onOpenTailscaleEndpoint,
+                        onCopy = { value ->
+                            scope.launch { clipboard.setPlainText(value) }
                             onCopySuccess()
                         },
-                        fontFamily = FontFamily.Monospace,
-                        style = MaterialTheme.typography.bodySmallEmphasized,
                     )
+                } else {
+                    DashboardWidgetPlaceholderCard(widget)
                 }
-                Row(
+            }
+
+            if (isEditing && hiddenWidgets.isNotEmpty()) {
+                Text(
+                    text = stringResource(Res.string.dashboard_hidden_widgets),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                DashboardWidgetGrid(
+                    widgets = hiddenWidgets,
+                    isReorderable = false,
+                    onOrderChange = {},
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(
-                        text = "IPv6",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    val text = uiState.ipv6 ?: stringResource(Res.string.no_statistics)
-                    Text(
-                        text = text,
-                        modifier = Modifier.clickable {
-                            scope.launch {
-                                clipboard.setPlainText(text)
-                            }
-                            onCopySuccess()
-                        },
-                        fontFamily = FontFamily.Monospace,
-                        style = MaterialTheme.typography.bodySmallEmphasized,
-                    )
+                    overlay = { widget ->
+                        DashboardWidgetBadge(
+                            icon = vectorResource(Res.drawable.add),
+                            contentDescription = stringResource(Res.string.dashboard_show_widget),
+                            onClick = { onWidgetsChange(entries.setWidgetVisible(widget, true)) },
+                        )
+                    },
+                ) { widget ->
+                    DashboardWidgetPlaceholderCard(widget)
                 }
             }
-        }
-
-        if (uiState.clashModes.isNotEmpty()) ElevatedCard(
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    text = stringResource(Res.string.clash_mode),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                uiState.clashModes.forEach { mode ->
-                    val selected = mode == uiState.selectedClashMode
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                    ) {
-                        Button(
-                            onClick = { selectClashMode(mode) },
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = !selected,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (selected) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    Color.Transparent
-                                },
-                                contentColor = if (selected) {
-                                    MaterialTheme.colorScheme.onPrimary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurface
-                                },
-                            ),
-                            border = if (!selected) {
-                                BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
-                            } else {
-                                null
-                            },
-                        ) {
-                            Text(mode)
-                        }
-                    }
-                }
-            }
-        }
-
-        ElevatedCard(
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    text = stringResource(Res.string.network_interfaces),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                SelectionContainer {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        uiState.networkInterfaces.forEach { interfaceInfo ->
-                            Column(
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
-                            ) {
-                                Text(
-                                    text = interfaceInfo.name,
-                                    style = MaterialTheme.typography.titleSmallEmphasized,
-                                )
-                                for (address in interfaceInfo.addresses) {
-                                    Text(
-                                        text = address,
-                                        fontFamily = FontFamily.Monospace,
-                                        style = MaterialTheme.typography.bodySmall,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
         }
 
         BoxedVerticalScrollbar(
-            modifier = Modifier.fillMaxHeight(),
+            modifier = Modifier
+                .padding(contentPadding)
+                .fillMaxHeight(),
             adapter = rememberScrollbarAdapter(scrollState = scrollState),
             style = defaultMaterialScrollbarStyle().copy(
                 thickness = 12.dp,
             ),
         )
+    }
+}
+
+@Composable
+private fun DashboardWidgetContent(
+    widget: DashboardWidget,
+    uiState: DashboardState,
+    openConnectController: OpenConnectAuthController,
+    openVPNController: OpenVPNAuthController,
+    sourceAddressesVisible: Boolean,
+    onToggleSourceAddressesVisible: () -> Unit,
+    networkInterfacesVisible: Boolean,
+    onToggleNetworkInterfacesVisible: () -> Unit,
+    detectIP: () -> Unit,
+    selectClashMode: (mode: String) -> Unit,
+    setSystemProxyEnabled: (Boolean) -> Unit,
+    showError: (String) -> Unit,
+    tailscaleEndpoints: List<TailscaleEndpointState>,
+    onOpenTailscaleEndpoint: (String) -> Unit,
+    onCopy: (String) -> Unit,
+) {
+    when (widget) {
+        DashboardWidget.ProxySpeed -> ProxySpeedCard(
+            uiState = uiState,
+            modifier = Modifier.fillMaxSize(),
+        )
+
+        DashboardWidget.DirectSpeed -> DirectSpeedCard(
+            uiState = uiState,
+            modifier = Modifier.fillMaxSize(),
+        )
+
+        DashboardWidget.ExitIP -> ExitIPCard(uiState.ipProbe, detectIP)
+
+        DashboardWidget.Status -> StatusCard(uiState = uiState)
+
+        DashboardWidget.OpenConnect -> OpenConnectStatusSection(
+            controller = openConnectController,
+            showError = showError,
+        )
+
+        DashboardWidget.OpenVPN -> OpenVPNStatusSection(
+            controller = openVPNController,
+            showError = showError,
+        )
+
+        DashboardWidget.Tailscale -> TailscaleStatusSection(
+            endpoints = tailscaleEndpoints,
+            onOpenEndpoint = onOpenTailscaleEndpoint,
+        )
+
+        DashboardWidget.SourceAddress -> SourceAddressCard(
+            uiState = uiState,
+            visible = sourceAddressesVisible,
+            onToggleVisible = onToggleSourceAddressesVisible,
+            onCopy = onCopy,
+        )
+
+        DashboardWidget.ClashMode -> ClashModeCard(
+            uiState = uiState,
+            selectClashMode = selectClashMode,
+        )
+
+        DashboardWidget.SystemProxy -> uiState.systemProxy?.let { systemProxy ->
+            SystemProxyCard(
+                systemProxy = systemProxy,
+                setEnabled = setSystemProxyEnabled,
+            )
+        }
+
+        DashboardWidget.NetworkInterfaces -> NetworkInterfacesCard(
+            uiState = uiState,
+            visible = networkInterfacesVisible,
+            onToggleVisible = onToggleNetworkInterfacesVisible,
+        )
+    }
+}
+
+private val WIDGET_BADGE_OVERHANG = 8.dp
+
+@Composable
+private fun BoxScope.DashboardWidgetBadge(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+) {
+    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
+        FilledIconButton(
+            onClick = onClick,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .offset(x = WIDGET_BADGE_OVERHANG, y = -WIDGET_BADGE_OVERHANG)
+                .size(24.dp),
+            colors = IconButtonDefaults.filledIconButtonColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            ),
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun DashboardWidgetPlaceholderCard(widget: DashboardWidget) {
+    ElevatedCard(modifier = Modifier.fillMaxSize()) {
+        Text(
+            text = dashboardWidgetTitle(widget),
+            modifier = Modifier.padding(16.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.titleMedium,
+        )
+    }
+}
+
+@Composable
+private fun dashboardWidgetTitle(widget: DashboardWidget): String = stringResource(
+    when (widget) {
+        DashboardWidget.ProxySpeed -> Res.string.proxy
+        DashboardWidget.DirectSpeed -> Res.string.direct
+        DashboardWidget.ExitIP -> Res.string.ip_test
+        DashboardWidget.Status -> Res.string.status_status
+        DashboardWidget.OpenConnect -> Res.string.action_openconnect
+        DashboardWidget.OpenVPN -> Res.string.action_openvpn
+        DashboardWidget.Tailscale -> Res.string.tailscale
+        DashboardWidget.SourceAddress -> Res.string.source_address
+        DashboardWidget.ClashMode -> Res.string.clash_mode
+        DashboardWidget.SystemProxy -> Res.string.system_proxy
+        DashboardWidget.NetworkInterfaces -> Res.string.network_interfaces
+    },
+)
+
+@Composable
+private fun StatusCard(uiState: DashboardState) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = stringResource(Res.string.status_status),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(stringResource(Res.string.status_memory))
+                Text(uiState.memory.formatMemoryBytes())
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(stringResource(Res.string.status_goroutines))
+                Text(uiState.goroutines.toString())
+            }
+        }
+    }
+}
+
+@Composable
+private fun SourceAddressCard(
+    uiState: DashboardState,
+    visible: Boolean,
+    onToggleVisible: () -> Unit,
+    onCopy: (String) -> Unit,
+) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            HideableSectionTitle(
+                title = stringResource(Res.string.source_address),
+                visible = visible,
+                onToggleVisible = onToggleVisible,
+            )
+            SourceAddressRow(
+                label = "IPv4",
+                address = uiState.ipv4,
+                visible = visible,
+                onCopy = onCopy,
+            )
+            SourceAddressRow(
+                label = "IPv6",
+                address = uiState.ipv6,
+                visible = visible,
+                onCopy = onCopy,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SystemProxyCard(
+    systemProxy: SystemProxyState,
+    setEnabled: (Boolean) -> Unit,
+) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = stringResource(Res.string.system_proxy),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    text = if (systemProxy.hasInboundAuth) {
+                        stringResource(Res.string.system_proxy_unavailable_inbound_auth)
+                    } else {
+                        "$LOCALHOST4:${systemProxy.mixedPort}"
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            Switch(
+                checked = systemProxy.enabled && !systemProxy.hasInboundAuth,
+                onCheckedChange = setEnabled,
+                enabled = !systemProxy.hasInboundAuth,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ClashModeCard(
+    uiState: DashboardState,
+    selectClashMode: (mode: String) -> Unit,
+) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = stringResource(Res.string.clash_mode),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            uiState.clashModes.forEach { mode ->
+                val selected = mode == uiState.selectedClashMode
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    Button(
+                        onClick = { selectClashMode(mode) },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !selected,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (selected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                Color.Transparent
+                            },
+                            contentColor = if (selected) {
+                                MaterialTheme.colorScheme.onPrimary
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                        ),
+                        border = if (!selected) {
+                            BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+                        } else {
+                            null
+                        },
+                    ) {
+                        Text(mode)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NetworkInterfacesCard(
+    uiState: DashboardState,
+    visible: Boolean,
+    onToggleVisible: () -> Unit,
+) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            HideableSectionTitle(
+                title = stringResource(Res.string.network_interfaces),
+                visible = visible,
+                onToggleVisible = onToggleVisible,
+            )
+            SelectionContainer {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    uiState.networkInterfaces.forEach { interfaceInfo ->
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Text(
+                                text = interfaceInfo.name,
+                                style = MaterialTheme.typography.titleSmallEmphasized,
+                            )
+                            for (address in interfaceInfo.addresses) {
+                                Text(
+                                    text = if (visible) {
+                                        address
+                                    } else {
+                                        maskNetworkAddress(address)
+                                    },
+                                    fontFamily = FontFamily.Monospace,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SourceAddressRow(
+    label: String,
+    address: String?,
+    visible: Boolean,
+    onCopy: (String) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Text(
+            text = label,
+            softWrap = false,
+            style = MaterialTheme.typography.bodySmall,
+        )
+        val text = when {
+            address == null -> stringResource(Res.string.no_statistics)
+            visible -> address
+            else -> maskNetworkAddress(address)
+        }
+        // Takes the remaining width so a long IPv6 address wraps instead of squeezing the label.
+        Text(
+            text = text,
+            modifier = Modifier
+                .weight(1f)
+                .clip(MaterialTheme.shapes.small)
+                .clickable(enabled = address != null) {
+                    onCopy(address ?: return@clickable)
+                }
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+            textAlign = TextAlign.End,
+            fontFamily = FontFamily.Monospace,
+            style = MaterialTheme.typography.bodySmallEmphasized,
+        )
+    }
+}
+
+@Composable
+private fun HideableSectionTitle(
+    title: String,
+    visible: Boolean,
+    onToggleVisible: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = title,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.titleMedium,
+        )
+        SimpleIconButton(
+            imageVector = vectorResource(
+                if (visible) {
+                    Res.drawable.visibility
+                } else {
+                    Res.drawable.visibility_off
+                },
+            ),
+            contentDescription = stringResource(
+                if (visible) {
+                    Res.string.hide
+                } else {
+                    Res.string.show
+                },
+            ),
+            onClick = onToggleVisible,
+        )
+    }
+}
+
+private fun maskNetworkAddress(address: String): String {
+    return if (':' in address) {
+        "*::*"
+    } else {
+        "*.*.*.*"
+    }
+}
+
+@Composable
+private fun ExitIPCard(
+    state: IPProbeState,
+    detectIP: () -> Unit,
+) {
+    var visible by remember(state.isDoing) { mutableStateOf(false) }
+
+    ElevatedCard(
+        onClick = detectIP,
+        enabled = !state.isDoing,
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            HideableSectionTitle(
+                title = stringResource(Res.string.ip_test),
+                visible = visible,
+                onToggleVisible = { visible = !visible },
+            )
+            state.ip?.let { ip ->
+                val address = if (visible) {
+                    ip
+                } else {
+                    maskNetworkAddress(ip)
+                }
+                val displayText = countryEmoji(state.countryCode)?.let { emoji ->
+                    "$emoji $address"
+                } ?: address
+                Text(
+                    text = displayText,
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+            }
+            state.error?.let { error ->
+                Text(stringOrRes(error), color = MaterialTheme.colorScheme.error)
+            }
+            Text(
+                text = stringResource(
+                    if (state.isDoing) {
+                        Res.string.loading
+                    } else {
+                        Res.string.ip_test_detect
+                    },
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
     }
 }

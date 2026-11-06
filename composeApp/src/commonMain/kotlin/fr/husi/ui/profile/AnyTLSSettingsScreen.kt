@@ -1,17 +1,18 @@
 package fr.husi.ui.profile
 
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.text.AnnotatedString
 import fr.husi.compose.DurationTextField
 import fr.husi.compose.IconMaskColors
 import fr.husi.compose.IconMaskShapes
+import fr.husi.compose.ListPreference
 import fr.husi.compose.MaskedIcon
 import fr.husi.compose.MultilineTextField
 import fr.husi.compose.PasswordPreference
 import fr.husi.compose.PreferenceCategory
-import fr.husi.compose.PreferenceDivider
+import fr.husi.compose.SwitchPreference
+import fr.husi.compose.TextFieldPreference
 import fr.husi.compose.UIntegerTextField
 import fr.husi.compose.material3.Text
 import fr.husi.compose.preferenceGroup
@@ -20,9 +21,14 @@ import fr.husi.platform.PlatformInfo
 import fr.husi.resources.Res
 import fr.husi.resources.allow_insecure
 import fr.husi.resources.alpn
+import fr.husi.resources.anytls_client_metadata
+import fr.husi.resources.anytls_client_metadata_sum
 import fr.husi.resources.block
 import fr.husi.resources.cert_public_key_sha256
+import fr.husi.resources.certificate_sha256
 import fr.husi.resources.certificates
+import fr.husi.resources.client_certificate
+import fr.husi.resources.client_key
 import fr.husi.resources.computer_cancel
 import fr.husi.resources.copyright
 import fr.husi.resources.directions_boat
@@ -31,6 +37,7 @@ import fr.husi.resources.ech
 import fr.husi.resources.ech_config
 import fr.husi.resources.ech_query_server_name
 import fr.husi.resources.emoji_symbols
+import fr.husi.resources.encrypted
 import fr.husi.resources.fingerprint
 import fr.husi.resources.gesture
 import fr.husi.resources.idle_session_check_interval
@@ -51,7 +58,6 @@ import fr.husi.resources.security_settings
 import fr.husi.resources.server_address
 import fr.husi.resources.server_port
 import fr.husi.resources.sni
-import fr.husi.resources.ssh_private_key
 import fr.husi.resources.texture
 import fr.husi.resources.timelapse
 import fr.husi.resources.timer
@@ -66,13 +72,9 @@ import fr.husi.resources.utls_fingerprint
 import fr.husi.resources.vpn_key
 import fr.husi.resources.wb_sunny
 import fr.husi.ui.NavRoutes
-import me.zhanghai.compose.preference.ListPreference
 import me.zhanghai.compose.preference.ListPreferenceType
-import me.zhanghai.compose.preference.SwitchPreference
-import me.zhanghai.compose.preference.TextFieldPreference
 import org.jetbrains.compose.resources.stringResource
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AnyTLSSettingsScreen(
     profileId: Long,
@@ -133,7 +135,6 @@ private fun LazyListScope.anyTlsSettings(
             summary = { Text(contentOrUnset(uiState.address)) },
             valueToText = { it },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.port,
             onValueChange = { viewModel.setPort(it) },
@@ -147,16 +148,14 @@ private fun LazyListScope.anyTlsSettings(
             },
             summary = { Text(contentOrUnset(uiState.port)) },
             valueToText = { it.toString() },
-            textField = { value, onValueChange, onOk ->
-                UIntegerTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                UIntegerTextField(state, onOk)
             },
         )
-        PreferenceDivider()
         PasswordPreference(
             value = uiState.password,
             onValueChange = { viewModel.setPassword(it) },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.idleSessionCheckInterval,
             onValueChange = { viewModel.setIdleSessionCheckInterval(it) },
@@ -167,11 +166,10 @@ private fun LazyListScope.anyTlsSettings(
             },
             summary = { Text(contentOrUnset(uiState.idleSessionCheckInterval)) },
             valueToText = { it },
-            textField = { value, onValueChange, onOk ->
-                DurationTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                DurationTextField(state, onOk)
             },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.idleSessionTimeout,
             onValueChange = { viewModel.setIdleSessionTimeout(it) },
@@ -182,11 +180,10 @@ private fun LazyListScope.anyTlsSettings(
             },
             summary = { Text(contentOrUnset(uiState.idleSessionTimeout)) },
             valueToText = { it },
-            textField = { value, onValueChange, onOk ->
-                DurationTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                DurationTextField(state, onOk)
             },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.minIdleSession,
             onValueChange = { viewModel.setMinIdleSession(it) },
@@ -203,9 +200,27 @@ private fun LazyListScope.anyTlsSettings(
                 }
                 Text(text)
             },
-            textField = { value, onValueChange, onOk ->
-                UIntegerTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                UIntegerTextField(state, onOk)
             },
+        )
+        TextFieldPreference(
+            value = uiState.clientMetadata,
+            onValueChange = { viewModel.setClientMetadata(it) },
+            title = { Text(stringResource(Res.string.anytls_client_metadata)) },
+            textToValue = { it },
+            icon = {
+                MaskedIcon(
+                    resource = Res.drawable.domino_mask,
+                    color = IconMaskColors.IconCoral,
+                    shape = IconMaskShapes.risk(),
+                )
+            },
+            summary = {
+                Text(contentOrUnset(uiState.clientMetadata))
+                Text(stringResource(Res.string.anytls_client_metadata_sum))
+            },
+            valueToText = { it },
         )
     }
 
@@ -224,7 +239,6 @@ private fun LazyListScope.anyTlsSettings(
             summary = { Text(contentOrUnset(uiState.sni)) },
             valueToText = { it },
         )
-        PreferenceDivider()
         SwitchPreference(
             value = uiState.allowInsecure,
             onValueChange = { viewModel.setAllowInsecure(it) },
@@ -237,7 +251,6 @@ private fun LazyListScope.anyTlsSettings(
                 )
             },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.alpn,
             onValueChange = { viewModel.setAlpn(it) },
@@ -248,11 +261,10 @@ private fun LazyListScope.anyTlsSettings(
             },
             summary = { Text(contentOrUnset(uiState.alpn)) },
             valueToText = { it },
-            textField = { value, onValueChange, onOk ->
-                MultilineTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                MultilineTextField(state, onOk)
             },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.certificates,
             onValueChange = { viewModel.setCertificates(it) },
@@ -267,11 +279,28 @@ private fun LazyListScope.anyTlsSettings(
             },
             summary = { Text(contentOrUnset(uiState.certificates)) },
             valueToText = { it },
-            textField = { value, onValueChange, onOk ->
-                MultilineTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                MultilineTextField(state, onOk)
             },
         )
-        PreferenceDivider()
+        TextFieldPreference(
+            value = uiState.certificateSha256,
+            onValueChange = { viewModel.setCertificateSha256(it) },
+            title = { Text(stringResource(Res.string.certificate_sha256)) },
+            textToValue = { it },
+            icon = {
+                MaskedIcon(
+                    Res.drawable.encrypted,
+                    color = IconMaskColors.IconLightGreen,
+                    shape = IconMaskShapes.credential(),
+                )
+            },
+            summary = { Text(contentOrUnset(uiState.certificateSha256)) },
+            valueToText = { it },
+            textField = { state, onOk ->
+                MultilineTextField(state, onOk)
+            },
+        )
         TextFieldPreference(
             value = uiState.certPublicKeySha256,
             onValueChange = { viewModel.setCertPublicKeySha256(it) },
@@ -282,11 +311,10 @@ private fun LazyListScope.anyTlsSettings(
             },
             summary = { Text(contentOrUnset(uiState.certPublicKeySha256)) },
             valueToText = { it },
-            textField = { value, onValueChange, onOk ->
-                MultilineTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                MultilineTextField(state, onOk)
             },
         )
-        PreferenceDivider()
         ListPreference(
             value = uiState.utlsFingerprint,
             values = fingerprints,
@@ -319,7 +347,6 @@ private fun LazyListScope.anyTlsSettings(
                 summary = { Text(contentOrUnset(uiState.tlsSpoof)) },
                 valueToText = { it },
             )
-            PreferenceDivider()
             ListPreference(
                 value = uiState.tlsSpoofMethod,
                 values = tlsSpoofMethod,
@@ -347,7 +374,6 @@ private fun LazyListScope.anyTlsSettings(
                 MaskedIcon(Res.drawable.block, color = IconMaskColors.IconWarmGray)
             },
         )
-        PreferenceDivider()
         SwitchPreference(
             value = uiState.tlsFragment,
             onValueChange = { viewModel.setTlsFragment(it) },
@@ -357,7 +383,6 @@ private fun LazyListScope.anyTlsSettings(
                 MaskedIcon(Res.drawable.texture, color = IconMaskColors.IconLightBlue)
             },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.tlsFragmentFallbackDelay,
             onValueChange = { viewModel.setTlsFragmentFallbackDelay(it) },
@@ -369,11 +394,10 @@ private fun LazyListScope.anyTlsSettings(
             enabled = uiState.tlsFragment,
             summary = { Text(contentOrUnset(uiState.tlsFragmentFallbackDelay)) },
             valueToText = { it },
-            textField = { value, onValueChange, onOk ->
-                DurationTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                DurationTextField(state, onOk)
             },
         )
-        PreferenceDivider()
         SwitchPreference(
             value = uiState.tlsRecordFragment,
             onValueChange = { viewModel.setTlsRecordFragment(it) },
@@ -397,7 +421,6 @@ private fun LazyListScope.anyTlsSettings(
                 MaskedIcon(Res.drawable.security, IconMaskColors.IconCoral, IconMaskShapes.risk())
             },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.echConfig,
             onValueChange = { viewModel.setEchConfig(it) },
@@ -413,11 +436,10 @@ private fun LazyListScope.anyTlsSettings(
             enabled = uiState.ech,
             summary = { Text(contentOrUnset(uiState.echConfig)) },
             valueToText = { it },
-            textField = { value, onValueChange, onOk ->
-                MultilineTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                MultilineTextField(state, onOk)
             },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.echQueryServerName,
             onValueChange = { viewModel.setEchQueryServerName(it) },
@@ -439,7 +461,7 @@ private fun LazyListScope.anyTlsSettings(
         TextFieldPreference(
             value = uiState.clientCert,
             onValueChange = { viewModel.setClientCert(it) },
-            title = { Text(stringResource(Res.string.certificates)) },
+            title = { Text(stringResource(Res.string.client_certificate)) },
             textToValue = { it },
             icon = {
                 MaskedIcon(
@@ -450,15 +472,14 @@ private fun LazyListScope.anyTlsSettings(
             },
             summary = { Text(contentOrUnset(uiState.clientCert)) },
             valueToText = { it },
-            textField = { value, onValueChange, onOk ->
-                MultilineTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                MultilineTextField(state, onOk)
             },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.clientKey,
             onValueChange = { viewModel.setClientKey(it) },
-            title = { Text(stringResource(Res.string.ssh_private_key)) },
+            title = { Text(stringResource(Res.string.client_key)) },
             textToValue = { it },
             icon = {
                 MaskedIcon(
@@ -469,8 +490,8 @@ private fun LazyListScope.anyTlsSettings(
             },
             summary = { Text(contentOrUnset(uiState.clientKey)) },
             valueToText = { it },
-            textField = { value, onValueChange, onOk ->
-                MultilineTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                MultilineTextField(state, onOk)
             },
         )
     }

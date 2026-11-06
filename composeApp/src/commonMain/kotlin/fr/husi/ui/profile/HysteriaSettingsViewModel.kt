@@ -26,6 +26,7 @@ internal data class HysteriaUiState(
     val sni: String = "",
     val alpn: String = "",
     val certificates: String = "",
+    val certificateSha256: String = "",
     val certPublicKeySha256: String = "",
     val allowInsecure: Boolean = false,
     val disableSNI: Boolean = false,
@@ -37,6 +38,7 @@ internal data class HysteriaUiState(
     val clientKey: String = "",
     val congestionControl: String = HysteriaBean.CONGESTION_CONTROL_BBR,
     val bbrProfile: Int = HysteriaBean.BBR_PROFILE_STANDARD,
+    val disableChromeParrot: Boolean = false,
     val ech: Boolean = false,
     val echConfig: String = "",
     val echQueryServerName: String = "",
@@ -72,6 +74,7 @@ internal class HysteriaSettingsViewModel : ProfileEditorViewModel<HysteriaBean>(
                 sni = sni,
                 alpn = alpn,
                 certificates = certificates,
+                certificateSha256 = certificateSha256,
                 certPublicKeySha256 = certPublicKeySha256,
                 allowInsecure = allowInsecure,
                 disableSNI = disableSNI,
@@ -83,6 +86,7 @@ internal class HysteriaSettingsViewModel : ProfileEditorViewModel<HysteriaBean>(
                 clientKey = clientKey,
                 congestionControl = congestionControl,
                 bbrProfile = bbrProfile,
+                disableChromeParrot = disableChromeParrot,
                 ech = ech,
                 echConfig = echConfig,
                 echQueryServerName = echQueryServerName,
@@ -112,6 +116,7 @@ internal class HysteriaSettingsViewModel : ProfileEditorViewModel<HysteriaBean>(
         sni = state.sni
         alpn = state.alpn
         certificates = state.certificates
+        certificateSha256 = state.certificateSha256
         certPublicKeySha256 = state.certPublicKeySha256
         allowInsecure = state.allowInsecure
         disableSNI = state.disableSNI
@@ -123,6 +128,7 @@ internal class HysteriaSettingsViewModel : ProfileEditorViewModel<HysteriaBean>(
         clientKey = state.clientKey
         congestionControl = state.congestionControl
         bbrProfile = state.bbrProfile
+        disableChromeParrot = state.disableChromeParrot
         ech = state.ech
         echConfig = state.echConfig
         echQueryServerName = state.echQueryServerName
@@ -196,6 +202,10 @@ internal class HysteriaSettingsViewModel : ProfileEditorViewModel<HysteriaBean>(
         uiState.update { it.copy(certificates = certs) }
     }
 
+    fun setCertificateSha256(sha256: String) {
+        uiState.update { it.copy(certificateSha256 = sha256) }
+    }
+
     fun setCertPublicKeySha256(sha: String) {
         uiState.update { it.copy(certPublicKeySha256 = sha) }
     }
@@ -238,6 +248,10 @@ internal class HysteriaSettingsViewModel : ProfileEditorViewModel<HysteriaBean>(
 
     fun setBBRProfile(bbrProfile: Int) {
         uiState.update { it.copy(bbrProfile = bbrProfile) }
+    }
+
+    fun setDisableChromeParrot(disable: Boolean) {
+        uiState.update { it.copy(disableChromeParrot = disable) }
     }
 
     fun setEch(enabled: Boolean) {

@@ -1,25 +1,17 @@
 package distro
 
 import (
-	_ "libcore/combinedapi"
-	"libcore/plugin/http"
-	"libcore/plugin/juicity"
-	"libcore/plugin/plugindns"
-	"libcore/plugin/trusttunnel"
-	"libcore/plugin/vless"
-
 	"github.com/sagernet/sing-box/adapter/outbound"
-	"github.com/sagernet/sing-box/dns"
+
+	"github.com/xchacha20-poly1305/husi/libcore/v2/plugin/balancer"
+	"github.com/xchacha20-poly1305/husi/libcore/v2/plugin/juicity"
+	"github.com/xchacha20-poly1305/husi/libcore/v2/plugin/trusttunnel"
+	"github.com/xchacha20-poly1305/husi/libcore/v2/plugin/vless"
 )
 
 func registerPluginsOutbound(registry *outbound.Registry) {
-	http.RegisterOutbound(registry)
 	juicity.RegisterOutbound(registry)
 	vless.RegisterOutbound(registry)
 	trusttunnel.RegisterOutbound(registry)
-}
-
-func registerPluginsDNSTransport(registry *dns.TransportRegistry) {
-	plugindns.RegisterTCP(registry)
-	plugindns.RegisterTLS(registry)
+	balancer.RegisterOutbound(registry)
 }

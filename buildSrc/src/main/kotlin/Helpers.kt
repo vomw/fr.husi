@@ -4,8 +4,15 @@ import com.android.build.api.dsl.ApplicationExtension
 import com.android.build.api.dsl.CommonExtension
 import com.android.build.api.variant.ApplicationAndroidComponentsExtension
 import org.gradle.api.JavaVersion
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.Project
+import org.gradle.api.provider.Property
+import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.Exec
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.TaskAction
 import org.gradle.kotlin.dsl.getByType
 import org.gradle.kotlin.dsl.register
 import java.io.File
@@ -20,62 +27,56 @@ private val Project.android: CommonExtension
 private val Project.androidApp: ApplicationExtension
     get() = extensions.getByType<ApplicationExtension>()
 
-private lateinit var metadata: Properties
-private lateinit var localProperties: Properties
-private lateinit var flavor: String
-
 fun Project.requireFlavor(): String {
-    if (::flavor.isInitialized) return flavor
     if (gradle.startParameter.taskNames.isNotEmpty()) {
         val taskName = gradle.startParameter.taskNames[0]
         when {
             taskName.contains("assemble") -> {
-                flavor = taskName.substringAfter("assemble")
-                return flavor
+                return taskName.substringAfter("assemble")
             }
 
             taskName.contains("install") -> {
-                flavor = taskName.substringAfter("install")
-                return flavor
+                return taskName.substringAfter("install")
             }
 
             taskName.contains("bundle") -> {
-                flavor = taskName.substringAfter("bundle")
-                return flavor
+                return taskName.substringAfter("bundle")
             }
         }
     }
 
-    flavor = ""
-    return flavor
+    return ""
 }
 
-fun Project.requireMetadata(): Properties {
-    if (!::metadata.isInitialized) {
-        metadata = Properties().apply {
-            load(rootProject.file("husi.properties").inputStream())
-        }
+private fun parseProperties(content: String): Properties =
+    Properties().also { properties ->
+        properties.load(content.byteInputStream())
     }
-    return metadata
-}
 
-@Suppress("NewApi")
-fun Project.requireLocalProperties(): Properties {
-    if (!::localProperties.isInitialized) {
-        localProperties = Properties()
+fun Project.requireMetadata(key: String): Provider<String> =
+    providers.fileContents(rootProject.layout.projectDirectory.file("husi.properties")).asText.map { content ->
+        parseProperties(content).getProperty(key)
+            ?: error("Missing '$key' in husi.properties.")
+    }
 
-        val base64 = System.getenv("LOCAL_PROPERTIES")
-        if (!base64.isNullOrBlank()) {
-            localProperties.load(Base64.getDecoder().decode(base64).inputStream())
+private fun Project.localProperties(): Provider<Properties> {
+    val localPropertiesFile = rootProject.layout.projectDirectory.file("local.properties")
+    val fromFile = providers.fileContents(localPropertiesFile).asText.orElse("").map(::parseProperties)
+    return providers.environmentVariable("LOCAL_PROPERTIES").flatMap { encoded ->
+        if (encoded.isBlank()) {
+            fromFile
         } else {
-            val localPropertiesFile = project.rootProject.file("local.properties")
-            if (localPropertiesFile.exists()) {
-                localProperties.load(localPropertiesFile.inputStream())
+            providers.provider {
+                Properties().also { properties ->
+                    properties.load(Base64.getDecoder().decode(encoded).inputStream())
+                }
             }
         }
-    }
-    return localProperties
+    }.orElse(fromFile)
 }
+
+fun Project.requireLocalProperty(key: String): Provider<String> =
+    localProperties().map { properties -> properties.getProperty(key) }.orElse("")
 
 fun Project.requireTargetAbi(): String {
     var targetAbi = ""
@@ -96,7 +97,11 @@ fun Project.requireTargetAbi(): String {
 fun Project.setupCommon() {
     android.apply {
         buildToolsVersion = "37.0.0"
-        compileSdk = 37
+        compileSdk {
+            version = release(37) {
+                minorApiLevel = 2
+            }
+        }
         defaultConfig.apply {
             minSdk = 24
         }
@@ -113,8 +118,6 @@ fun Project.setupCommon() {
             checkAllWarnings = true
             checkReleaseBuilds = false
             warningsAsErrors = true
-            textOutput = project.file("build/lint.txt")
-            htmlOutput = project.file("build/lint.html")
         }
         packaging.apply {
             resources.excludes.addAll(
@@ -137,7 +140,7 @@ fun Project.setupCommon() {
     }
     (android as? ApplicationExtension)?.apply {
         defaultConfig.apply {
-            targetSdk = 36
+            targetSdk = 37
         }
         buildTypes {
             getByName("release") {
@@ -159,16 +162,36 @@ fun Project.setupKotlinCommon() {
 fun Project.setupAppCommon() {
     setupKotlinCommon()
 
-    val lp = requireLocalProperties()
-    val keystorePwd = lp.getProperty("KEYSTORE_PASS") ?: System.getenv("KEYSTORE_PASS")
-    val alias = lp.getProperty("ALIAS_NAME") ?: System.getenv("ALIAS_NAME")
-    val pwd = lp.getProperty("ALIAS_PASS") ?: System.getenv("ALIAS_PASS")
+    val keystorePwd = requireLocalProperty("KEYSTORE_PASS").orNull?.ifBlank { null }
+        ?: providers.environmentVariable("KEYSTORE_PASS").orNull
+    val alias = requireLocalProperty("ALIAS_NAME").orNull?.ifBlank { null }
+        ?: providers.environmentVariable("ALIAS_NAME").orNull
+    val pwd = requireLocalProperty("ALIAS_PASS").orNull?.ifBlank { null }
+        ?: providers.environmentVariable("ALIAS_PASS").orNull
+
+    val keystoreFile = rootProject.file("release.keystore")
 
     androidApp.apply {
         if (keystorePwd != null) {
+            if (alias == null || pwd == null) {
+                error(
+                    "KEYSTORE_PASS is set but " +
+                            listOfNotNull(
+                                "ALIAS_NAME".takeIf { alias == null },
+                                "ALIAS_PASS".takeIf { pwd == null },
+                            ).joinToString(" and ") +
+                            " is missing. Set all three in local.properties or as environment variables."
+                )
+            }
+            if (!keystoreFile.isFile) {
+                error(
+                    "Signing keystore not found at ${keystoreFile.absolutePath}. " +
+                            "Replace it with your own release.keystore, see AGENTS.md."
+                )
+            }
             signingConfigs {
                 create("release") {
-                    storeFile = rootProject.file("release.keystore")
+                    storeFile = keystoreFile
                     storePassword = keystorePwd
                     keyAlias = alias
                     keyPassword = pwd
@@ -178,6 +201,21 @@ fun Project.setupAppCommon() {
                 }
             }
         } else if (requireFlavor().contains("FossRelease")) {
+            this@setupAppCommon.logger.error(
+                """
+                No signing keystore configured, aborting the FossRelease build.
+
+                A release build has to be signed. Provide these in local.properties
+                (or as environment variables) and put your keystore at
+                ${keystoreFile.absolutePath}:
+
+                    KEYSTORE_PASS=<keystore password>
+                    ALIAS_NAME=<key alias>
+                    ALIAS_PASS=<key password>
+
+                To build without signing, use a debug build instead: make apk_debug
+                """.trimIndent()
+            )
             exitProcess(0)
         }
         buildTypes {
@@ -193,9 +231,9 @@ fun Project.setupAppCommon() {
 }
 
 fun Project.setupApp() {
-    val pkgName = requireMetadata().getProperty("PACKAGE_NAME")
-    val verName = requireMetadata().getProperty("VERSION_NAME")
-    val verCode = requireMetadata().getProperty("VERSION_CODE").toInt()
+    val pkgName = requireMetadata("PACKAGE_NAME").get()
+    val verName = requireMetadata("VERSION_NAME").get()
+    val verCode = requireMetadata("VERSION_CODE").get().toInt()
     androidApp.apply {
         defaultConfig {
             applicationId = pkgName
@@ -247,8 +285,8 @@ fun Project.setupApp() {
 fun Project.setupPlugin(projectName: String) {
     val propPrefix = projectName.uppercase(Locale.ROOT)
     val projName = projectName.lowercase(Locale.ROOT)
-    val verName = requireMetadata().getProperty("${propPrefix}_VERSION_NAME").trim()
-    val verCode = requireMetadata().getProperty("${propPrefix}_VERSION").trim().toInt()
+    val verName = requireMetadata("${propPrefix}_VERSION_NAME").get().trim()
+    val verCode = requireMetadata("${propPrefix}_VERSION").get().trim().toInt()
 
     androidApp.apply {
         defaultConfig {
@@ -289,7 +327,10 @@ fun Project.setupPlugin(projectName: String) {
             create("foss")
         }
 
-        if (System.getenv("SKIP_BUILD") != "on" && System.getProperty("SKIP_BUILD_$propPrefix") != "on") {
+        if (
+            providers.environmentVariable("SKIP_BUILD").orNull != "on" &&
+            providers.systemProperty("SKIP_BUILD_$propPrefix").orNull != "on"
+        ) {
             if (targetAbi.isBlank()) {
                 tasks.register<Exec>("externalBuild") {
                     executable(rootProject.file("run"))
@@ -335,7 +376,7 @@ fun Project.setupPlugin(projectName: String) {
         )
     }
 
-    dependencies.add("implementation", project(":plugin:api"))
+    dependencies.add("implementation", dependencies.project(":plugin:api"))
 
 }
 
@@ -362,7 +403,7 @@ private fun Project.registerApkRenamer(
     }
 }
 
-fun Project.writePlatformInfo(
+private fun writePlatformInfo(
     outputDir: File,
     packageName: String,
     fileName: String,
@@ -387,4 +428,28 @@ fun Project.writePlatformInfo(
         |}
         """.trimMargin(),
     )
+}
+
+abstract class GeneratePlatformInfoTask : DefaultTask() {
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @get:Input
+    abstract val packageName: Property<String>
+
+    @get:Input
+    abstract val fileName: Property<String>
+
+    @get:Input
+    abstract val platform: Property<String>
+
+    @TaskAction
+    fun generate() {
+        writePlatformInfo(
+            outputDir = outputDir.get().asFile,
+            packageName = packageName.get(),
+            fileName = fileName.get(),
+            platform = platform.get(),
+        )
+    }
 }

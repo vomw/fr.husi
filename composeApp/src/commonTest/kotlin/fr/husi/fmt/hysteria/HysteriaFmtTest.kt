@@ -4,6 +4,8 @@ import fr.husi.database.DataStore
 import fr.husi.fmt.FmtTestConstant
 import fr.husi.fmt.SingBoxOptions
 import fr.husi.ktx.JSONMap
+import fr.husi.ktx.getBool
+import fr.husi.ktx.getIntOrNull
 import fr.husi.ktx.getObject
 import fr.husi.ktx.getStr
 import fr.husi.ktx.toJsonMapKxs
@@ -14,6 +16,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.test.runTest
 
 class HysteriaFmtTest : HusiKoinTest() {
 
@@ -166,6 +169,7 @@ class HysteriaFmtTest : HusiKoinTest() {
                 "insecure" to true,
                 "alpn" to listOf("hysteria"),
                 "certificate" to listOf("cert-1", "cert-2"),
+                "certificate_sha256" to listOf("pin-1", "pin-2"),
                 "certificate_public_key_sha256" to "sha-1",
             ),
         )
@@ -181,6 +185,7 @@ class HysteriaFmtTest : HusiKoinTest() {
         assertTrue(bean.allowInsecure)
         assertEquals("hysteria", bean.alpn)
         assertEquals("cert-1\ncert-2", bean.certificates)
+        assertEquals("pin-1\npin-2", bean.certificateSha256)
         assertEquals("sha-1", bean.certPublicKeySha256)
     }
 
@@ -213,7 +218,7 @@ class HysteriaFmtTest : HusiKoinTest() {
     }
 
     @Test
-    fun `buildSingBoxOutboundHysteriaBean hy1 should emit new QUIC field names and drop legacy`() {
+    fun `buildSingBoxOutboundHysteriaBean hy1 should emit new QUIC field names and drop legacy`() = runTest {
         val bean = HysteriaBean().apply {
             protocolVersion = HysteriaBean.PROTOCOL_VERSION_1
             serverAddress = "example.com"
@@ -225,6 +230,7 @@ class HysteriaFmtTest : HusiKoinTest() {
             keepAlivePeriod = "15s"
             maxConcurrentStreams = 128
             initialPacketSize = 1200
+            certificateSha256 = "pin-1\npin-2"
         }
 
         val outbound = assertIs<SingBoxOptions.Outbound_HysteriaOptions>(
@@ -242,10 +248,11 @@ class HysteriaFmtTest : HusiKoinTest() {
         assertNull(outbound.recv_window_conn)
         assertNull(outbound.recv_window)
         assertNull(outbound.disable_mtu_discovery)
+        assertEquals(listOf("pin-1", "pin-2"), assertNotNull(outbound.tls).certificate_sha256?.toList())
     }
 
     @Test
-    fun `buildSingBoxOutboundHysteriaBean hy1 should leave QUIC fields null when defaults`() {
+    fun `buildSingBoxOutboundHysteriaBean hy1 should leave QUIC fields null when defaults`() = runTest {
         val bean = HysteriaBean().apply {
             protocolVersion = HysteriaBean.PROTOCOL_VERSION_1
             serverAddress = "example.com"
@@ -263,10 +270,11 @@ class HysteriaFmtTest : HusiKoinTest() {
         assertNull(outbound.keep_alive_period)
         assertNull(outbound.max_concurrent_streams)
         assertNull(outbound.initial_packet_size)
+        assertNull(assertNotNull(outbound.tls).certificate_sha256)
     }
 
     @Test
-    fun `buildSingBoxOutboundHysteriaBean hy2 should emit QUIC fields`() {
+    fun `buildSingBoxOutboundHysteriaBean hy2 should emit QUIC fields`() = runTest {
         val bean = HysteriaBean().apply {
             protocolVersion = HysteriaBean.PROTOCOL_VERSION_2
             serverAddress = "example.com"
@@ -279,6 +287,7 @@ class HysteriaFmtTest : HusiKoinTest() {
             keepAlivePeriod = "15s"
             maxConcurrentStreams = 128
             initialPacketSize = 1200
+            certificateSha256 = "pin-1\npin-2"
         }
 
         val outbound = assertIs<SingBoxOptions.Outbound_Hysteria2Options>(
@@ -292,6 +301,7 @@ class HysteriaFmtTest : HusiKoinTest() {
         assertEquals("15s", outbound.keep_alive_period)
         assertEquals(128, outbound.max_concurrent_streams)
         assertEquals(1200, outbound.initial_packet_size)
+        assertEquals(listOf("pin-1", "pin-2"), assertNotNull(outbound.tls).certificate_sha256?.toList())
     }
 
     @Test
@@ -304,11 +314,13 @@ class HysteriaFmtTest : HusiKoinTest() {
             keepAlivePeriod = "15s"
             maxConcurrentStreams = 128
             initialPacketSize = 1200
+            certificateSha256 = "pin-1\npin-2"
         }
 
         val restored = source.clone()
 
         assertEquals("30s", restored.idleTimeout)
+        assertEquals("pin-1\npin-2", restored.certificateSha256)
         assertEquals("15s", restored.keepAlivePeriod)
         assertEquals(128, restored.maxConcurrentStreams)
         assertEquals(1200, restored.initialPacketSize)
@@ -381,7 +393,7 @@ class HysteriaFmtTest : HusiKoinTest() {
     }
 
     @Test
-    fun `canUseSingBox should be true when hy2 obfs is gecko`() {
+    fun `canUseSingBox should be true when hy2 obfs is gecko`() = runTest {
         val bean = HysteriaBean().apply {
             protocolVersion = HysteriaBean.PROTOCOL_VERSION_2
             obfsType = HysteriaBean.OBFS_TYPE_GECKO
@@ -392,7 +404,7 @@ class HysteriaFmtTest : HusiKoinTest() {
     }
 
     @Test
-    fun `canUseSingBox should be true when hy2 obfs is salamander`() {
+    fun `canUseSingBox should be true when hy2 obfs is salamander`() = runTest {
         val bean = HysteriaBean().apply {
             protocolVersion = HysteriaBean.PROTOCOL_VERSION_2
             obfsType = HysteriaBean.OBFS_TYPE_SALAMANDER
@@ -403,7 +415,7 @@ class HysteriaFmtTest : HusiKoinTest() {
     }
 
     @Test
-    fun `buildSingBoxOutboundHysteriaBean hy2 should emit gecko obfs with packet sizes`() {
+    fun `buildSingBoxOutboundHysteriaBean hy2 should emit gecko obfs with packet sizes`() = runTest {
         val bean = HysteriaBean().apply {
             protocolVersion = HysteriaBean.PROTOCOL_VERSION_2
             serverAddress = "example.com"
@@ -428,7 +440,7 @@ class HysteriaFmtTest : HusiKoinTest() {
     }
 
     @Test
-    fun `buildSingBoxOutboundHysteriaBean hy2 should leave gecko sizes null for salamander`() {
+    fun `buildSingBoxOutboundHysteriaBean hy2 should leave gecko sizes null for salamander`() = runTest {
         val bean = HysteriaBean().apply {
             protocolVersion = HysteriaBean.PROTOCOL_VERSION_2
             serverAddress = "example.com"
@@ -542,5 +554,75 @@ class HysteriaFmtTest : HusiKoinTest() {
         val gecko = obfs.getObject(HysteriaBean.OBFS_TYPE_GECKO)
         assertNotNull(gecko)
         assertEquals("pwd", gecko.getStr("password"))
+    }
+
+    @Test
+    fun `buildHysteriaConfig hy2 should emit disableChromeParrot under quic`() {
+        val bean = HysteriaBean().apply {
+            protocolVersion = HysteriaBean.PROTOCOL_VERSION_2
+            serverAddress = "example.com"
+            serverPorts = "9443"
+            authPayload = "secret"
+            disableChromeParrot = true
+        }
+
+        val json = bean.buildHysteriaConfig(port = 1080, shouldProtect = false, cacheFile = null)
+        val map = json.toJsonMapKxs()
+
+        val quic = map.getObject("quic")
+        assertNotNull(quic)
+        assertEquals(true, quic.getBool("disableChromeParrot"))
+    }
+
+    @Test
+    fun `buildHysteriaConfig hy2 should emit receive windows, timeouts and mtu discovery under quic`() {
+        val bean = HysteriaBean().apply {
+            protocolVersion = HysteriaBean.PROTOCOL_VERSION_2
+            serverAddress = "example.com"
+            serverPorts = "9443"
+            authPayload = "secret"
+            streamReceiveWindow = 8388608
+            connectionReceiveWindow = 20971520
+            idleTimeout = "30s"
+            keepAlivePeriod = "10s"
+            disableMtuDiscovery = true
+        }
+
+        val json = bean.buildHysteriaConfig(port = 1080, shouldProtect = false, cacheFile = null)
+        val map = json.toJsonMapKxs()
+
+        val quic = map.getObject("quic")
+        assertNotNull(quic)
+        assertEquals(8388608, quic.getIntOrNull("initStreamReceiveWindow"))
+        assertEquals(20971520, quic.getIntOrNull("initConnReceiveWindow"))
+        assertEquals("30s", quic.getStr("maxIdleTimeout"))
+        assertEquals("10s", quic.getStr("keepAlivePeriod"))
+        assertEquals(true, quic.getBool("disablePathMTUDiscovery"))
+    }
+
+    @Test
+    fun `buildHysteriaConfig hy2 should omit quic when disableChromeParrot is false and not protecting`() {
+        val bean = HysteriaBean().apply {
+            protocolVersion = HysteriaBean.PROTOCOL_VERSION_2
+            serverAddress = "example.com"
+            serverPorts = "9443"
+            authPayload = "secret"
+            disableChromeParrot = false
+        }
+
+        val json = bean.buildHysteriaConfig(port = 1080, shouldProtect = false, cacheFile = null)
+        val map = json.toJsonMapKxs()
+
+        assertNull(map.getObject("quic"))
+    }
+
+    @Test
+    fun `canUseSingBox should be true when hy2 disableChromeParrot is enabled`() = runTest {
+        val bean = HysteriaBean().apply {
+            protocolVersion = HysteriaBean.PROTOCOL_VERSION_2
+            disableChromeParrot = true
+        }
+
+        assertTrue(bean.canUseSingBox())
     }
 }

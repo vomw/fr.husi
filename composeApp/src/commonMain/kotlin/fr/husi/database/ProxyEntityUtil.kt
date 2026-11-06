@@ -7,8 +7,11 @@ import fr.husi.database.ProxyEntity.Companion.TYPE_DIRECT
 import fr.husi.database.ProxyEntity.Companion.TYPE_HTTP
 import fr.husi.database.ProxyEntity.Companion.TYPE_HYSTERIA
 import fr.husi.database.ProxyEntity.Companion.TYPE_JUICITY
+import fr.husi.database.ProxyEntity.Companion.TYPE_MASQUE
 import fr.husi.database.ProxyEntity.Companion.TYPE_MIERU
 import fr.husi.database.ProxyEntity.Companion.TYPE_NAIVE
+import fr.husi.database.ProxyEntity.Companion.TYPE_OPENCONNECT
+import fr.husi.database.ProxyEntity.Companion.TYPE_OPENVPN
 import fr.husi.database.ProxyEntity.Companion.TYPE_PROXY_SET
 import fr.husi.database.ProxyEntity.Companion.TYPE_SHADOWQUIC
 import fr.husi.database.ProxyEntity.Companion.TYPE_SHADOWTLS
@@ -16,6 +19,8 @@ import fr.husi.database.ProxyEntity.Companion.TYPE_SNELL
 import fr.husi.database.ProxyEntity.Companion.TYPE_SOCKS
 import fr.husi.database.ProxyEntity.Companion.TYPE_SS
 import fr.husi.database.ProxyEntity.Companion.TYPE_SSH
+import fr.husi.database.ProxyEntity.Companion.TYPE_TAILCAT
+import fr.husi.database.ProxyEntity.Companion.TYPE_TAILSCALE
 import fr.husi.database.ProxyEntity.Companion.TYPE_TROJAN
 import fr.husi.database.ProxyEntity.Companion.TYPE_TRUST_TUNNEL
 import fr.husi.database.ProxyEntity.Companion.TYPE_TUIC
@@ -39,6 +44,11 @@ fun ProxyEntity.displayType(): String = when (type) {
     TYPE_HYSTERIA -> "Hysteria" + hysteriaBean!!.protocolVersion
     TYPE_SSH -> "SSH"
     TYPE_WG -> "WireGuard"
+    TYPE_OPENCONNECT -> "OpenConnect"
+    TYPE_OPENVPN -> "OpenVPN"
+    TYPE_MASQUE -> "MASQUE"
+    TYPE_TAILSCALE -> "Tailscale"
+    TYPE_TAILCAT -> "Tailcat"
     TYPE_TUIC -> "TUIC"
     TYPE_JUICITY -> "Juicity"
     TYPE_SHADOWTLS -> "ShadowTLS"

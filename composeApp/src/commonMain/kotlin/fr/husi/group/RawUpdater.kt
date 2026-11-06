@@ -1,25 +1,29 @@
 package fr.husi.group
 
-import fr.husi.database.DataStore
 import fr.husi.database.ProxyGroup
 import fr.husi.database.SubscriptionBean
 import fr.husi.fmt.AbstractBean
 import fr.husi.fmt.hysteria.parseHysteria1Json
+import fr.husi.fmt.openconnect.parseOpenConnectConfig
+import fr.husi.fmt.openvpn.looksLikeOpenVPNConfig
+import fr.husi.fmt.openvpn.parseOpenVPNConfig
 import fr.husi.fmt.parseOutbound
 import fr.husi.fmt.shadowsocks.parseShadowsocks
 import fr.husi.fmt.v2ray.StandardV2RayBean
-import fr.husi.fmt.wireguard.WireGuardBean
+import fr.husi.fmt.wireguard.parseWireGuardConfig
 import fr.husi.ktx.JSONMap
 import fr.husi.ktx.Logs
 import fr.husi.ktx.SubscriptionFoundException
-import fr.husi.ktx.applyDefaultValues
 import fr.husi.ktx.b64DecodeToString
-import fr.husi.ktx.generateUserAgent
+import fr.husi.ktx.blankAsNull
 import fr.husi.ktx.isIpAddress
 import fr.husi.ktx.kxs
 import fr.husi.ktx.parseProxies
 import fr.husi.ktx.toJsonMapKxs
-import fr.husi.libcore.resolveHttpClientFactory
+import fr.husi.net.HttpFetchRequest
+import fr.husi.net.buildUserAgent
+import fr.husi.net.localSocks5Proxy
+import fr.husi.net.resolveHttpFetcher
 import fr.husi.repository.resolveRepository
 import fr.husi.resources.Res
 import fr.husi.resources.no_proxies_found
@@ -28,8 +32,6 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import org.ini4j.Ini
-import java.io.StringReader
 
 @Suppress("EXPERIMENTAL_API_USAGE", "UNCHECKED_CAST")
 object RawUpdater : GroupUpdater() {
@@ -46,23 +48,15 @@ object RawUpdater : GroupUpdater() {
         if (subscription.link.startsWith("content://")) {
             contentText = readContentUri(subscription.link) ?: errNotFound()
         } else {
-            val response = resolveHttpClientFactory().newHttpClient().apply {
-                if (DataStore.serviceState.connected) {
-                    useSocks5(
-                        DataStore.mixedPort,
-                        DataStore.inboundUsername,
-                        DataStore.inboundPassword,
-                    )
-                }
-                if (subscription.ageIdentity.isNotBlank()) {
-                    setAgeKey(subscription.ageIdentity)
-                }
-            }.newRequest().apply {
-                setURL(subscription.link)
-                setUserAgent(generateUserAgent(subscription.customUserAgent))
-            }.execute()
-            contentText = response.contentString
-            userInfo = response.getHeader("Subscription-Userinfo")
+            val request = HttpFetchRequest(
+                url = subscription.link,
+                userAgent = buildUserAgent(subscription.customUserAgent),
+                socks5 = localSocks5Proxy(),
+                ageIdentities = subscription.ageIdentity.blankAsNull(),
+            )
+            val response = resolveHttpFetcher().fetchText(request)
+            contentText = response.content
+            userInfo = response.header("Subscription-Userinfo").orEmpty()
         }
 
         val proxies = parseRaw(contentText) ?: errNotFound()
@@ -102,10 +96,24 @@ object RawUpdater : GroupUpdater() {
 
         val proxies = mutableListOf<AbstractBean>()
 
+        runCatching {
+            parseOpenConnectConfig(text)
+        }.onSuccess { bean ->
+            if (fileName.isNotBlank()) bean.name = fileName.removeSuffix(".conf")
+            return listOf(bean)
+        }
+
+        if (looksLikeOpenVPNConfig(text)) {
+            parseOpenVPNConfig(text).let { bean ->
+                if (fileName.isNotBlank()) bean.name = fileName.removeSuffix(".ovpn")
+                return listOf(bean)
+            }
+        }
+
         if (text.contains("[Interface]")) {
             // wireguard
             try {
-                val beans = parseWireGuard(text)
+                val beans = parseWireGuardConfig(text)
                 val hasFileName = fileName.isNotBlank()
                 for ((i, bean) in beans.withIndex()) {
                     if (hasFileName) bean.name = bean.name.removeSuffix(".conf")
@@ -146,46 +154,6 @@ object RawUpdater : GroupUpdater() {
         }
 
         return null
-    }
-
-    fun parseWireGuard(conf: String): List<WireGuardBean> {
-        val ini = Ini(StringReader(conf))
-        val iface = ini["Interface"] ?: error("Missing 'Interface' selection")
-        val bean = WireGuardBean().applyDefaultValues()
-        val localAddresses = iface.getAll("Address")
-        if (localAddresses.isNullOrEmpty()) error("Empty address in 'Interface' selection")
-        bean.localAddress = localAddresses.flatMap {
-            it.split(",").map { address ->
-                address.trim()
-            }
-        }.joinToString("\n")
-        bean.privateKey = iface["PrivateKey"].orEmpty()
-        bean.mtu = iface["MTU"]?.toIntOrNull() ?: 1408
-        bean.listenPort = iface["ListenPort"]?.toIntOrNull() ?: 0
-        val peers = ini.getAll("Peer")
-        if (peers.isNullOrEmpty()) error("Missing 'Peer' selections")
-        val beans = mutableListOf<WireGuardBean>()
-        loopPeer@ for (peer in peers) {
-            val peerBean = bean.clone()
-            for ((keyName, keyValue) in peer) {
-                when (keyName.lowercase()) {
-                    "endpoint" -> {
-                        peerBean.serverPort = keyValue.substringAfterLast(":", "").toIntOrNull()
-                            ?: continue@loopPeer
-                        peerBean.serverAddress = keyValue.substringBeforeLast(":")
-                    }
-
-                    "publickey" -> peerBean.publicKey = keyValue ?: continue@loopPeer
-                    "presharedkey" -> peerBean.preSharedKey = keyValue
-                    "persistentkeepalive" -> {
-                        peerBean.persistentKeepaliveInterval = keyValue.toIntOrNull() ?: 0
-                    }
-                }
-            }
-            beans.add(peerBean.applyDefaultValues())
-        }
-        if (beans.isEmpty()) error("Empty available peer list")
-        return beans
     }
 
     fun parseJSON(element: JsonElement): List<AbstractBean> {

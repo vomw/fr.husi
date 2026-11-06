@@ -1,11 +1,12 @@
 package fr.husi.fmt.shadowquic
 
 import kotlinx.serialization.Serializable as KxsSerializable
-import com.esotericsoftware.kryo.io.ByteBufferInput
-import com.esotericsoftware.kryo.io.ByteBufferOutput
 import fr.husi.fmt.AbstractBean
-import fr.husi.fmt.KryoConverters
+import fr.husi.fmt.BeanConverters
 import fr.husi.fmt.ValidateResult
+import fr.husi.io.BinaryInput
+import fr.husi.io.BinaryOutput
+import fr.husi.platform.PlatformInfo
 import fr.husi.resources.Res
 import fr.husi.resources.warn_quic_0_rtt
 
@@ -50,6 +51,8 @@ class ShadowQUICBean : AbstractBean() {
     var maxPaths: Int = 0
     var certificates: String = ""
 
+    override val canSelfProtect get() = PlatformInfo.isAndroid
+
     override fun isInsecure(): ValidateResult {
         val result = super.isInsecure()
         if (shouldReturnFromInsecureCheck(result)) return result
@@ -58,7 +61,7 @@ class ShadowQUICBean : AbstractBean() {
         return ValidateResult.Secure.Continue
     }
 
-    override fun serialize(output: ByteBufferOutput) {
+    override fun serialize(output: BinaryOutput) {
         output.writeInt(4)
         super.serialize(output)
         output.writeString(password)
@@ -88,7 +91,7 @@ class ShadowQUICBean : AbstractBean() {
         output.writeBoolean(blackholeDetection)
     }
 
-    override fun deserialize(input: ByteBufferInput) {
+    override fun deserialize(input: BinaryInput) {
         val version = input.readInt()
         super.deserialize(input)
         password = input.readString()
@@ -140,7 +143,7 @@ class ShadowQUICBean : AbstractBean() {
     }
 
     override fun clone(): AbstractBean {
-        return KryoConverters.deserialize(ShadowQUICBean(), KryoConverters.serialize(this))
+        return BeanConverters.deserialize(ShadowQUICBean(), BeanConverters.serialize(this))
     }
 
     override val defaultPort get() = 443

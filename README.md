@@ -1,26 +1,7 @@
-<a href="https://apt.izzysoft.de/fdroid/index/apk/fr.husi/">
-    <img src="https://gitlab.com/IzzyOnDroid/repo/-/raw/master/assets/IzzyOnDroid.png"
-    alt="Get it on IzzyOnDroid"
-    height="80">
-</a>
-
-We have migrated to [codeberg](https://codeberg.org/xchacha20-poly1305/husi)!
-
 # Husi (虎兕)
 
-Husi is a non-professional and recreational proxy tool integration, aiming at promoting proxy customization.
+Husi is a non-professional proxy-set-based multiplatform proxy tool set.
 
-## 🗣️ Alert
-
-In August 2025, Google [announced](https://developer.android.com/developer-verification) that as of September 2026, it will no longer be possible to develop apps for the Android platform without first registering centrally with Google. This registration will involve:
-
-- Paying a fee to Google
-- Agreeing to Google’s Terms and Conditions
-- Providing government identification
-- Uploading evidence of the developer’s private signing key
-- Listing all current and future application identifiers
-
-As a free software, husi will never submit to Google. Visit [Keep Android Open](https://keepandroidopen.org/) to defend the openness!
 
 ## 🛠️ Contribution
 
@@ -45,7 +26,7 @@ as [version.sh](./buildScript/init/version.sh).
 #### 🧰 Get the Source Code
 
 ```shell
-git clone https://codeberg.org/xchacha20-poly1305/husi.git --depth=1
+git clone https://github.com/xchacha20-poly1305/husi.git --depth=1
 cd husi/
 ./run lib source # Will help you to get submodules
 ```
@@ -78,76 +59,62 @@ make libcore_android
 
 This will generate `composeApp/libs/libcore.aar`.
 
-For desktop, build libcore for your host platform:
+For desktop, build the `husi-core` binary for your host platform:
 
 ```shell
-make libcore
+make core_desktop
 ```
 
-This will generate `composeApp/libs/libcore-desktop-<host-platform>-<host-arch>.jar`.
+This will generate `libcore/build/<host-platform>_<host-arch>/husi-core`, plus `libcronet.so` or
+`libcronet.dll` beside it on Linux and Windows. The desktop app runs the core as this separate process;
+the JVM side loads no Go code.
 
 Or for specific targets:
 
 ```shell
-make libcore_desktop DESKTOP_TARGETS=linux/amd64,darwin/arm64
-```
-
-If desktop build needs an explicit JNI headers directory, pass `JNI_INCLUDE`:
-
-```shell
-make libcore_desktop DESKTOP_TARGETS=linux/amd64 JNI_INCLUDE=/path/to/jni
+make core_desktop DESKTOP_TARGETS=linux/amd64,darwin/arm64
 ```
 
 For Darwin targets on non-Darwin hosts, also pass the macOS SDK explicitly:
 
 ```shell
-make libcore_desktop DESKTOP_TARGETS=darwin/arm64 JNI_INCLUDE=/path/to/jni DARWIN_SDK=/path/to/MacOSX.sdk
+make core_desktop DESKTOP_TARGETS=darwin/arm64 DARWIN_SDK=/path/to/MacOSX.sdk
 ```
 
 Common desktop targets:
 
 * `linux/amd64`
 * `linux/arm64`
-* `darwin/amd64`
 * `darwin/arm64`
 
-For Linux desktop targets, the build includes `with_naive_outbound` and consults a
-[`cronet-go`](https://github.com/sagernet/cronet-go) checkout via `build-naive env`. If `CRONET_GO_ROOT` is unset,
-`libcore/build.sh` first checks `../../cronet-go`, then falls back to `$HOME/cronet-go`:
+`darwin/amd64` is no longer supported and `windows/arm64` is temporarily not shipped: androidx
+sqlite-bundled has no binary for them, so the app cannot open its database there. See
+[issuetracker 495864182](https://issuetracker.google.com/issues/495864182) for `osx_x64` and
+[issuetracker 426464784](https://issuetracker.google.com/issues/426464784) for `windows_arm64`.
 
-```shell
-CRONET_GO_ROOT=/path/to/cronet-go make libcore
-```
+Linux and Windows targets build without cgo, so they need no C toolchain: `husi-core` loads the
+prebuilt Cronet shared library (glibc 2.17 or newer on Linux) from its own directory at runtime, and
+`make core_desktop` copies it there from the Go module cache. Keep the two files together. Darwin
+targets link Cronet through cgo: they use Xcode on macOS, or Zig plus an explicit macOS SDK path via
+`DARWIN_SDK` or `--darwinsdk` on other hosts.
 
-For Linux targets, `cronet-go` exports the naiveproxy cross-toolchain environment directly.
-For Darwin targets on a Darwin host, `libcore/build.sh` keeps `with_naive_outbound` and derives `CC`/`CXX`/`CGO_*`
-from the Chromium clang and hermetic Xcode toolchain inside the `cronet-go` checkout. If the Darwin SDK/linker tree
-is missing, the desktop build fails immediately.
-For Darwin targets on non-Darwin hosts, `libcore/build.sh` uses `zig cc` / `zig c++`, requires an explicit macOS SDK
-path via `DARWIN_SDK` or `--darwinsdk`, exports the matching `CGO_*` sysroot/library flags, keeps
-`with_naive_outbound`, and does not require a `cronet-go` checkout, so `zig` must be available in `PATH`.
-
-Desktop Gradle builds select `composeApp/libs/libcore-desktop-<platform>-<arch>.jar` automatically from the current
-`os.name` and `os.arch`.
-
-You can override it explicitly:
+Desktop Gradle builds pick the target from the current `os.name` and `os.arch`. You can override it explicitly:
 
 ```shell
 ./gradlew -p composeApp run -PdesktopTarget=linux/amd64
 ```
 
-If the selected jar is missing, the build fails immediately.
+`gradlew run` finds `husi-core` under `libcore/build/<os>_<arch>/`, next to a packaged launcher, or on `PATH`.
 
 If you run `libcore/build.sh` directly:
 
 * `--android`: build Android only
-* `--desktop`: build desktop only (default target: `host`)
+* `--desktop`: build the desktop `husi-core` binary only (default target: `host`)
 * `--android --desktop`: build both
-* `--jniinclude <path>`: pass JNI headers include path to desktop `anja bind -target=jvm`
 * `--darwinsdk <path>`: pass a macOS SDK path for Darwin desktop targets on non-Darwin hosts
 * no platform args: defaults to Android only
 
-If anja is not in GOPATH, it will be automatically downloaded and compiled.
+The Android build installs the `gomobile` and `gobind` versions pinned in `libcore/go.mod`.
 
 #### 🎀 Rename package name (optional)
 
@@ -158,7 +125,7 @@ If you don't want to use the same package name, you can run `./run rename target
 Environment:
 
 * jdk-21
-* ndk 29.0.14206865
+* ndk 30.0.16248370
 
 If the environment variables `$ANDROID_HOME` and `$ANDROID_NDK_HOME` are not set, source
 `buildScript/init/env_ndk.sh` to set them:
@@ -211,7 +178,7 @@ The APK file will be located in `androidApp/build/outputs/apk`.
 Environment:
 
 * jdk-21
-* zig 0.16
+* zig 0.17
 
 Run the desktop application:
 
@@ -241,7 +208,7 @@ This dispatches to the host-native packaging flow:
 * macOS: `make desktop_package_macos`
 * Windows/MSYS: `make desktop_package_windows`
 
-Build an **uber JAR** that runs on system Java (no bundled JRE/runtime image):
+Build a ProGuard-shrunk **uber JAR** that runs on system Java (no bundled JRE/runtime image):
 
 ```shell
 make desktop_uberjar
@@ -282,6 +249,56 @@ You can select target formats:
 make desktop_package_linux LINUX_PACKAGE_FORMATS=deb,pacman
 ```
 
+### Installing without root
+
+`deb`, `rpm` and `pacman` all need a package manager and therefore root. Two other
+formats do not, which is what makes husi usable on a managed machine — a lab, a
+work laptop, a school computer:
+
+`tarball` is the relocatable app subtree as a `.tar.zst`. It needs `tar` and
+`zstd` to build, and unpacks to a directory holding the jar, the launcher,
+`husi-core` and its own installer:
+
+```shell
+./install.sh                     # installs under ~/.local, no root anywhere
+./install.sh --with-daemon       # ... and installs the daemon too, via pkexec
+./install.sh --prefix /opt/husi  # or somewhere else entirely
+```
+
+`install.sh` copies the tree to `<prefix>/lib`, symlinks `<prefix>/bin`, and
+registers a desktop entry and icon under `$XDG_DATA_HOME` with absolute paths, so
+the application menu and the URL schemes work whether or not `<prefix>/bin` is on
+`PATH`. It leaves a matching `uninstall.sh` next to the installed tree. Without
+`--with-daemon` nothing ever asks for privileges; husi still runs as a local
+proxy, and only TUN needs the daemon, which Settings can install later.
+
+`appimage` is a single self-contained file. Unlike every other Linux format it
+bundles its own Java runtime — linked with `jlink` from the JDK modules the app
+actually uses (the module list is shared with the Windows JBR packages, in
+[`release/desktop/jre-modules.sh`](release/desktop/jre-modules.sh)) — so it does not require a system Java 21 at all. Its glibc floor
+comes from that bundled runtime rather than from the launcher, which is static
+musl. Like the Windows packages it links the [JetBrains Runtime](#-packages-with-a-bundled-runtime)
+modules pinned by `JBR_RELEASE`, fetched into `build/jbr/` for the target architecture on demand, since `jlink` links a
+runtime for the target, not for the host. Building one additionally needs `jlink`, `appimagetool` and an `objcopy`
+for the target architecture:
+
+```shell
+make desktop_package_linux DESKTOP_TARGET=linux/arm64 \
+    LINUX_PACKAGE_FORMATS=appimage \
+    APPIMAGE_RUNTIME=/path/to/runtime-aarch64
+# or with modules you already have: JBR_JMODS=/path/to/jbrsdk/jmods
+```
+
+Neither format is built by default, but releases ship both.
+
+The daemon is the one privileged piece in all of this. The native packages install
+and enable it themselves; everywhere else it is an explicit, optional step, either
+`--with-daemon`, the Settings entry, or `husi-core service install` as root. The
+first two go through `pkexec` and so need polkit. The native packages also ship a
+polkit action for this, so the prompt names the daemon instead of showing a raw
+binary path; the tarball and AppImage keep the generic pkexec prompt, because
+their `husi-core` sits under a user-writable prefix.
+
 Linux desktop data directory is `$XDG_CONFIG_HOME/husi/` if set, otherwise
 `$HOME/.config/husi/`.
 
@@ -300,7 +317,12 @@ make launcher
 
 The default packaging flow runs `make launcher` first, then `package.sh` consumes that binary.
 Zig targets musl by default for static linking; no external C toolchain is needed.
-Package install scripts call `setcap` on the launcher so capabilities can be raised to ambient set before starting the JVM.
+The launcher runs unprivileged. Privileges live in the separate `husi-core`
+daemon (`husi-core service install`; systemd / launchd / Windows SCM service
+`husi-daemon`). Without a daemon the UI falls back to an unprivileged session
+host; TUN requires the daemon.
+
+`husi-core` is a Go binary built from `libcore/cmd/husi-core` by `make core_desktop`.
 
 You can preflight required tooling without producing packages:
 
@@ -362,6 +384,7 @@ Required host tools:
 * `git`
 * `python3`
 * `makensis` (NSIS)
+* `osslsigncode` (unless building with `WINDOWS_NO_SIGN=1`, see below)
 
 Default output directory:
 
@@ -374,9 +397,87 @@ Outputs:
 * `<PACKAGE_NAME>-<VERSION_NAME>-windows-<arch>.zip`
 * `<PACKAGE_NAME>-<VERSION_NAME>-windows-<arch>-installer.exe`
 
-The installer is a per-user NSIS installer that installs into `%LOCALAPPDATA%\Programs\Husi`,
-creates a Start Menu shortcut, and registers the configured URL schemes for the current user.
-The Windows launcher embeds an application manifest and requests administrator elevation via UAC at launch time.
+The installer is a per-user NSIS installer that installs into `%LOCALAPPDATA%\Programs\Husi`, creates a Start Menu
+shortcut, and registers the configured URL schemes for the current user. The Windows launcher is unprivileged.
+Privileges live in the `husi-core` daemon installed as a Windows service (`husi-core service install`); TUN requires the
+daemon. Without it the UI falls back to an unprivileged session host.
+
+The UI and the daemon therefore install to **two different places**, and both hold a copy of `husi-core.exe`:
+
+| What                                           | Where                          | Installed by                               |
+|------------------------------------------------|--------------------------------|--------------------------------------------|
+| UI (launcher, jar, and the core it ships)      | `%LOCALAPPDATA%\Programs\Husi` | the NSIS installer, per user, no elevation |
+| Daemon (the core the service runs)             | `%ProgramFiles%\husi`          | `husi-core service install`, elevated      |
+| Daemon state (snapshots, ownership)            | `%ProgramData%\husi`           | the daemon itself                          |
+
+The installer runs `husi-core.exe service install` from its own directory at the end, so the per-user copy is what seeds
+the Program Files copy — that is why the same file exists twice. The uninstaller reverses both, calling
+`husi-core.exe service uninstall` before removing its own directory. It does not pass `--purge`, so `%ProgramData%\husi`
+survives an uninstall; remove it by hand, or run `husi-core service uninstall --purge` yourself beforehand.
+
+##### ☕ Packages with a bundled runtime
+
+Both of the above ask the machine for a Java 21. A second pair does not.
+`make desktop_package_windows_jbr` still writes the thin zip and installer from
+the same signed payloads, and additionally:
+
+```shell
+make desktop_package_windows_jbr DESKTOP_TARGET=windows/amd64
+```
+
+* `<PACKAGE_NAME>-<VERSION_NAME>-windows-<arch>-jbr.zip`
+* `<PACKAGE_NAME>-<VERSION_NAME>-windows-<arch>-jbr-installer.exe`
+
+These carry a `runtime\` directory next to the launcher, linked with `jlink` from the modules of the
+[JetBrains Runtime](https://github.com/JetBrains/JetBrainsRuntime) — the JDK IntelliJ ships, whose Skia, HiDPI and font
+rendering work is exactly what Compose Desktop wants. The launcher prefers that runtime over anything installed on the
+machine; only the `JAVA` environment variable overrides it.
+
+The modules are fetched into `build/jbr/` on demand, pinned by `JBR_RELEASE` in
+`buildScript/init/version.sh`. Fetch them yourself, or point the packaging at a copy you already have:
+
+```shell
+./run lib jbr windows/amd64
+make desktop_package_windows_jbr DESKTOP_TARGET=windows/amd64 JBR_JMODS=/path/to/jbrsdk/jmods
+```
+
+Building these additionally needs `jlink` on `PATH`. Its feature version has to be at least the JetBrains Runtime's —
+`jlink` cannot read modules newer than itself — which is why `JAVA_VERSION` is derived from `JBR_RELEASE`, and why CI
+builds with that same JetBrains Runtime (`./run lib jbr <host> --sdk` prints a ready `JAVA_HOME`). Nothing else about the
+host matters: `jlink` links an image for the platform its modules belong to, so the Windows runtime is linked on the
+Linux release runner like everything else.
+
+The bundled runtime is signed by JetBrains, not by this project; the code signing below covers our own payloads only.
+
+##### 🔏 Windows code signing
+
+Windows releases are Authenticode signed: the launcher, `husi-core.exe` and the installer all carry the **same
+self-signed certificate**, published as [`release/windows/husi-signing-cert.pem`](release/windows/husi-signing-cert.pem).
+Its fingerprints and how to check a download against it are in [`release/windows/README.md`](release/windows/README.md).
+
+Being self-signed, it earns no SmartScreen reputation — Windows still calls the publisher unknown, and that is expected.
+Nothing in husi checks the signature at runtime.
+
+**If you build Windows packages yourself, read this:**
+
+* Signing is **on by default** and packaging fails without a certificate. That is deliberate — an unsigned release
+  should never happen by accident. To build unsigned on purpose:
+
+  ```shell
+  make desktop_package_windows DESKTOP_TARGET=windows/amd64 WINDOWS_NO_SIGN=1
+  ```
+
+* To sign with a certificate of your own, mint a self-signed code signing certificate (see the Windows signing entry
+  in [AGENTS.md](AGENTS.md)) and point the packaging at it:
+
+  ```shell
+  export WINDOWS_SIGNING_P12=/path/to/your-signing.p12
+  export WINDOWS_SIGNING_P12_PASSWORD=...
+  make desktop_package_windows DESKTOP_TARGET=windows/amd64
+  ```
+
+* If you redistribute your build, say so. The published fingerprint above is how users tell an official release from a
+  rebuild, and nothing in husi makes that distinction for them.
 
 #### 🌈 Plugins
 
@@ -388,9 +489,17 @@ Plugin name list:
 
 * `hysteria2`
 * `juicity`
-* `naive` ( Deprecated. Build official repository directly, please. )
+* `naive` (Deprecated. Build official repository directly, please. )
 * `mieru`
 * `shadowquic`
+
+## 📲 Install
+
+### Android
+
+[![Get it on Obtainium](./docs/assets/badge_obtainium.png)](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22fr.husi%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2Fxchacha20-poly1305%2Fhusi%22%2C%22author%22%3A%22xchacha20-poly1305%22%2C%22name%22%3A%22husi%22%2C%22preferredApkIndex%22%3A0%2C%22additionalSettings%22%3A%22%7B%5C%22filterReleaseTitlesByRegEx%5C%22%3A%5C%22%5E%28%3F%21plugin-%29%5C%22%2C%5C%22includePrereleases%5C%22%3Afalse%7D%22%7D)
+
+Or [Pre-release](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22fr.husi%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2Fxchacha20-poly1305%2Fhusi%22%2C%22author%22%3A%22xchacha20-poly1305%22%2C%22name%22%3A%22husi%22%2C%22preferredApkIndex%22%3A0%2C%22additionalSettings%22%3A%22%7B%5C%22filterReleaseTitlesByRegEx%5C%22%3A%5C%22%5E%28%3F%21plugin-%29%5C%22%2C%5C%22includePrereleases%5C%22%3Atrue%7D%22%7D)
 
 ## 🏃‍♂️ Run
 
@@ -421,7 +530,7 @@ URLs to import.
 
 ## ☠️ End users
 
-[Wiki](https://codeberg.org/xchacha20-poly1305/husi/wiki)
+[Wiki](https://github.com/xchacha20-poly1305/husi/wiki)
 
 ## 📖 License
 
@@ -451,6 +560,8 @@ applicable MaxMind license terms.
 - [MetaCubeX/ClashMetaForAndroid](https://github.com/MetaCubeX/ClashMetaForAndroid)
 - [dyhkwong/Exclave](https://github.com/dyhkwong/Exclave)
 - [chen08209/FlClash](https://github.com/chen08209/FlClash)
+- [appshubcc/Bettbox](https://github.com/appshubcc/Bettbox)
+- [Zephyruso/zashboard](https://github.com/Zephyruso/zashboard)
 - [RikkaApps/RikkaX](https://github.com/RikkaApps/RikkaX)
 
 Developing

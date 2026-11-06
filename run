@@ -1,21 +1,28 @@
-#!/bin/bash
+#!/usr/bin/env bash
+
+set -euo pipefail
 
 EXEC=""
 TARGET="buildScript"
-declare -a PARAMS
-declare -i INDEX=0
+consumed_count=0
+script_argument_index=0
 
 for e in "$@"; do
   TARGET="$TARGET/$e"
-  PARAMS[$INDEX]="$e"
-  ((INDEX += 1))
-  shift
+  consumed_count=$((consumed_count + 1))
   if [ -x "${TARGET}.sh" ]; then
     EXEC="${TARGET}.sh"
-    PARAMS=()
-    INDEX=0
+    script_argument_index=$consumed_count
   fi
 done
 
+if [ -z "$EXEC" ]; then
+  echo "No script found under buildScript/ for: $*" >&2
+  exit 1
+fi
+
 echo ">> $EXEC"
-exec "$EXEC" "${PARAMS[@]}"
+# Forward the positional parameters instead of copying them into an array:
+# macOS ships bash 3.2, where an empty "${array[@]}" fails under `set -u`.
+shift "$script_argument_index"
+exec "$EXEC" "$@"

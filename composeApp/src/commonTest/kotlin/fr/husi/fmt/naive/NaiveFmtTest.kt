@@ -2,14 +2,17 @@ package fr.husi.fmt.naive
 
 import fr.husi.database.DataStore
 import fr.husi.fmt.FmtTestConstant
+import fr.husi.fmt.LOCALHOST4
 import fr.husi.fmt.SingBoxOptions
 import fr.husi.ktx.JSONMap
+import fr.husi.ktx.applyDefaultValues
 import fr.husi.ktx.toJsonMapKxs
 import fr.husi.test.HusiKoinTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlinx.coroutines.test.runTest
 
 class NaiveFmtTest : HusiKoinTest() {
 
@@ -39,7 +42,7 @@ class NaiveFmtTest : HusiKoinTest() {
     }
 
     @Test
-    fun `buildSingBoxOutboundNaiveBean should map https proto fields`() {
+    fun `buildSingBoxOutboundNaiveBean should map https proto fields`() = runTest {
         val bean = NaiveBean().apply {
             serverAddress = "example.com"
             serverPort = 443
@@ -61,12 +64,12 @@ class NaiveFmtTest : HusiKoinTest() {
         assertNull(outbound.quic)
 
         val tls = assertNotNull(outbound.tls)
-        assertEquals(tls.enabled, true)
+        assertEquals(true, tls.enabled)
         assertEquals("sni.example.com", tls.server_name)
     }
 
     @Test
-    fun `buildSingBoxOutboundNaiveBean should set quic fields for quic proto`() {
+    fun `buildSingBoxOutboundNaiveBean should set quic fields for quic proto`() = runTest {
         val bean = NaiveBean().apply {
             serverAddress = "example.com"
             serverPort = 443
@@ -78,12 +81,12 @@ class NaiveFmtTest : HusiKoinTest() {
 
         val outbound = buildSingBoxOutboundNaiveBean(bean)
 
-        assertEquals(outbound.quic, true)
+        assertEquals(true, outbound.quic)
         assertEquals("bbr", outbound.quic_congestion_control)
     }
 
     @Test
-    fun `buildSingBoxOutboundNaiveBean should omit insecure_concurrency when zero`() {
+    fun `buildSingBoxOutboundNaiveBean should omit insecure_concurrency when zero`() = runTest {
         val bean = NaiveBean().apply {
             serverAddress = "example.com"
             serverPort = 443
@@ -94,6 +97,52 @@ class NaiveFmtTest : HusiKoinTest() {
         val outbound = buildSingBoxOutboundNaiveBean(bean)
 
         assertNull(outbound.insecure_concurrency)
+    }
+
+    @Test
+    fun `buildNaiveConfig should resolve the server domain to its mapping inbound`() {
+        val bean = mappedNaiveBean(serverAddress = "example.com", sni = "")
+
+        val config = bean.buildNaiveConfig(1080).toJsonMapKxs()
+
+        assertEquals("MAP example.com $LOCALHOST4", config["host-resolver-rules"])
+        assertEquals("https://user:pass@example.com:$MAPPING_PORT", config["proxy"])
+    }
+
+    @Test
+    fun `buildNaiveConfig should prefer sni as the proxy host`() {
+        val bean = mappedNaiveBean(serverAddress = "2001:db8::1", sni = "sni.example.com")
+
+        val config = bean.buildNaiveConfig(1080).toJsonMapKxs()
+
+        assertEquals("MAP sni.example.com $LOCALHOST4", config["host-resolver-rules"])
+        assertEquals("https://user:pass@sni.example.com:$MAPPING_PORT", config["proxy"])
+    }
+
+    @Test
+    fun `buildNaiveConfig should leave the bean unchanged`() {
+        val bean = mappedNaiveBean(serverAddress = "2001:db8::1", sni = "sni.example.com")
+
+        bean.buildNaiveConfig(1080)
+        bean.buildNaiveConfig(1080)
+
+        assertEquals("2001:db8::1", bean.serverAddress)
+        assertEquals(LOCALHOST4, bean.finalAddress)
+        assertEquals(MAPPING_PORT, bean.finalPort)
+        assertEquals("naive+https://user:pass@[2001:db8::1]:443?sni=sni.example.com", bean.toUri())
+    }
+
+    /** A bean as ConfigBuilder leaves it after pointing the plugin at a mapping inbound. */
+    private fun mappedNaiveBean(serverAddress: String, sni: String) = NaiveBean().apply {
+        proto = "https"
+        this.serverAddress = serverAddress
+        serverPort = 443
+        username = "user"
+        password = "pass"
+        this.sni = sni
+    }.applyDefaultValues().apply {
+        finalAddress = LOCALHOST4
+        finalPort = MAPPING_PORT
     }
 
     @Test
@@ -162,3 +211,5 @@ class NaiveFmtTest : HusiKoinTest() {
         assertEquals("bbr", bean.quicCongestionControl)
     }
 }
+
+private const val MAPPING_PORT = 24226

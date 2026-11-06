@@ -1,20 +1,10 @@
-@file:OptIn(KoinExperimentalAPI::class)
+@file:OptIn(KoinExperimentalAPI::class, KoinDelicateAPI::class)
 
 package fr.husi.ui
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PlainTooltip
-import androidx.compose.material3.TooltipAnchorPosition
-import androidx.compose.material3.TooltipBox
-import androidx.compose.material3.TooltipDefaults
-import androidx.compose.material3.rememberTooltipState
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
@@ -22,31 +12,32 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
+import androidx.lifecycle.viewmodel.compose.rememberViewModelStoreOwner
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
-import fr.husi.AlertType
-import fr.husi.bg.Alert
 import fr.husi.bg.BackendState
 import fr.husi.bg.Executable
+import fr.husi.bg.ServiceAlert
 import fr.husi.bg.ServiceState
-import fr.husi.compose.BackHandler
+import fr.husi.compose.SagerFab
 import fr.husi.compose.ScrollableDialog
+import fr.husi.compose.SwipeableSnackbarHost
 import fr.husi.compose.TextButton
-import fr.husi.compose.material3.DrawerItem
 import fr.husi.compose.material3.Icon
-import fr.husi.compose.material3.IconButton
-import fr.husi.compose.material3.NavigationDrawer
+import fr.husi.compose.material3.NavigationSuite
+import fr.husi.compose.material3.NavigationSuiteItem
 import fr.husi.compose.material3.Text
-import fr.husi.compose.material3.rememberDrawerStateHolder
+import fr.husi.compose.navigationBarsAlwaysInsets
+import fr.husi.core.remote.RemoteControlManager
 import fr.husi.database.SagerDatabase
 import fr.husi.fmt.PluginEntry
 import fr.husi.ktx.restartApplication
@@ -60,79 +51,71 @@ import fr.husi.resources.access_local_network_denied
 import fr.husi.resources.action_download
 import fr.husi.resources.bug_report
 import fr.husi.resources.cancel
-import fr.husi.resources.close
-import fr.husi.resources.construction
-import fr.husi.resources.data_usage
 import fr.husi.resources.description
 import fr.husi.resources.directions
-import fr.husi.resources.document
 import fr.husi.resources.error
-import fr.husi.resources.fast_rewind
 import fr.husi.resources.have_a_nice_day
-import fr.husi.resources.info
 import fr.husi.resources.location_permission_description
 import fr.husi.resources.location_permission_title
-import fr.husi.resources.menu_about
 import fr.husi.resources.menu_configuration
 import fr.husi.resources.menu_dashboard
-import fr.husi.resources.menu_group
 import fr.husi.resources.menu_log
 import fr.husi.resources.menu_route
-import fr.husi.resources.menu_tools
 import fr.husi.resources.missing_plugin
-import fr.husi.resources.nfc
 import fr.husi.resources.no_thanks
+import fr.husi.resources.auth_later_hint
 import fr.husi.resources.ok
 import fr.husi.resources.permission_denied
-import fr.husi.resources.plugin
 import fr.husi.resources.plugin_unknown
 import fr.husi.resources.query_package_denied
 import fr.husi.resources.question_mark
+import fr.husi.resources.remote_connect_failed
+import fr.husi.resources.remote_disconnected_from
 import fr.husi.resources.settings
 import fr.husi.resources.transform
-import fr.husi.resources.view_list
 import fr.husi.resources.warning_amber
 import fr.husi.results.LocalResultEventBus
 import fr.husi.results.ResultEventBus
 import fr.husi.ui.configuration.ProfileSelectSheet
+import fr.husi.ui.dashboard.DashboardNoticeTracker
+import fr.husi.ui.remote.serverDisplayName
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.vectorResource
-import org.koin.compose.currentKoinScope
+import org.koin.compose.getKoin
+import org.koin.compose.koinInject
 import org.koin.compose.navigation3.EntryProvider
 import org.koin.compose.navigation3.koinEntryProvider
-import org.koin.compose.scope.KoinScope
-import org.koin.compose.viewmodel.koinViewModel
+import org.koin.compose.scope.UnboundKoinScope
+import org.koin.core.annotation.KoinDelicateAPI
 import org.koin.core.annotation.KoinExperimentalAPI
-import org.koin.core.parameter.parametersOf
 import org.koin.core.scope.Scope
-import kotlin.random.Random
+import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
 fun MainScreen(
     modifier: Modifier = Modifier,
-    moveToBackground: () -> Unit,
     initialProcessText: String? = null,
 ) {
-    val scopeId = remember {
-        "main-screen:${Random.nextLong()}"
-    }
-    KoinScope<MainScreenScope>(scopeID = scopeId) {
-        val mainScreenScope = currentKoinScope()
-        val viewModel = koinViewModel<MainViewModel>()
-        val entryProvider = koinEntryProvider<NavKey>(scope = mainScreenScope)
-        MainScreenContent(
-            modifier = modifier,
-            viewModel = viewModel,
-            moveToBackground = moveToBackground,
-            initialProcessText = initialProcessText,
-            koinScope = mainScreenScope,
-            entryProvider = entryProvider,
-        )
+    val koin = getKoin()
+    CompositionLocalProvider(
+        LocalViewModelStoreOwner provides rememberViewModelStoreOwner(),
+    ) {
+        val mainScreenScope = viewModel { MainScreenScopeHolder(koin) }.scope
+        UnboundKoinScope(mainScreenScope) {
+            val entryProvider = koinEntryProvider<NavKey>(scope = mainScreenScope)
+            MainScreenContent(
+                modifier = modifier,
+                viewModel = mainScreenScope.get<MainViewModel>(),
+                initialProcessText = initialProcessText,
+                koinScope = mainScreenScope,
+                entryProvider = entryProvider,
+            )
+        }
     }
 }
 
@@ -140,35 +123,35 @@ fun MainScreen(
 private fun MainScreenContent(
     modifier: Modifier = Modifier,
     viewModel: MainViewModel,
-    moveToBackground: () -> Unit,
     initialProcessText: String?,
     koinScope: Scope,
     entryProvider: EntryProvider<NavKey>,
 ) {
     val permission = LocalPermissionPlatform.current
     val uriHandler = LocalUriHandler.current
-    val scope = rememberCoroutineScope()
 
     val savedStateConfiguration = remember { NavRoutes.savedStateConfiguration }
     val backStack = rememberNavBackStack(savedStateConfiguration, NavRoutes.Configuration)
     val resultBus = remember { ResultEventBus() }
-    val drawerStateHolder = rememberDrawerStateHolder()
-    val navigator = remember(koinScope, backStack) {
-        koinScope.get<Navigator> {
-            parametersOf(backStack)
+    val navigator = remember(backStack) { Navigator(backStack) }
+    LaunchedEffect(navigator) {
+        PendingNavigation.routes.collect { route ->
+            if (navigator.currentRoute != route) {
+                navigator.navigateTo(route)
+            }
         }
     }
-    val selectedDrawerRoute = navigator.selectedDrawerRoute
-    val isAtStartDestination = navigator.isAtStartDestination
+    val selectedTopLevelRoute = navigator.selectedTopLevelRoute
     val serviceStatus by BackendState.status.collectAsStateWithLifecycle()
     val profilePickerController = remember(koinScope) {
         koinScope.get<ProfilePickerController>()
     }
-
-    fun closeDrawer() {
-        if (drawerStateHolder.canCollapse) {
-            scope.launch { drawerStateHolder.close() }
-        }
+    val snackbarEmitter = remember(koinScope) { koinScope.get<SnackbarEmitter>() }
+    val snackbarHostState = remember { SnackbarHostState() }
+    SnackbarEmitterEffect(snackbarEmitter, snackbarHostState)
+    var mainDialog by remember { mutableStateOf<MainAlertDialogEvent?>(null) }
+    LaunchedEffect(viewModel) {
+        viewModel.dialogEvent.collect { mainDialog = it }
     }
 
     /**
@@ -185,7 +168,7 @@ private fun MainScreenContent(
             permission.requestPermission(AppPermission.QueryInstalledApps) { granted ->
                 if (granted) runOnDefaultDispatcher {
                     resolveRepository().stopService()
-                    delay(500)
+                    delay(500.milliseconds)
                     SagerDatabase.instance.close()
                     Executable.killAll(true)
                     restartApplication()
@@ -215,21 +198,6 @@ private fun MainScreenContent(
         }
     }
 
-    BackHandler(enabled = true) {
-        when {
-            drawerStateHolder.canCollapse && drawerStateHolder.isOpen -> scope.launch { drawerStateHolder.close() }
-
-            !isAtStartDestination -> {
-                val popped = navigator.popBackStack()
-                if (!popped) {
-                    navigator.navigateToDrawerRoute(NavRoutes.Configuration)
-                }
-            }
-
-            else -> moveToBackground()
-        }
-    }
-
     LaunchedEffect(serviceStatus.state) {
         if (serviceStatus.state != ServiceState.Connected) {
             viewModel.resetUrlTestStatus()
@@ -242,157 +210,114 @@ private fun MainScreenContent(
         }
     }
 
-    var showServiceAlert by remember { mutableStateOf<Alert?>(null) }
+    var showServiceAlert by remember { mutableStateOf<ServiceAlert?>(null) }
 
     LaunchedEffect(Unit) {
         BackendState.alerts.collect { alert ->
-            if (alert.type == AlertType.COMMON) {
-                if (alert.message.isNotBlank()) {
-                    viewModel.showSnackbar(StringOrRes.Direct(alert.message))
+            when (alert) {
+                is ServiceAlert.Common -> {
+                    if (alert.message.isNotBlank()) {
+                        snackbarEmitter.show(StringOrRes.Direct(alert.message))
+                    }
                 }
-            } else {
-                showServiceAlert = alert
+                is ServiceAlert.MissingPlugin,
+                is ServiceAlert.NeedWifiPermission,
+                -> {
+                    showServiceAlert = alert
+                }
             }
         }
     }
 
-    NavigationDrawer(
-        drawerStateHolder = drawerStateHolder,
-        drawerContent = {
-            @Composable
-            fun BuildDrawerItem(info: DrawerItemInfo) {
-                DrawerItem(
-                    info = info,
-                    closeDrawer = ::closeDrawer,
-                    selectedDrawerRoute = selectedDrawerRoute,
-                    onNavigate = navigator::navigateToDrawerRoute,
-                )
+    val remoteControl = koinInject<RemoteControlManager>()
+    LaunchedEffect(remoteControl) {
+        remoteControl.failures.collect { failure ->
+            val description = if (failure.wasConnected) {
+                Res.string.remote_disconnected_from
+            } else {
+                Res.string.remote_connect_failed
             }
-
-            val dividerPadding = 4.dp
-            val items0 = remember {
-                persistentListOf(
-                    DrawerItemInfo(
-                        Res.string.menu_configuration,
-                        Res.drawable.description,
-                        NavRoutes.Configuration,
+            snackbarEmitter.show(
+                StringOrRes.Compound(
+                    parts = listOf(
+                        StringOrRes.ResWithParams(description, serverDisplayName(failure.server)),
+                        StringOrRes.Direct(failure.message),
                     ),
-                    DrawerItemInfo(
-                        Res.string.menu_group,
-                        Res.drawable.view_list,
-                        NavRoutes.Groups,
-                    ),
-                    DrawerItemInfo(
-                        Res.string.menu_route,
-                        Res.drawable.directions,
-                        NavRoutes.Route,
-                    ),
-                    DrawerItemInfo(
-                        Res.string.settings,
-                        Res.drawable.settings,
-                        NavRoutes.Settings,
-                    ),
-                    DrawerItemInfo(
-                        Res.string.plugin,
-                        Res.drawable.nfc,
-                        NavRoutes.Plugin,
-                    ),
-                )
-            }
-            for (info in items0) BuildDrawerItem(info)
-            HorizontalDivider(modifier = Modifier.padding(vertical = dividerPadding))
-            val items1 = remember {
-                persistentListOf(
-                    DrawerItemInfo(Res.string.menu_log, Res.drawable.bug_report, NavRoutes.Log),
-                    DrawerItemInfo(
-                        Res.string.menu_dashboard,
-                        Res.drawable.transform,
-                        NavRoutes.Dashboard,
-                    ),
-                    DrawerItemInfo(
-                        Res.string.menu_tools,
-                        Res.drawable.construction,
-                        NavRoutes.Tools,
-                    ),
-                )
-            }
-            for (info in items1) BuildDrawerItem(info)
-            HorizontalDivider(modifier = Modifier.padding(vertical = dividerPadding))
-            DrawerItem(
-                label = { Text(stringResource(Res.string.document)) },
-                selected = false,
-                onClick = {
-                    closeDrawer()
-                    uriHandler.openUri("https://codeberg.org/xchacha20-poly1305/husi/wiki")
-                },
-                icon = {
-                    Icon(vectorResource(Res.drawable.data_usage), null)
-                },
-            )
-            BuildDrawerItem(
-                DrawerItemInfo(
-                    Res.string.menu_about,
-                    Res.drawable.info,
-                    NavRoutes.About,
+                    separator = "\n",
                 ),
             )
-            if (drawerStateHolder.canCollapse) {
-                HorizontalDivider(modifier = Modifier.padding(vertical = dividerPadding))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 28.dp),
-                    horizontalArrangement = Arrangement.End,
-                ) {
-                    val tooltipState = rememberTooltipState()
-                    TooltipBox(
-                        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(
-                            TooltipAnchorPosition.Above,
-                        ),
-                        tooltip = {
-                            PlainTooltip {
-                                Text(stringResource(Res.string.close))
-                            }
-                        },
-                        state = tooltipState,
-                    ) {
-                        IconButton(
-                            onClick = ::closeDrawer,
-                            modifier = Modifier.size(56.dp),
-                        ) {
-                            Icon(
-                                imageVector = vectorResource(Res.drawable.fast_rewind),
-                                contentDescription = stringResource(Res.string.close),
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(28.dp),
-                            )
-                        }
-                    }
+        }
+    }
+
+    val topLevelDestinations = remember {
+        persistentListOf(
+            TopLevelDestination(
+                Res.string.menu_configuration,
+                Res.drawable.description,
+                NavRoutes.Configuration,
+            ),
+            TopLevelDestination(
+                Res.string.menu_dashboard,
+                Res.drawable.transform,
+                NavRoutes.Dashboard,
+            ),
+            TopLevelDestination(Res.string.menu_route, Res.drawable.directions, NavRoutes.Route),
+            TopLevelDestination(Res.string.menu_log, Res.drawable.bug_report, NavRoutes.Log),
+            TopLevelDestination(Res.string.settings, Res.drawable.settings, NavRoutes.Settings),
+        )
+    }
+    val dashboardNoticeTracker = koinInject<DashboardNoticeTracker>()
+    val unreadDashboardNoticeCount by dashboardNoticeTracker.unreadCount.collectAsStateWithLifecycle()
+    val isDashboardSelected = selectedTopLevelRoute.matchesRoute(NavRoutes.Dashboard)
+    LaunchedEffect(isDashboardSelected, unreadDashboardNoticeCount) {
+        if (isDashboardSelected && unreadDashboardNoticeCount > 0) {
+            dashboardNoticeTracker.markAllRead()
+        }
+    }
+    val navigationItems = topLevelDestinations.map { destination ->
+        val selected = selectedTopLevelRoute.matchesRoute(destination.route)
+        NavigationSuiteItem(
+            label = destination.label,
+            icon = destination.icon,
+            selected = selected,
+            onClick = {
+                if (!selected) {
+                    navigator.navigateToTopLevelRoute(destination.route)
                 }
-            }
+            },
+            badgeCount = if (destination.route == NavRoutes.Dashboard) {
+                unreadDashboardNoticeCount
+            } else {
+                0
+            },
+        )
+    }.toPersistentList()
+
+    NavigationSuite(
+        items = navigationItems,
+        showNavigation = navigator.isCurrentTopLevel,
+        snackbarHost = {
+            SwipeableSnackbarHost(
+                hostState = snackbarHostState,
+                windowInsets = if (navigator.isCurrentTopLevel) {
+                    WindowInsets(0, 0, 0, 0)
+                } else {
+                    navigationBarsAlwaysInsets()
+                },
+            )
+        },
+        floatingActionButton = {
+            SagerFab(
+                visible = navigator.isCurrentTopLevel,
+                state = serviceStatus.state,
+                showSnackbar = snackbarEmitter::show,
+            )
         },
     ) {
-        fun onDrawerClick() {
-            if (!drawerStateHolder.canCollapse) {
-                return
-            }
-            scope.launch {
-                if (drawerStateHolder.isOpen) {
-                    drawerStateHolder.close()
-                } else {
-                    drawerStateHolder.open()
-                }
-            }
-        }
-
-        remember(koinScope) {
-            koinScope.get<DrawerController> {
-                parametersOf(::onDrawerClick)
-            }
-        }
-
         CompositionLocalProvider(
+            LocalNavigator provides navigator,
             LocalResultEventBus provides resultBus,
+            LocalSnackbarEmitter provides snackbarEmitter,
         ) {
             NavDisplay(
                 backStack = backStack,
@@ -411,6 +336,21 @@ private fun MainScreenContent(
                     onSelected = profilePickerController::select,
                 )
             }
+
+            MainScreenAuthChallengeDialogs(
+                onDismissed = {
+                    snackbarEmitter.show(StringOrRes.Res(Res.string.auth_later_hint))
+                },
+            )
+
+            val appUpdate by viewModel.appUpdate.collectAsStateWithLifecycle()
+            appUpdate?.let { info ->
+                AppUpdateDialog(
+                    info = info,
+                    onDismissRequest = viewModel::dismissAppUpdate,
+                    onSkipVersion = { viewModel.skipAppUpdate() },
+                )
+            }
         }
     }
 
@@ -425,7 +365,7 @@ private fun MainScreenContent(
         dismissButton = {
             TextButton(stringResource(Res.string.no_thanks)) {
                 showQueryPackageDeniedDialog = false
-                viewModel.showSnackbar(StringOrRes.Res(Res.string.have_a_nice_day))
+                snackbarEmitter.show(StringOrRes.Res(Res.string.have_a_nice_day))
             }
         },
         icon = {
@@ -458,14 +398,13 @@ private fun MainScreenContent(
     )
 
     if (showServiceAlert != null) {
-        val alert = showServiceAlert!!
-        when (alert.type) {
-            AlertType.MISSING_PLUGIN -> {
-                val pluginName = alert.message
+        when (val alert = showServiceAlert!!) {
+            is ServiceAlert.MissingPlugin -> {
+                val pluginName = alert.pluginName
                 val plugin = PluginEntry.find(pluginName)
                 if (plugin == null) {
                     showServiceAlert = null
-                    viewModel.showSnackbar(
+                    snackbarEmitter.show(
                         StringOrRes.ResWithParams(Res.string.plugin_unknown, pluginName),
                     )
                 } else {
@@ -495,7 +434,7 @@ private fun MainScreenContent(
                 }
             }
 
-            AlertType.NEED_WIFI_PERMISSION -> {
+            is ServiceAlert.NeedWifiPermission -> {
                 AlertDialog(
                     onDismissRequest = { showServiceAlert = null },
                     confirmButton = {
@@ -514,42 +453,22 @@ private fun MainScreenContent(
                     text = { Text(stringResource(Res.string.location_permission_description)) },
                 )
             }
+
+            is ServiceAlert.Common -> Unit
         }
     }
 
+    mainDialog?.let { dialog ->
+        MainViewModelAlertDialog(dialog) { mainDialog = null }
+    }
 }
 
 @Immutable
-private data class DrawerItemInfo(
+private data class TopLevelDestination(
     val label: StringResource,
     val icon: DrawableResource,
     val route: NavRoutes,
 )
-
-@Composable
-private fun DrawerItem(
-    modifier: Modifier = Modifier,
-    info: DrawerItemInfo,
-    closeDrawer: () -> Unit,
-    selectedDrawerRoute: NavRoutes?,
-    onNavigate: (NavRoutes) -> Unit,
-) {
-    val selected = selectedDrawerRoute.matchesRoute(info.route)
-    DrawerItem(
-        label = { Text(stringResource(info.label)) },
-        selected = selected,
-        onClick = {
-            closeDrawer()
-            if (!selected) {
-                onNavigate(info.route)
-            }
-        },
-        modifier = modifier,
-        icon = {
-            Icon(vectorResource(info.icon), null)
-        },
-    )
-}
 
 private fun NavRoutes?.matchesRoute(
     route: NavRoutes,
@@ -559,8 +478,8 @@ private fun NavRoutes?.matchesRoute(
 }
 
 @Composable
-fun MainViewModelAlertDialog(
-    dialog: MainViewModelUiEvent.AlertDialog,
+private fun MainViewModelAlertDialog(
+    dialog: MainAlertDialogEvent,
     onConsumed: () -> Unit,
 ) {
     ScrollableDialog(

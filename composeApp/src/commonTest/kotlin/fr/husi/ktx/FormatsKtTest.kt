@@ -7,6 +7,7 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 class FormatsKtTest {
 
@@ -26,7 +27,7 @@ class FormatsKtTest {
     }
 
     @Test
-    fun `b64Decode should fallback to mime decoder for wrapped content`() {
+    fun `b64Decode should skip line breaks in wrapped content`() {
         val result = "SGVs\nbG8=".b64Decode().decodeToString()
 
         assertEquals("Hello", result)
@@ -83,7 +84,7 @@ class FormatsKtTest {
             "世".b64Decode()
         }
 
-        assertEquals(error.message?.startsWith("decode base64: "), true)
+        assertTrue(error.message.orEmpty().startsWith("decode base64: "), error.message)
     }
 
     @Test

@@ -1,41 +1,39 @@
 #!/usr/bin/env bash
 
-source buildScript/init/env.sh
+set -euo pipefail
+
+for argument in "$@"; do
+  if [ "$argument" == "--android" ]; then
+    source buildScript/init/env.sh
+    break
+  fi
+done
 
 caller_pwd="$PWD"
-declare -a args
+
+# Plain prefixing instead of `realpath -m`: the BSD realpath on macOS has no -m.
+absolute_path() {
+  if [[ "$1" == /* ]]; then
+    echo "$1"
+  else
+    echo "$caller_pwd/$1"
+  fi
+}
+
+args=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
-  --jniinclude)
-    if [ -n "$2" ] && [[ "$2" != /* ]]; then
-      args+=("$1" "$(realpath -m "$caller_pwd/$2")")
-    else
-      args+=("$1" "$2")
-    fi
-    shift 2
-    ;;
-  --jniinclude=*)
-    jni_include="${1#*=}"
-    if [[ "$jni_include" != /* ]]; then
-      jni_include="$(realpath -m "$caller_pwd/$jni_include")"
-    fi
-    args+=("--jniinclude=$jni_include")
-    shift
-    ;;
   --darwinsdk)
-    if [ -n "$2" ] && [[ "$2" != /* ]]; then
-      args+=("$1" "$(realpath -m "$caller_pwd/$2")")
-    else
-      args+=("$1" "$2")
+    value="${2:-}"
+    if [ -n "$value" ]; then
+      value="$(absolute_path "$value")"
     fi
+    args+=("$1" "$value")
     shift 2
     ;;
   --darwinsdk=*)
-    darwin_sdk="${1#*=}"
-    if [[ "$darwin_sdk" != /* ]]; then
-      darwin_sdk="$(realpath -m "$caller_pwd/$darwin_sdk")"
-    fi
-    args+=("--darwinsdk=$darwin_sdk")
+    value="$(absolute_path "${1#*=}")"
+    args+=("${1%%=*}=$value")
     shift
     ;;
   *)
@@ -46,4 +44,5 @@ while [ "$#" -gt 0 ]; do
 done
 
 cd libcore
-./build.sh "${args[@]}" || exit 1
+# The `+` guard keeps bash 3.2 (macOS) from rejecting an empty array under `set -u`.
+./build.sh ${args[@]+"${args[@]}"}

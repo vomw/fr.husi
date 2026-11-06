@@ -25,9 +25,9 @@ go.work*
 
 # Vibe coding
 .claude
-.gemini
 .codex
-.agents
 
 # submodules
 /external
+
+__pycache__/

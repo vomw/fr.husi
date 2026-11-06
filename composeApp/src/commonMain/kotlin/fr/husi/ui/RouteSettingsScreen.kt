@@ -3,6 +3,7 @@
 package fr.husi.ui
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,10 +17,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenuGroup
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.DropdownMenuPopup
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MenuDefaults
@@ -37,29 +38,37 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastCoerceIn
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
+import fr.husi.bg.routeCustomGeoDir
+import fr.husi.bg.routeGeoDir
 import fr.husi.compose.AutoCompleteTextField
 import fr.husi.compose.BackHandler
 import fr.husi.compose.BoxedVerticalScrollbar
-import fr.husi.compose.CapsuleActionButton
 import fr.husi.compose.CapsuleTopBar
 import fr.husi.compose.DropdownMenuSectionHeader
 import fr.husi.compose.DurationTextField
+import fr.husi.compose.IconMaskColors
+import fr.husi.compose.ListPreference
 import fr.husi.compose.MapPreference
+import fr.husi.compose.MaskedIcon
+import fr.husi.compose.MultiSelectListPreference
 import fr.husi.compose.MultilineTextField
 import fr.husi.compose.PreferenceCategory
-import fr.husi.compose.PreferenceDivider
-import fr.husi.compose.IconMaskColors
-import fr.husi.compose.MaskedIcon
+import fr.husi.compose.ProvidePreferenceLocals
 import fr.husi.compose.SimpleIconButton
+import fr.husi.compose.SingleLineTextField
+import fr.husi.compose.SwitchPreference
 import fr.husi.compose.TextButton
+import fr.husi.compose.TextFieldPreference
 import fr.husi.compose.UIntegerTextField
 import fr.husi.compose.fadingEdge
 import fr.husi.compose.material3.Icon
+import fr.husi.compose.material3.ScrollableDropdownMenuPopup
 import fr.husi.compose.material3.Text
 import fr.husi.compose.preferenceGroup
 import fr.husi.compose.withNavigation
@@ -69,11 +78,9 @@ import fr.husi.fmt.RuleItem
 import fr.husi.fmt.SingBoxOptions
 import fr.husi.ktx.blankAsNull
 import fr.husi.ktx.contentOrUnset
-import fr.husi.ktx.onIoDispatcher
 import fr.husi.platform.PlatformInfo
 import fr.husi.repository.resolveRepository
 import fr.husi.resources.Res
-import fr.husi.resources.action_direct
 import fr.husi.resources.add_road
 import fr.husi.resources.apply
 import fr.husi.resources.auto
@@ -82,12 +89,13 @@ import fr.husi.resources.cag_dns
 import fr.husi.resources.cancel
 import fr.husi.resources.category
 import fr.husi.resources.clash_mode
+import fr.husi.resources.clash_mode_lowercase_hint
 import fr.husi.resources.close
 import fr.husi.resources.compare_arrows
 import fr.husi.resources.computer_cancel
 import fr.husi.resources.custom_config
 import fr.husi.resources.delete
-import fr.husi.resources.delete_confirm_prompt
+import fr.husi.resources.delete_route_prompt
 import fr.husi.resources.directions_boat
 import fr.husi.resources.dns
 import fr.husi.resources.dns_only
@@ -106,6 +114,7 @@ import fr.husi.resources.layers
 import fr.husi.resources.local_airport
 import fr.husi.resources.local_bar
 import fr.husi.resources.location_on
+import fr.husi.resources.manage_search
 import fr.husi.resources.menu_route
 import fr.husi.resources.monetization_on
 import fr.husi.resources.more
@@ -126,14 +135,11 @@ import fr.husi.resources.public_icon
 import fr.husi.resources.push_pin
 import fr.husi.resources.question_mark
 import fr.husi.resources.route_action
-import fr.husi.resources.route_block
-import fr.husi.resources.route_bridge
-import fr.husi.resources.route_bypass
 import fr.husi.resources.route_invert
 import fr.husi.resources.route_name
 import fr.husi.resources.route_options
-import fr.husi.resources.route_proxy
 import fr.husi.resources.router
+import fr.husi.resources.rule_set_match
 import fr.husi.resources.segment
 import fr.husi.resources.select_profile
 import fr.husi.resources.settings
@@ -153,20 +159,19 @@ import fr.husi.resources.warning_amber
 import fr.husi.resources.wifi
 import fr.husi.resources.wifi_find
 import fr.husi.results.ResultEffect
+import fr.husi.ui.jsoneditor.ConfigSchema
 import fr.husi.ui.profile.tlsSpoofMethod
+import fr.husi.ui.tools.RuleSetMatchDialog
 import io.github.oikvpqya.compose.fastscroller.material3.defaultMaterialScrollbarStyle
 import io.github.oikvpqya.compose.fastscroller.rememberScrollbarAdapter
-import kotlinx.coroutines.runBlocking
-import me.zhanghai.compose.preference.ListPreference
-import me.zhanghai.compose.preference.ListPreferenceType
-import me.zhanghai.compose.preference.MultiSelectListPreference
-import me.zhanghai.compose.preference.ProvidePreferenceLocals
-import me.zhanghai.compose.preference.SwitchPreference
-import me.zhanghai.compose.preference.TextFieldPreference
-import org.jetbrains.compose.resources.stringResource
-import org.jetbrains.compose.resources.vectorResource
 import java.io.File
 import kotlin.random.Random
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import me.zhanghai.compose.preference.ListPreferenceType
+import org.jetbrains.compose.resources.stringResource
+import org.jetbrains.compose.resources.vectorResource
 
 private const val KEY_ACTION_OPTIONS = "action_options"
 private const val CUSTOM_OUTBOUND_OPTION = -5L // Placeholder
@@ -216,21 +221,21 @@ internal fun RouteSettingsScreen(
     ResultEffect<Set<String>>(resultKey = appListResultKey) { result ->
         viewModel.setPackages(result)
     }
-    ResultEffect<String?>(resultKey = configEditResultKey) { result ->
-        if (result == null) return@ResultEffect
+    ResultEffect<String>(resultKey = configEditResultKey) { result ->
         viewModel.setCustomConfig(result)
     }
-    ResultEffect<String?>(resultKey = dnsConfigEditResultKey) { result ->
-        if (result == null) return@ResultEffect
+    ResultEffect<String>(resultKey = dnsConfigEditResultKey) { result ->
         viewModel.setCustomDnsConfig(result)
     }
 
+    val hazeState = rememberHazeState()
     Scaffold(
         modifier = modifier
             .fillMaxSize()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             CapsuleTopBar(
+                hazeState = hazeState,
                 navigationIcon = {
                     SimpleIconButton(
                         imageVector = vectorResource(Res.drawable.close),
@@ -267,74 +272,75 @@ internal fun RouteSettingsScreen(
                         }
                     }
 
-                    Box {
-                        CapsuleActionButton {
+                    CapsuleActionButton {
+                        Box {
                             SimpleIconButton(
                                 imageVector = vectorResource(Res.drawable.more_vert),
                                 contentDescription = stringResource(Res.string.more),
                             ) {
                                 showExpandedMenu = true
                             }
-                        }
-                        DropdownMenuPopup(
-                            expanded = showExpandedMenu,
-                            onDismissRequest = { showExpandedMenu = false },
-                        ) {
-                            DropdownMenuGroup(
-                                shapes = MenuDefaults.groupShape(0, 3),
+                            ScrollableDropdownMenuPopup(
+                                expanded = showExpandedMenu,
+                                onDismissRequest = { showExpandedMenu = false },
                             ) {
-                                DropdownMenuItem(
-                                    checked = uiState.invert,
-                                    onCheckedChange = viewModel::setInvert,
-                                    text = { Text(stringResource(Res.string.route_invert)) },
-                                    shapes = MenuDefaults.itemShapes(),
-                                )
-                            }
-                            Spacer(Modifier.height(MenuDefaults.GroupSpacing))
-                            DropdownMenuGroup(
-                                shapes = MenuDefaults.groupShape(1, 3),
-                            ) {
-                                DropdownMenuSectionHeader(stringResource(Res.string.custom_config))
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(Res.string.menu_route)) },
-                                    onClick = {
-                                        showExpandedMenu = false
-                                        onOpenConfigEditor(
-                                            NavRoutes.ConfigEditor(
-                                                initialText = uiState.customConfig,
-                                                resultKey = configEditResultKey,
-                                            ),
-                                        )
-                                    },
-                                    shape = MenuDefaults.itemShape(0, 2).shape,
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(Res.string.cag_dns)) },
-                                    onClick = {
-                                        showExpandedMenu = false
-                                        onOpenConfigEditor(
-                                            NavRoutes.ConfigEditor(
-                                                initialText = uiState.customDnsConfig,
-                                                resultKey = dnsConfigEditResultKey,
-                                            ),
-                                        )
-                                    },
-                                    shape = MenuDefaults.itemShape(1, 2).shape,
-                                )
-                            }
-                            Spacer(Modifier.height(MenuDefaults.GroupSpacing))
-                            DropdownMenuGroup(
-                                shapes = MenuDefaults.groupShape(2, 3),
-                            ) {
-                                DropdownMenuItem(
-                                    selected = uiState.dnsOnly,
-                                    onClick = {
-                                        showExpandedMenu = false
-                                        viewModel.setDnsOnly(!uiState.dnsOnly)
-                                    },
-                                    text = { Text(stringResource(Res.string.dns_only)) },
-                                    shapes = MenuDefaults.itemShape(0, 1),
-                                )
+                                DropdownMenuGroup(
+                                    shapes = MenuDefaults.groupShape(0, 3),
+                                ) {
+                                    DropdownMenuItem(
+                                        checked = uiState.invert,
+                                        onCheckedChange = viewModel::setInvert,
+                                        text = { Text(stringResource(Res.string.route_invert)) },
+                                        shapes = MenuDefaults.itemShapes(),
+                                    )
+                                }
+                                Spacer(Modifier.height(MenuDefaults.GroupSpacing))
+                                DropdownMenuGroup(
+                                    shapes = MenuDefaults.groupShape(1, 3),
+                                ) {
+                                    DropdownMenuSectionHeader(stringResource(Res.string.custom_config))
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(Res.string.menu_route)) },
+                                        onClick = {
+                                            showExpandedMenu = false
+                                            onOpenConfigEditor(
+                                                NavRoutes.ConfigEditor(
+                                                    initialText = uiState.customConfig,
+                                                    resultKey = configEditResultKey,
+                                                ),
+                                            )
+                                        },
+                                        shape = MenuDefaults.itemShape(0, 2).shape,
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(Res.string.cag_dns)) },
+                                        onClick = {
+                                            showExpandedMenu = false
+                                            onOpenConfigEditor(
+                                                NavRoutes.ConfigEditor(
+                                                    initialText = uiState.customDnsConfig,
+                                                    resultKey = dnsConfigEditResultKey,
+                                                    schema = ConfigSchema.DNS_RULE,
+                                                ),
+                                            )
+                                        },
+                                        shape = MenuDefaults.itemShape(1, 2).shape,
+                                    )
+                                }
+                                Spacer(Modifier.height(MenuDefaults.GroupSpacing))
+                                DropdownMenuGroup(
+                                    shapes = MenuDefaults.groupShape(2, 3),
+                                ) {
+                                    DropdownMenuItem(
+                                        selected = uiState.dnsOnly,
+                                        onClick = {
+                                            showExpandedMenu = false
+                                            viewModel.setDnsOnly(!uiState.dnsOnly)
+                                        },
+                                        text = { Text(stringResource(Res.string.dns_only)) },
+                                        shapes = MenuDefaults.itemShape(0, 1),
+                                    )
+                                }
                             }
                         }
                     }
@@ -347,6 +353,7 @@ internal fun RouteSettingsScreen(
         ProvidePreferenceLocals {
             RouteSettings(
                 paddings = innerPadding,
+                modifier = Modifier.hazeSource(hazeState),
                 uiState = uiState,
                 viewModel = viewModel,
                 onSelectOutboundProfile = { selected ->
@@ -402,7 +409,7 @@ internal fun RouteSettingsScreen(
                 }
             },
             icon = { Icon(vectorResource(Res.drawable.warning), null) },
-            title = { Text(stringResource(Res.string.delete_confirm_prompt)) },
+            title = { Text(stringResource(Res.string.delete_route_prompt)) },
         )
     }
     if (showEmptyRouteAlert) {
@@ -442,8 +449,12 @@ private fun RouteSettings(
     onSelectApps: (Set<String>) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val geoDir = remember(resolveRepository().externalAssetsDir) {
-        resolveRepository().externalAssetsDir.resolve("geo").takeIf { it.isDirectory }
+    val geoDirs = remember(resolveRepository().externalAssetsDir) {
+        val externalAssetsDir = resolveRepository().externalAssetsDir
+        listOf(
+            routeGeoDir(externalAssetsDir),
+            routeCustomGeoDir(externalAssetsDir),
+        )
     }
 
     val listState = rememberLazyListState()
@@ -471,38 +482,49 @@ private fun RouteSettings(
                 add(CUSTOM_OUTBOUND_OPTION)
             }
 
-            item("name") {
+            preferenceGroup(key = "basic") {
                 TextFieldPreference(
                     value = uiState.name,
                     onValueChange = { viewModel.setName(it) },
                     title = { Text(stringResource(Res.string.route_name)) },
                     textToValue = { it },
-                    icon = { Icon(vectorResource(Res.drawable.emoji_symbols), null) },
+                    icon = {
+                        MaskedIcon(
+                            resource = Res.drawable.emoji_symbols,
+                            color = IconMaskColors.IconLightYellow,
+                        )
+                    },
                     summary = { Text(contentOrUnset(uiState.name)) },
                     valueToText = { it },
                 )
-            }
-            appSelectPreference(uiState.packages, onSelectApps)
-            if (PlatformInfo.isAndroid) {
-                item("package_name_regex") {
+                AppSelectPreference(uiState.packages, onSelectApps)
+                if (PlatformInfo.isAndroid) {
                     TextFieldPreference(
                         value = uiState.packageNameRegex,
                         onValueChange = { viewModel.setPackageNameRegex(it) },
                         title = { Text(stringResource(Res.string.package_name_regex)) },
                         textToValue = { it },
-                        icon = { Icon(vectorResource(Res.drawable.fiber_smart_record), null) },
+                        icon = {
+                            MaskedIcon(
+                                resource = Res.drawable.fiber_smart_record,
+                                color = IconMaskColors.IconCyan,
+                            )
+                        },
                         summary = { Text(contentOrUnset(uiState.packageNameRegex)) },
                         valueToText = { it },
                     )
                 }
-            }
-            item("network_type") {
                 MultiSelectListPreference(
                     value = uiState.networkType,
                     onValueChange = { viewModel.setNetworkType(it) },
                     values = networkTypes,
                     title = { Text(stringResource(Res.string.network_type)) },
-                    icon = { Icon(vectorResource(Res.drawable.public_icon), null) },
+                    icon = {
+                        MaskedIcon(
+                            resource = Res.drawable.public_icon,
+                            color = IconMaskColors.IconLightBlue,
+                        )
+                    },
                     summary = {
                         val text = if (uiState.networkType.isEmpty()) {
                             stringResource(Res.string.not_set)
@@ -513,8 +535,6 @@ private fun RouteSettings(
                     },
                     valueToText = { AnnotatedString(it) },
                 )
-            }
-            item("action") {
                 ListPreference(
                     value = uiState.action,
                     onValueChange = { viewModel.setAction(it) },
@@ -530,7 +550,12 @@ private fun RouteSettings(
                         add(SingBoxOptions.ACTION_REJECT)
                     },
                     title = { Text(stringResource(Res.string.route_action)) },
-                    icon = { Icon(vectorResource(Res.drawable.shuffle), null) },
+                    icon = {
+                        MaskedIcon(
+                            resource = Res.drawable.shuffle,
+                            color = IconMaskColors.IconLavender,
+                        )
+                    },
                     summary = { Text(contentOrUnset(uiState.action)) },
                     type = ListPreferenceType.DROPDOWN_MENU,
                     valueToText = { AnnotatedString(it) },
@@ -554,16 +579,14 @@ private fun RouteSettings(
                     },
                     summary = { Text(contentOrUnset(uiState.domains)) },
                     valueToText = { it },
-                    textField = { value, onValueChange, onOk ->
+                    textField = { state, onOk ->
                         RuleSetAutoCompleteTextField(
-                            value = value,
-                            onValueChange = onValueChange,
+                            state = state,
                             onOk = onOk,
-                            geoDir = geoDir,
+                            geoDirs = geoDirs,
                         )
                     },
                 )
-                PreferenceDivider()
                 TextFieldPreference(
                     value = uiState.ip,
                     onValueChange = { viewModel.setIp(it) },
@@ -577,16 +600,14 @@ private fun RouteSettings(
                     },
                     summary = { Text(contentOrUnset(uiState.ip)) },
                     valueToText = { it },
-                    textField = { value, onValueChange, onOk ->
+                    textField = { state, onOk ->
                         RuleSetAutoCompleteTextField(
-                            value = value,
-                            onValueChange = onValueChange,
+                            state = state,
                             onOk = onOk,
-                            geoDir = geoDir,
+                            geoDirs = geoDirs,
                         )
                     },
                 )
-                PreferenceDivider()
                 TextFieldPreference(
                     value = uiState.port,
                     onValueChange = { viewModel.setPort(it) },
@@ -600,11 +621,10 @@ private fun RouteSettings(
                     },
                     summary = { Text(contentOrUnset(uiState.port)) },
                     valueToText = { it },
-                    textField = { value, onValueChange, onOk ->
-                        MultilineTextField(value, onValueChange, onOk)
+                    textField = { state, onOk ->
+                        MultilineTextField(state, onOk)
                     },
                 )
-                PreferenceDivider()
                 TextFieldPreference(
                     value = uiState.sourcePort,
                     onValueChange = { viewModel.setSourcePort(it) },
@@ -618,11 +638,10 @@ private fun RouteSettings(
                     },
                     summary = { Text(contentOrUnset(uiState.sourcePort)) },
                     valueToText = { it },
-                    textField = { value, onValueChange, onOk ->
-                        MultilineTextField(value, onValueChange, onOk)
+                    textField = { state, onOk ->
+                        MultilineTextField(state, onOk)
                     },
                 )
-                PreferenceDivider()
                 MultiSelectListPreference(
                     value = uiState.network,
                     onValueChange = { viewModel.setNetwork(it) },
@@ -648,7 +667,6 @@ private fun RouteSettings(
                     },
                     valueToText = { AnnotatedString(it) },
                 )
-                PreferenceDivider()
                 TextFieldPreference(
                     value = uiState.source,
                     onValueChange = { viewModel.setSource(it) },
@@ -662,11 +680,10 @@ private fun RouteSettings(
                     },
                     summary = { Text(contentOrUnset(uiState.source)) },
                     valueToText = { it },
-                    textField = { value, onValueChange, onOk ->
-                        MultilineTextField(value, onValueChange, onOk)
+                    textField = { state, onOk ->
+                        MultilineTextField(state, onOk)
                     },
                 )
-                PreferenceDivider()
                 MultiSelectListPreference(
                     value = uiState.protocol,
                     onValueChange = { viewModel.setProtocol(it) },
@@ -688,7 +705,6 @@ private fun RouteSettings(
                     },
                     valueToText = { AnnotatedString(it) },
                 )
-                PreferenceDivider()
                 TextFieldPreference(
                     value = uiState.client,
                     onValueChange = { viewModel.setClient(it) },
@@ -702,13 +718,12 @@ private fun RouteSettings(
                     },
                     summary = { Text(contentOrUnset(uiState.client)) },
                     valueToText = { it },
-                    textField = { value, onValueChange, onOk ->
-                        MultilineTextField(value, onValueChange, onOk)
+                    textField = { state, onOk ->
+                        MultilineTextField(state, onOk)
                     },
                 )
                 val showWifi = uiState.networkType.contains(SingBoxOptions.NETWORK_TYPE_WIFI)
                 if (showWifi) {
-                    PreferenceDivider()
                     TextFieldPreference(
                         value = uiState.ssid,
                         onValueChange = { viewModel.setSsid(it) },
@@ -722,11 +737,10 @@ private fun RouteSettings(
                         },
                         summary = { Text(contentOrUnset(uiState.ssid)) },
                         valueToText = { it },
-                        textField = { value, onValueChange, onOk ->
-                            MultilineTextField(value, onValueChange, onOk)
+                        textField = { state, onOk ->
+                            MultilineTextField(state, onOk)
                         },
                     )
-                    PreferenceDivider()
                     TextFieldPreference(
                         value = uiState.bssid,
                         onValueChange = { viewModel.setBssid(it) },
@@ -740,12 +754,11 @@ private fun RouteSettings(
                         },
                         summary = { Text(contentOrUnset(uiState.bssid)) },
                         valueToText = { it },
-                        textField = { value, onValueChange, onOk ->
-                            MultilineTextField(value, onValueChange, onOk)
+                        textField = { state, onOk ->
+                            MultilineTextField(state, onOk)
                         },
                     )
                 }
-                PreferenceDivider()
                 TextFieldPreference(
                     value = uiState.clashMode,
                     onValueChange = { viewModel.setClashMode(it) },
@@ -759,11 +772,16 @@ private fun RouteSettings(
                     },
                     summary = { Text(contentOrUnset(uiState.clashMode)) },
                     valueToText = { it },
-                    textField = { value, onValueChange, onOk ->
-                        MultilineTextField(value, onValueChange, onOk)
+                    textField = { state, onOk ->
+                        SingleLineTextField(
+                            state = state,
+                            onOk = onOk,
+                            supportingText = {
+                                Text(stringResource(Res.string.clash_mode_lowercase_hint))
+                            },
+                        )
                     },
                 )
-                PreferenceDivider()
                 SwitchPreference(
                     value = uiState.networkIsExpensive,
                     onValueChange = { viewModel.setNetworkIsExpensive(it) },
@@ -775,7 +793,6 @@ private fun RouteSettings(
                         )
                     },
                 )
-                PreferenceDivider()
                 MapPreference(
                     value = uiState.networkInterfaceAddress,
                     keys = LinkedHashSet(networkTypes),
@@ -822,26 +839,14 @@ private fun RouteSettings(
                                 )
                             },
                             summary = {
-                                val text = when (uiState.outbound) {
-                                    RuleEntity.OUTBOUND_PROXY -> stringResource(Res.string.route_proxy)
-                                    RuleEntity.OUTBOUND_DIRECT -> stringResource(Res.string.route_bypass)
-                                    RuleEntity.OUTBOUND_BLOCK -> stringResource(Res.string.route_block)
-                                    RuleEntity.OUTBOUND_BRIDGE -> stringResource(Res.string.route_bridge)
-                                    else -> runBlocking { SagerDatabase.proxyDao.getById(uiState.outbound) }
-                                        ?.displayName()
-                                        ?: stringResource(Res.string.not_set)
-                                }
+                                val text = builtinOutboundName(uiState.outbound)?.let { stringResource(it) }
+                                    ?: runBlocking { SagerDatabase.proxyDao.getById(uiState.outbound) }?.displayName()
+                                    ?: stringResource(Res.string.not_set)
                                 Text(text)
                             },
                             type = ListPreferenceType.DROPDOWN_MENU,
                             valueToText = {
-                                val id = when (it) {
-                                    RuleEntity.OUTBOUND_PROXY -> Res.string.route_proxy
-                                    RuleEntity.OUTBOUND_DIRECT -> Res.string.route_bypass
-                                    RuleEntity.OUTBOUND_BLOCK -> Res.string.route_block
-                                    RuleEntity.OUTBOUND_BRIDGE -> Res.string.route_bridge
-                                    else -> Res.string.select_profile
-                                }
+                                val id = builtinOutboundName(it) ?: Res.string.select_profile
                                 AnnotatedString(stringResource(id))
                             },
                         )
@@ -875,26 +880,14 @@ private fun RouteSettings(
                                 )
                             },
                             summary = {
-                                val text = when (uiState.outbound) {
-                                    RuleEntity.OUTBOUND_PROXY -> stringResource(Res.string.route_proxy)
-                                    RuleEntity.OUTBOUND_DIRECT -> stringResource(Res.string.action_direct)
-                                    RuleEntity.OUTBOUND_BLOCK -> stringResource(Res.string.route_block)
-                                    RuleEntity.OUTBOUND_BRIDGE -> stringResource(Res.string.route_bridge)
-                                    else -> runBlocking { SagerDatabase.proxyDao.getById(uiState.outbound) }
-                                        ?.displayName()
-                                        ?: stringResource(Res.string.not_set)
-                                }
+                                val text = builtinOutboundName(uiState.outbound)?.let { stringResource(it) }
+                                    ?: runBlocking { SagerDatabase.proxyDao.getById(uiState.outbound) }?.displayName()
+                                    ?: stringResource(Res.string.not_set)
                                 Text(text)
                             },
                             type = ListPreferenceType.DROPDOWN_MENU,
                             valueToText = {
-                                val id = when (it) {
-                                    RuleEntity.OUTBOUND_PROXY -> Res.string.route_proxy
-                                    RuleEntity.OUTBOUND_DIRECT -> Res.string.action_direct
-                                    RuleEntity.OUTBOUND_BLOCK -> Res.string.route_block
-                                    RuleEntity.OUTBOUND_BRIDGE -> Res.string.route_bridge
-                                    else -> Res.string.select_profile
-                                }
+                                val id = builtinOutboundName(it) ?: Res.string.select_profile
                                 AnnotatedString(stringResource(id))
                             },
                         )
@@ -920,7 +913,6 @@ private fun RouteSettings(
                             summary = { Text(contentOrUnset(uiState.overrideAddress)) },
                             valueToText = { it },
                         )
-                        PreferenceDivider()
                         TextFieldPreference(
                             value = uiState.overridePort,
                             onValueChange = { viewModel.setOverridePort(it) },
@@ -933,11 +925,10 @@ private fun RouteSettings(
                                 )
                             },
                             summary = { Text(contentOrUnset(uiState.overridePort)) },
-                            textField = { value, onValueChange, onOk ->
-                                UIntegerTextField(value, onValueChange, onOk)
+                            textField = { state, onOk ->
+                                UIntegerTextField(state, onOk)
                             },
                         )
-                        PreferenceDivider()
                         SwitchPreference(
                             value = uiState.tlsFragment,
                             onValueChange = { viewModel.setTlsFragment(it) },
@@ -949,7 +940,6 @@ private fun RouteSettings(
                                 )
                             },
                         )
-                        PreferenceDivider()
                         TextFieldPreference(
                             value = uiState.tlsFragmentFallbackDelay,
                             onValueChange = { viewModel.setTlsFragmentFallbackDelay(it) },
@@ -963,11 +953,10 @@ private fun RouteSettings(
                                 )
                             },
                             summary = { Text(contentOrUnset(uiState.tlsFragmentFallbackDelay)) },
-                            textField = { value, onValueChange, onOk ->
-                                DurationTextField(value, onValueChange, onOk)
+                            textField = { state, onOk ->
+                                DurationTextField(state, onOk)
                             },
                         )
-                        PreferenceDivider()
                         SwitchPreference(
                             value = uiState.tlsRecordFragment,
                             onValueChange = { viewModel.setTlsRecordFragment(it) },
@@ -980,7 +969,6 @@ private fun RouteSettings(
                             },
                         )
                         if (!PlatformInfo.isAndroid) {
-                            PreferenceDivider()
                             TextFieldPreference(
                                 value = uiState.tlsSpoof,
                                 onValueChange = { viewModel.setTlsSpoof(it) },
@@ -995,7 +983,6 @@ private fun RouteSettings(
                                 summary = { Text(contentOrUnset(uiState.tlsSpoof)) },
                                 valueToText = { it },
                             )
-                            PreferenceDivider()
                             ListPreference(
                                 value = uiState.tlsSpoofMethod,
                                 values = tlsSpoofMethod,
@@ -1046,7 +1033,6 @@ private fun RouteSettings(
                             type = ListPreferenceType.DROPDOWN_MENU,
                             valueToText = { AnnotatedString(it) },
                         )
-                        PreferenceDivider()
                         SwitchPreference(
                             value = uiState.resolveDisableCache,
                             onValueChange = { viewModel.setResolveDisableCache(it) },
@@ -1058,7 +1044,6 @@ private fun RouteSettings(
                                 )
                             },
                         )
-                        PreferenceDivider()
                         TextFieldPreference(
                             value = uiState.resolveRewriteTTL,
                             onValueChange = { viewModel.setResolveRewriteTTL(it) },
@@ -1076,11 +1061,10 @@ private fun RouteSettings(
                                         ?: stringResource(Res.string.not_set)
                                 Text(text)
                             },
-                            textField = { value, onValueChange, onOk ->
-                                UIntegerTextField(value, onValueChange, onOk)
+                            textField = { state, onOk ->
+                                UIntegerTextField(state, onOk)
                             },
                         )
-                        PreferenceDivider()
                         TextFieldPreference(
                             value = uiState.resolveClientSubnet,
                             onValueChange = { viewModel.setResolveClientSubnet(it) },
@@ -1115,11 +1099,10 @@ private fun RouteSettings(
                                 )
                             },
                             summary = { Text(contentOrUnset(uiState.sniffTimeout)) },
-                            textField = { value, onValueChange, onOk ->
-                                DurationTextField(value, onValueChange, onOk)
+                            textField = { state, onOk ->
+                                DurationTextField(state, onOk)
                             },
                         )
-                        PreferenceDivider()
                         MultiSelectListPreference(
                             value = uiState.sniffers,
                             onValueChange = { viewModel.setSniffers(it) },
@@ -1188,11 +1171,10 @@ internal data class SelectedLine(
     val suffix = if (raw.endsWith('\r')) "\r" else ""
 }
 
-internal fun TextFieldValue.selectedLine(): SelectedLine? {
+internal fun selectedLine(text: String, selection: TextRange): SelectedLine? {
     if (!selection.collapsed) return null
 
-    val cursor = selection.end.fastCoerceIn(0, annotatedString.length)
-    val text = annotatedString.text
+    val cursor = selection.end.fastCoerceIn(0, text.length)
     val end = text.indexOf('\n', cursor).let {
         if (it >= 0) {
             it
@@ -1221,51 +1203,61 @@ internal fun TextFieldValue.selectedLine(): SelectedLine? {
 
 @Composable
 private fun RuleSetAutoCompleteTextField(
-    value: TextFieldValue,
-    onValueChange: (TextFieldValue) -> Unit,
+    state: TextFieldState,
     onOk: () -> Unit,
-    geoDir: File?,
+    geoDirs: List<File>,
     modifier: Modifier = Modifier,
 ) {
     var ruleSets by remember { mutableStateOf(emptyList<String>()) }
-    LaunchedEffect(geoDir) {
-        ruleSets = onIoDispatcher {
-            geoDir?.listFiles()
-                ?.filter { it.isFile && it.extension == "srs" }
-                ?.map { it.nameWithoutExtension }
-                ?.sorted()
-                .orEmpty()
+    LaunchedEffect(geoDirs) {
+        ruleSets = withContext(Dispatchers.IO) {
+            geoDirs.flatMap { dir ->
+                dir.listFiles()
+                    ?.filter { it.isFile && it.extension == "srs" }
+                    ?.map { it.nameWithoutExtension }
+                    .orEmpty()
+            }.distinct().sorted()
         }
     }
 
-    val suggestions = remember(value, ruleSets) {
-        val prefix = value.selectedLine()?.ruleSetSuggestionPrefix() ?: return@remember emptyList()
+    val text = state.text.toString()
+    val selection = state.selection
+    val suggestions = remember(text, selection, ruleSets) {
+        val prefix = selectedLine(text, selection)?.ruleSetSuggestionPrefix() ?: return@remember emptyList()
         ruleSets.findRuleSetSuggestions(prefix, RULE_SET_SUGGESTION_LIMIT)
     }
 
-    AutoCompleteTextField(
-        value = value,
-        onValueChange = onValueChange,
-        onOk = onOk,
-        suggestions = suggestions,
-        onChooseSuggestion = { suggestion ->
-            val line = value.selectedLine() ?: return@AutoCompleteTextField
-            val linePrefix = line.raw.substringBefore(':', missingDelimiterValue = "")
-            if (linePrefix.isBlank()) return@AutoCompleteTextField
-            val replacement = "$linePrefix:$suggestion${line.suffix}"
-            onValueChange(
-                value.copy(
-                    annotatedString = AnnotatedString(
-                        value.annotatedString.text.replaceRange(line.start, line.end, replacement),
-                    ),
-                    selection = TextRange(line.start + replacement.length),
-                    composition = null,
-                ),
-            )
-        },
-        modifier = modifier,
-        displaySuggestion = { it },
-    )
+    var showRuleSetMatchDialog by rememberSaveable {
+        mutableStateOf(false)
+    }
+    Column(modifier = modifier) {
+        AutoCompleteTextField(
+            state = state,
+            onOk = onOk,
+            suggestions = suggestions,
+            onChooseSuggestion = { suggestion ->
+                val line = selectedLine(state.text.toString(), state.selection) ?: return@AutoCompleteTextField
+                val linePrefix = line.raw.substringBefore(':', missingDelimiterValue = "")
+                if (linePrefix.isBlank()) return@AutoCompleteTextField
+                val replacement = "$linePrefix:$suggestion${line.suffix}"
+                state.edit {
+                    replace(line.start, line.end, replacement)
+                    this.selection = TextRange(line.start + replacement.length)
+                }
+            },
+            displaySuggestion = { it },
+        )
+        SimpleIconButton(
+            imageVector = vectorResource(Res.drawable.manage_search),
+            contentDescription = stringResource(Res.string.rule_set_match),
+            onClick = { showRuleSetMatchDialog = true },
+        )
+    }
+    if (showRuleSetMatchDialog) {
+        RuleSetMatchDialog(
+            onDismissRequest = { showRuleSetMatchDialog = false },
+        )
+    }
 }
 
 // Implement a mini parser to improve performance.

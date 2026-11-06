@@ -5,14 +5,14 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
-import kotlin.test.assertTrue
+import kotlinx.coroutines.test.runTest
 
 class TrustTunnelFmtTest {
 
     // No URL test. Because already tested in sing-trusttunnel
 
     @Test
-    fun `buildSingBoxOutboundTrustTunnelBean should map all TLS and connection fields`() {
+    fun `buildSingBoxOutboundTrustTunnelBean should map all TLS and connection fields`() = runTest {
         val bean = TrustTunnelBean().apply {
             serverAddress = "example.com"
             serverPort = 443
@@ -25,6 +25,7 @@ class TrustTunnelFmtTest {
             allowInsecure = true
             alpn = "h2,http/1.1"
             certificates = "cert-a\ncert-b"
+            certificateSha256 = "pin-a\npin-b"
             certPublicKeySha256 = "sha-a\nsha-b"
             clientCert = "client-cert"
             clientKey = "client-key"
@@ -43,34 +44,36 @@ class TrustTunnelFmtTest {
         assertEquals(443, outbound.server_port)
         assertEquals("user", outbound.username)
         assertEquals("pass", outbound.password)
-        assertTrue(outbound.health_check == true)
-        assertTrue(outbound.quic == true)
+        assertEquals(true, outbound.health_check)
+        assertEquals(true, outbound.quic)
         assertEquals("bbr", outbound.quic_congestion_control)
 
         val tls = assertNotNull(outbound.tls)
-        assertTrue(tls.enabled == true)
+        assertEquals(true, tls.enabled)
         assertEquals("sni.example.com", tls.server_name)
-        assertTrue(tls.insecure == true)
+        assertEquals(true, tls.insecure)
         assertEquals(listOf("h2", "http/1.1"), tls.alpn?.toList())
         assertEquals(listOf("cert-a", "cert-b"), tls.certificate?.toList())
+        assertEquals(listOf("pin-a", "pin-b"), tls.certificate_sha256?.toList())
         assertEquals(listOf("sha-a", "sha-b"), tls.certificate_public_key_sha256?.toList())
+        assertEquals("pin-a\npin-b", bean.clone().certificateSha256)
         assertEquals(listOf("client-cert"), tls.client_certificate?.toList())
         assertEquals(listOf("client-key"), tls.client_key?.toList())
 
         val utls = assertNotNull(tls.utls)
         assertEquals(SingBoxOptions.FINGERPRINT_CHROME, utls.fingerprint)
 
-        assertTrue(tls.fragment == true)
+        assertEquals(true, tls.fragment)
         assertEquals("200ms", tls.fragment_fallback_delay)
 
         val echOpts = assertNotNull(tls.ech)
-        assertTrue(echOpts.enabled == true)
+        assertEquals(true, echOpts.enabled)
         assertEquals(listOf("cfg-1", "cfg-2"), echOpts.config?.toList())
         assertEquals("ech.example.com", echOpts.query_server_name)
     }
 
     @Test
-    fun `buildSingBoxOutboundTrustTunnelBean should omit optional fields for default values`() {
+    fun `buildSingBoxOutboundTrustTunnelBean should omit optional fields for default values`() = runTest {
         val bean = TrustTunnelBean().apply {
             serverAddress = "example.com"
             serverPort = 443
@@ -82,6 +85,7 @@ class TrustTunnelFmtTest {
         assertNull(tls.server_name)
         assertNull(tls.alpn)
         assertNull(tls.certificate)
+        assertNull(tls.certificate_sha256)
         assertNull(tls.certificate_public_key_sha256)
         assertNull(tls.utls)
         assertNull(tls.ech)
@@ -89,7 +93,7 @@ class TrustTunnelFmtTest {
     }
 
     @Test
-    fun `buildSingBoxOutboundTrustTunnelBean should set record_fragment when only tlsRecordFragment is true`() {
+    fun `buildSingBoxOutboundTrustTunnelBean should set record_fragment when only tlsRecordFragment is true`() = runTest {
         val bean = TrustTunnelBean().apply {
             serverAddress = "example.com"
             serverPort = 443
@@ -100,12 +104,12 @@ class TrustTunnelFmtTest {
         val outbound = buildSingBoxOutboundTrustTunnelBean(bean)
 
         val tls = assertNotNull(outbound.tls)
-        assertTrue(tls.record_fragment == true)
+        assertEquals(true, tls.record_fragment)
         assertNull(tls.fragment_fallback_delay)
     }
 
     @Test
-    fun `buildSingBoxOutboundTrustTunnelBean should map TLS spoof fields when quic is disabled`() {
+    fun `buildSingBoxOutboundTrustTunnelBean should map TLS spoof fields when quic is disabled`() = runTest {
         val bean = TrustTunnelBean().apply {
             serverAddress = "example.com"
             serverPort = 443
@@ -122,7 +126,7 @@ class TrustTunnelFmtTest {
     }
 
     @Test
-    fun `buildSingBoxOutboundTrustTunnelBean should suppress TLS spoof fields when quic is enabled`() {
+    fun `buildSingBoxOutboundTrustTunnelBean should suppress TLS spoof fields when quic is enabled`() = runTest {
         val bean = TrustTunnelBean().apply {
             serverAddress = "example.com"
             serverPort = 443

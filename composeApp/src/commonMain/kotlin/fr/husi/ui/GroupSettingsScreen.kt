@@ -23,52 +23,58 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import fr.husi.GroupOrder
 import fr.husi.GroupType
 import fr.husi.SubscriptionType
 import fr.husi.compose.BackHandler
 import fr.husi.compose.BoxedVerticalScrollbar
-import fr.husi.compose.CapsuleActionButton
 import fr.husi.compose.CapsuleTopBar
-import fr.husi.compose.LinkOrContentTextField
-import fr.husi.compose.PreferenceCategory
-import fr.husi.compose.PreferenceDivider
 import fr.husi.compose.IconMaskColors
-import fr.husi.compose.IconMaskShapes
-import fr.husi.compose.PreferenceType
+import fr.husi.compose.LinkOrContentTextField
+import fr.husi.compose.ListPreference
 import fr.husi.compose.MaskedIcon
+import fr.husi.compose.PreferenceCategory
+import fr.husi.compose.PreferenceType
+import fr.husi.compose.ProvidePreferenceLocals
 import fr.husi.compose.SimpleIconButton
+import fr.husi.compose.SwitchPreference
 import fr.husi.compose.TextButton
+import fr.husi.compose.TextFieldPreference
 import fr.husi.compose.UIntegerTextField
-import fr.husi.compose.ValidatedTextField
 import fr.husi.compose.fadingEdge
 import fr.husi.compose.material3.Icon
 import fr.husi.compose.material3.Text
 import fr.husi.compose.preferenceGroup
 import fr.husi.compose.withNavigation
-import fr.husi.database.SagerDatabase
-import fr.husi.ktx.USER_AGENT
 import fr.husi.ktx.blankAsNull
 import fr.husi.ktx.contentOrUnset
 import fr.husi.ktx.intListN
-import fr.husi.ktx.readableMessage
-import fr.husi.libcore.Libcore
 import fr.husi.resources.Res
 import fr.husi.resources.age_identity
 import fr.husi.resources.apply
 import fr.husi.resources.auto_update
 import fr.husi.resources.auto_update_delay
+import fr.husi.resources.auto_update_off
+import fr.husi.resources.auto_update_on
 import fr.husi.resources.close
+import fr.husi.resources.content_copy
+import fr.husi.resources.deduplication
+import fr.husi.resources.deduplication_sum
 import fr.husi.resources.delete
 import fr.husi.resources.delete_group_prompt
+import fr.husi.resources.delete_sweep
+import fr.husi.resources.dns
 import fr.husi.resources.done
 import fr.husi.resources.emoji_symbols
+import fr.husi.resources.filter_regex
 import fr.husi.resources.flip_camera_android
-import fr.husi.resources.front_proxy
+import fr.husi.resources.force_resolve
+import fr.husi.resources.force_resolve_sum
 import fr.husi.resources.grid_3x3
 import fr.husi.resources.group_basic
 import fr.husi.resources.group_name
@@ -79,42 +85,33 @@ import fr.husi.resources.group_order_origin
 import fr.husi.resources.group_settings
 import fr.husi.resources.group_subscription_link
 import fr.husi.resources.group_type
-import fr.husi.resources.landing_proxy
 import fr.husi.resources.layers
 import fr.husi.resources.link
 import fr.husi.resources.low_priority
 import fr.husi.resources.nfc
 import fr.husi.resources.no
 import fr.husi.resources.no_thanks
-import fr.husi.resources.not_set
 import fr.husi.resources.ok
 import fr.husi.resources.ooc_subscription_token
 import fr.husi.resources.oocv1
-import fr.husi.resources.proxy_chain
-import fr.husi.resources.public_icon
+import fr.husi.resources.outbound_dns
+import fr.husi.resources.outbound_dns_sum
 import fr.husi.resources.question_mark
 import fr.husi.resources.raw
-import fr.husi.resources.route_profile
 import fr.husi.resources.security
 import fr.husi.resources.sip008
-import fr.husi.resources.ssh_auth_type_none
 import fr.husi.resources.subscription
 import fr.husi.resources.subscription_settings
 import fr.husi.resources.subscription_type
-import fr.husi.resources.subscription_user_agent
 import fr.husi.resources.unsaved_changes_prompt
 import fr.husi.resources.update_settings
 import fr.husi.resources.update_when_connected_only
 import fr.husi.resources.update_when_connected_only_sum
+import fr.husi.resources.user_agent
 import fr.husi.resources.vpn_key
 import io.github.oikvpqya.compose.fastscroller.material3.defaultMaterialScrollbarStyle
 import io.github.oikvpqya.compose.fastscroller.rememberScrollbarAdapter
-import kotlinx.coroutines.runBlocking
-import me.zhanghai.compose.preference.ListPreference
 import me.zhanghai.compose.preference.ListPreferenceType
-import me.zhanghai.compose.preference.ProvidePreferenceLocals
-import me.zhanghai.compose.preference.SwitchPreference
-import me.zhanghai.compose.preference.TextFieldPreference
 import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.vectorResource
 
@@ -122,7 +119,6 @@ import org.jetbrains.compose.resources.vectorResource
 internal fun GroupSettingsScreen(
     groupId: Long,
     onBackPress: () -> Unit,
-    onOpenProfileSelect: OpenProfilePicker,
     modifier: Modifier = Modifier,
     viewModel: GroupSettingsViewModel = viewModel { GroupSettingsViewModel(groupId) },
 ) {
@@ -135,6 +131,7 @@ internal fun GroupSettingsScreen(
 
     val windowInsets = WindowInsets.safeDrawing
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    val hazeState = rememberHazeState()
     val uiState by viewModel.uiState.collectAsState()
 
     fun saveAndExit() {
@@ -148,6 +145,7 @@ internal fun GroupSettingsScreen(
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             CapsuleTopBar(
+                hazeState = hazeState,
                 navigationIcon = {
                     SimpleIconButton(
                         imageVector = vectorResource(Res.drawable.close),
@@ -187,7 +185,11 @@ internal fun GroupSettingsScreen(
         val listState = rememberLazyListState()
         ProvidePreferenceLocals {
             val contentPadding = innerPadding.withNavigation()
-            Row(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .hazeSource(hazeState),
+            ) {
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
@@ -204,16 +206,6 @@ internal fun GroupSettingsScreen(
                     groupSettings(
                         uiState = uiState,
                         viewModel = viewModel,
-                        selectFrontProxy = {
-                            onOpenProfileSelect(uiState.frontProxy.takeIf { it > 0 }) { id ->
-                                viewModel.setFrontProxy(id)
-                            }
-                        },
-                        selectLandingProxy = {
-                            onOpenProfileSelect(uiState.landingProxy.takeIf { it > 0 }) { id ->
-                                viewModel.setLandingProxy(id)
-                            }
-                        },
                     )
                 }
 
@@ -271,8 +263,6 @@ internal fun GroupSettingsScreen(
 private fun LazyListScope.groupSettings(
     uiState: GroupSettingsUiState,
     viewModel: GroupSettingsViewModel,
-    selectFrontProxy: () -> Unit,
-    selectLandingProxy: () -> Unit,
 ) {
     fun groupType(type: Int) = when (type) {
         GroupType.BASIC -> Res.string.group_basic
@@ -287,7 +277,6 @@ private fun LazyListScope.groupSettings(
         else -> error("impossible")
     }
 
-    fun chainName(id: Long) = runBlocking { SagerDatabase.proxyDao.getById(id) }?.displayName()
     item("category_basic", PreferenceType.CATEGORY) {
         PreferenceCategory(text = { Text(stringResource(Res.string.group_settings)) })
     }
@@ -306,7 +295,6 @@ private fun LazyListScope.groupSettings(
             summary = { Text(contentOrUnset(uiState.name)) },
             valueToText = { it },
         )
-        PreferenceDivider()
         ListPreference(
             value = uiState.type,
             onValueChange = { viewModel.setType(it) },
@@ -322,7 +310,6 @@ private fun LazyListScope.groupSettings(
             type = ListPreferenceType.DROPDOWN_MENU,
             valueToText = { AnnotatedString(stringResource(groupType(it))) },
         )
-        PreferenceDivider()
         ListPreference(
             value = uiState.order,
             onValueChange = { viewModel.setOrder(it) },
@@ -338,78 +325,24 @@ private fun LazyListScope.groupSettings(
             type = ListPreferenceType.DROPDOWN_MENU,
             valueToText = { AnnotatedString(stringResource(groupOrder(it))) },
         )
-    }
-
-    item("category_chain", PreferenceType.CATEGORY) {
-        PreferenceCategory(text = { Text(stringResource(Res.string.proxy_chain)) })
-    }
-    preferenceGroup {
-        ListPreference(
-            value = uiState.frontProxy,
-            onValueChange = {
-                if (it == -1L) {
-                    viewModel.setFrontProxy(it)
-                } else {
-                    selectFrontProxy()
-                }
-            },
-            values = listOf(-1L, 0L),
-            title = { Text(stringResource(Res.string.front_proxy)) },
+        TextFieldPreference(
+            value = uiState.outboundDns,
+            onValueChange = { viewModel.setOutboundDns(it) },
+            title = { Text(stringResource(Res.string.outbound_dns)) },
+            textToValue = { it },
             icon = {
                 MaskedIcon(
-                    Res.drawable.low_priority,
-                    color = IconMaskColors.IconLightBlue,
-                    shape = IconMaskShapes.route(),
+                    Res.drawable.dns,
+                    color = IconMaskColors.IconLightGreen,
                 )
             },
             summary = {
-                val text = chainName(uiState.frontProxy)
-                    ?: stringResource(Res.string.not_set)
-                Text(text)
-            },
-            type = ListPreferenceType.DROPDOWN_MENU,
-            valueToText = {
-                val id = if (it == -1L) {
-                    Res.string.ssh_auth_type_none
-                } else {
-                    Res.string.route_profile
-                }
-                AnnotatedString(stringResource(id))
-            },
-        )
-        PreferenceDivider()
-        ListPreference(
-            value = uiState.landingProxy,
-            onValueChange = {
-                if (it == -1L) {
-                    viewModel.setLandingProxy(it)
-                } else {
-                    selectLandingProxy()
-                }
-            },
-            values = listOf(-1L, 0L),
-            title = { Text(stringResource(Res.string.landing_proxy)) },
-            icon = {
-                MaskedIcon(
-                    Res.drawable.public_icon,
-                    color = IconMaskColors.IconCyan,
-                    shape = IconMaskShapes.route(),
+                Text(
+                    uiState.outboundDns.blankAsNull()
+                        ?: stringResource(Res.string.outbound_dns_sum),
                 )
             },
-            summary = {
-                val text = chainName(uiState.landingProxy)
-                    ?: stringResource(Res.string.not_set)
-                Text(text)
-            },
-            type = ListPreferenceType.DROPDOWN_MENU,
-            valueToText = {
-                val id = if (it == -1L) {
-                    Res.string.ssh_auth_type_none
-                } else {
-                    Res.string.route_profile
-                }
-                AnnotatedString(stringResource(id))
-            },
+            valueToText = { it },
         )
     }
 
@@ -439,7 +372,6 @@ private fun LazyListScope.groupSettings(
                 type = ListPreferenceType.DROPDOWN_MENU,
                 valueToText = { AnnotatedString(stringResource(subType(it))) },
             )
-            PreferenceDivider()
             TextFieldPreference(
                 value = uiState.subscriptionLink,
                 onValueChange = { viewModel.setSubscriptionLink(it) },
@@ -453,9 +385,47 @@ private fun LazyListScope.groupSettings(
                 },
                 summary = { Text(contentOrUnset(uiState.subscriptionLink)) },
                 valueToText = { it },
-                textField = { value, onValueChange, onOk ->
-                    LinkOrContentTextField(value, onValueChange, onOk)
+                textField = { state, onOk ->
+                    LinkOrContentTextField(state, onOk)
                 },
+            )
+            TextFieldPreference(
+                value = uiState.subscriptionFilterNotRegex,
+                onValueChange = { viewModel.setSubscriptionFilterNotRegex(it) },
+                title = { Text(stringResource(Res.string.filter_regex)) },
+                textToValue = { it },
+                icon = {
+                    MaskedIcon(
+                        Res.drawable.delete_sweep,
+                        color = IconMaskColors.IconLightGreen,
+                    )
+                },
+                summary = { Text(contentOrUnset(uiState.subscriptionFilterNotRegex)) },
+                valueToText = { it },
+            )
+            SwitchPreference(
+                value = uiState.subscriptionForceResolve,
+                onValueChange = { viewModel.setSubscriptionForceResolve(it) },
+                title = { Text(stringResource(Res.string.force_resolve)) },
+                icon = {
+                    MaskedIcon(
+                        Res.drawable.dns,
+                        color = IconMaskColors.IconLightBlue,
+                    )
+                },
+                summary = { Text(stringResource(Res.string.force_resolve_sum)) },
+            )
+            SwitchPreference(
+                value = uiState.subscriptionDeduplication,
+                onValueChange = { viewModel.setSubscriptionDeduplication(it) },
+                title = { Text(stringResource(Res.string.deduplication)) },
+                icon = {
+                    MaskedIcon(
+                        Res.drawable.content_copy,
+                        color = IconMaskColors.IconLightOrange,
+                    )
+                },
+                summary = { Text(stringResource(Res.string.deduplication_sum)) },
             )
         }
         val supportsAge = uiState.subscriptionType == SubscriptionType.RAW
@@ -474,9 +444,6 @@ private fun LazyListScope.groupSettings(
                     },
                     summary = { Text(contentOrUnset(uiState.subscriptionAgeIdentity)) },
                     valueToText = { it },
-                    textField = { value, onValueChange, onOk ->
-                        ValidatedAgeIdentityTextField(value, onValueChange, onOk)
-                    },
                 )
             }
         }
@@ -515,11 +482,10 @@ private fun LazyListScope.groupSettings(
                 },
                 summary = { Text(stringResource(Res.string.update_when_connected_only_sum)) },
             )
-            PreferenceDivider()
             TextFieldPreference(
                 value = uiState.subscriptionUserAgent,
                 onValueChange = { viewModel.setSubscriptionUserAgent(it) },
-                title = { Text(stringResource(Res.string.subscription_user_agent)) },
+                title = { Text(stringResource(Res.string.user_agent)) },
                 textToValue = { it },
                 icon = {
                     MaskedIcon(
@@ -528,12 +494,12 @@ private fun LazyListScope.groupSettings(
                     )
                 },
                 summary = {
-                    val text = uiState.subscriptionUserAgent.blankAsNull() ?: USER_AGENT
+                    val defaultUserAgent by viewModel.defaultUserAgent.collectAsStateWithLifecycle()
+                    val text = uiState.subscriptionUserAgent.blankAsNull() ?: defaultUserAgent
                     Text(text)
                 },
                 valueToText = { it },
             )
-            PreferenceDivider()
             SwitchPreference(
                 value = uiState.subscriptionAutoUpdate,
                 onValueChange = { viewModel.setSubscriptionAutoUpdate(it) },
@@ -545,7 +511,6 @@ private fun LazyListScope.groupSettings(
                     )
                 },
             )
-            PreferenceDivider()
             TextFieldPreference(
                 value = uiState.subscriptionUpdateDelay,
                 onValueChange = { viewModel.setSubscriptionUpdateDelay(it) },
@@ -558,34 +523,19 @@ private fun LazyListScope.groupSettings(
                         color = IconMaskColors.IconLightOrange,
                     )
                 },
-                summary = { Text(uiState.subscriptionUpdateDelay.toString()) },
-                textField = { value, onValueChange, onOk ->
-                    UIntegerTextField(value, onValueChange, onOk)
+                summary = {
+                    Text(
+                        if (uiState.subscriptionUpdateDelay > 0) {
+                            stringResource(Res.string.auto_update_on, uiState.subscriptionUpdateDelay)
+                        } else {
+                            stringResource(Res.string.auto_update_off)
+                        },
+                    )
+                },
+                textField = { state, onOk ->
+                    UIntegerTextField(state, onOk)
                 },
             )
-        }
-    }
-}
-
-@Composable
-fun ValidatedAgeIdentityTextField(
-    value: TextFieldValue,
-    onValueChange: (TextFieldValue) -> Unit,
-    onOk: () -> Unit,
-) {
-    ValidatedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        onOk = onOk,
-        singleLine = true,
-    ) { text ->
-        if (text.isBlank()) {
-            null
-        } else try {
-            Libcore.validateAgeIdentities(text)
-            null
-        } catch (e: Exception) {
-            e.readableMessage
         }
     }
 }

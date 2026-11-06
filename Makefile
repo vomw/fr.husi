@@ -4,43 +4,48 @@ GO_PATCH_1234 = "https://github.com/golang/go/commit/59b7d40774b29bd1da1aa624f13
 CLIP = sh -c 'if [ -n "$$WAYLAND_DISPLAY" ]; then exec wl-copy; \
               elif [ -n "$$DISPLAY" ]; then exec xclip -selection clipboard; \
               else echo "No display detected (WAYLAND_DISPLAY/DISPLAY missing)"; exit 1; fi'
-DESKTOP_TARGETS_COMMON = linux/amd64,linux/arm64,darwin/amd64,darwin/arm64,windows/amd64,windows/arm64
+# androidx sqlite-bundled ships no libsqliteJni for every platform, and without it
+# Room cannot open the database. darwin/amd64 (osx_x64) is dropped for good; windows/arm64
+# is only commented out, waiting for https://issuetracker.google.com/issues/426464784.
+DARWIN_AMD64_SQLITE_ISSUE = https://issuetracker.google.com/issues/495864182
+DESKTOP_TARGETS_COMMON = linux/amd64,linux/arm64,darwin/arm64,windows/amd64
 DESKTOP_TARGETS_LINUX = linux/amd64 linux/arm64
-DESKTOP_TARGETS_WINDOWS = windows/amd64 windows/arm64
+# DESKTOP_TARGETS_WINDOWS = windows/amd64 windows/arm64
+DESKTOP_TARGETS_WINDOWS = windows/amd64
 LINUX_PACKAGE_FORMATS ?= deb,rpm,pacman
 HOST_OS = $(shell uname -s)
 DESKTOP_TARGET_GRADLE_ARG = $(if $(DESKTOP_TARGET),-PdesktopTarget=$(DESKTOP_TARGET),)
 DESKTOP_TARGET_SCRIPT_ARG = $(if $(DESKTOP_TARGET),--target $(DESKTOP_TARGET),)
-JNI_INCLUDE_SCRIPT_ARG = $(if $(JNI_INCLUDE),--jniinclude "$(JNI_INCLUDE)",)
+DESKTOP_APP_ARGS = $(if $(strip $(ARGS)),--args="$(ARGS)",)
 DARWIN_SDK_SCRIPT_ARG = $(if $(DARWIN_SDK),--darwinsdk "$(DARWIN_SDK)",)
-LAUNCHER_ZIG_TARGET = $(subst linux/amd64,x86_64-linux-musl,$(subst linux/arm64,aarch64-linux-musl,$(subst darwin/amd64,x86_64-macos,$(subst darwin/arm64,aarch64-macos,$(subst windows/amd64,x86_64-windows,$(subst windows/arm64,aarch64-windows,$(DESKTOP_TARGET)))))))
+WINDOWS_NO_SIGN_SCRIPT_ARG = $(if $(filter 1,$(WINDOWS_NO_SIGN)),--no-sign,)
+LAUNCHER_ZIG_TARGET = $(subst linux/amd64,x86_64-linux-musl,$(subst linux/arm64,aarch64-linux-musl,$(subst darwin/arm64,aarch64-macos,$(subst windows/amd64,x86_64-windows,$(subst windows/arm64,aarch64-windows,$(DESKTOP_TARGET))))))
 LAUNCHER_ZIG_TARGET_ARG = $(if $(LAUNCHER_ZIG_TARGET),-Dtarget=$(LAUNCHER_ZIG_TARGET),)
 
-.PHONY: update libcore libcore_android libcore_desktop_common libcore_desktop aboutlibraries aboutlibraries_go aboutlibraries_android aboutlibraries_desktop apk apk_debug assets desktop desktop_release desktop_package desktop_package_linux desktop_package_linux_all desktop_package_macos desktop_package_windows desktop_package_windows_all desktop_uberjar launcher lint_go test_go plugin generate_option
+# make expands DESKTOP_TARGETS into a single literal word, so the shell's IFS
+# never gets to split it — commas have to become spaces here instead.
+COMMA = ,
+
+.PHONY: libcore_android core_desktop core_desktop_common aboutlibraries aboutlibraries_go aboutlibraries_android aboutlibraries_desktop apk apk_debug assets icon desktop desktop_release desktop_package desktop_package_linux desktop_package_linux_all desktop_package_macos desktop_package_windows desktop_package_windows_jbr desktop_package_windows_all desktop_uberjar launcher lint_go lint_android proto proto_install test_go test_zig plugin generate_option lint_go_linux lint_go_android lint_go_windows lint_go_install fmt_go fmt_go_install
 
 build: libcore_android assets apk
-
-libcore:
-	./run lib core --desktop $(JNI_INCLUDE_SCRIPT_ARG) $(DARWIN_SDK_SCRIPT_ARG)
 
 libcore_android:
 	./run lib core --android
 
-libcore_desktop_common:
-	$(MAKE) libcore_desktop DESKTOP_TARGETS=$(DESKTOP_TARGETS_COMMON)
+# The husi-core binary of each target into libcore/build/<os>_<arch>/.
+# DESKTOP_TARGETS defaults to the host.
+core_desktop:
+	./run lib core --desktop --desktoptargets $(if $(DESKTOP_TARGETS),$(DESKTOP_TARGETS),host) $(DARWIN_SDK_SCRIPT_ARG)
 
-libcore_desktop:
-	@if [ -z "$(DESKTOP_TARGETS)" ]; then \
-		echo "DESKTOP_TARGETS is required, e.g. make libcore_desktop DESKTOP_TARGETS=linux/amd64,darwin/arm64"; \
-		exit 1; \
-	fi
-	./run lib core --desktop --desktoptargets $(DESKTOP_TARGETS) $(JNI_INCLUDE_SCRIPT_ARG) $(DARWIN_SDK_SCRIPT_ARG)
+core_desktop_common:
+	$(MAKE) core_desktop DESKTOP_TARGETS=$(DESKTOP_TARGETS_COMMON)
 
 desktop:
-	BUILD_PLUGIN=none ./gradlew -p composeApp run
+	BUILD_PLUGIN=none ./gradlew -p composeApp run $(DESKTOP_APP_ARGS)
 
 desktop_release:
-	BUILD_PLUGIN=none ./gradlew -p composeApp runRelease
+	BUILD_PLUGIN=none ./gradlew -p composeApp runRelease $(DESKTOP_APP_ARGS)
 
 desktop_package:
 ifeq ($(HOST_OS),Linux)
@@ -55,12 +60,12 @@ else
 endif
 
 desktop_package_linux:
-	BUILD_PLUGIN=none ./gradlew -p composeApp packageUberJarForCurrentOS $(DESKTOP_TARGET_GRADLE_ARG)
+	BUILD_PLUGIN=none ./gradlew -p composeApp packageReleaseUberJarForCurrentOS $(DESKTOP_TARGET_GRADLE_ARG)
 	$(MAKE) launcher
+	$(MAKE) core_desktop DESKTOP_TARGETS=$(if $(DESKTOP_TARGET),$(DESKTOP_TARGET),host)
 	./release/linux/package.sh --formats $(LINUX_PACKAGE_FORMATS) $(DESKTOP_TARGET_SCRIPT_ARG)
 
 desktop_package_linux_all:
-	$(MAKE) libcore_desktop DESKTOP_TARGETS=linux/amd64,linux/arm64
 	@for desktop_target in $(DESKTOP_TARGETS_LINUX); do \
 		$(MAKE) desktop_package_linux DESKTOP_TARGET=$$desktop_target LINUX_PACKAGE_FORMATS=$(LINUX_PACKAGE_FORMATS) || exit $$?; \
 	done
@@ -70,8 +75,9 @@ desktop_package_macos:
 		echo "desktop_package_macos on non-macOS hosts requires DESKTOP_TARGET, e.g. make desktop_package_macos DESKTOP_TARGET=darwin/arm64"; \
 		exit 1; \
 	fi
-	BUILD_PLUGIN=none ./gradlew -p composeApp packageUberJarForCurrentOS $(DESKTOP_TARGET_GRADLE_ARG)
+	BUILD_PLUGIN=none ./gradlew -p composeApp packageReleaseUberJarForCurrentOS $(DESKTOP_TARGET_GRADLE_ARG)
 	$(MAKE) launcher
+	$(MAKE) core_desktop DESKTOP_TARGETS=$(if $(DESKTOP_TARGET),$(DESKTOP_TARGET),host)
 	./release/macos/package.sh $(DESKTOP_TARGET_SCRIPT_ARG)
 
 desktop_package_windows:
@@ -79,23 +85,44 @@ desktop_package_windows:
 		echo "desktop_package_windows requires DESKTOP_TARGET, e.g. make desktop_package_windows DESKTOP_TARGET=windows/amd64"; \
 		exit 1; \
 	fi
-	BUILD_PLUGIN=none ./gradlew -p composeApp packageUberJarForCurrentOS $(DESKTOP_TARGET_GRADLE_ARG)
+	BUILD_PLUGIN=none ./gradlew -p composeApp packageReleaseUberJarForCurrentOS $(DESKTOP_TARGET_GRADLE_ARG)
 	$(MAKE) launcher
-	./release/windows/package.sh $(DESKTOP_TARGET_SCRIPT_ARG)
+	$(MAKE) core_desktop DESKTOP_TARGETS=$(DESKTOP_TARGET)
+	./release/windows/package.sh $(DESKTOP_TARGET_SCRIPT_ARG) $(WINDOWS_NO_SIGN_SCRIPT_ARG)
+
+# Same inputs as desktop_package_windows. Also links a JetBrains Runtime into a
+# second pair of packages (names carry -jbr) so they need no system Java. Thin
+# zip/NSIS are still emitted from the same signed payloads. JBR_JMODS points at
+# the modules; without it they are fetched into build/jbr/ first. The fetch
+# script prints the resolved path last, after the banner ./run puts in front of
+# it.
+desktop_package_windows_jbr:
+	@if [ -z "$(DESKTOP_TARGET)" ]; then \
+		echo "desktop_package_windows_jbr requires DESKTOP_TARGET, e.g. make desktop_package_windows_jbr DESKTOP_TARGET=windows/amd64"; \
+		exit 1; \
+	fi
+	BUILD_PLUGIN=none ./gradlew -p composeApp packageReleaseUberJarForCurrentOS $(DESKTOP_TARGET_GRADLE_ARG)
+	$(MAKE) launcher
+	$(MAKE) core_desktop DESKTOP_TARGETS=$(DESKTOP_TARGET)
+	jbr_jmods="$(JBR_JMODS)"; \
+	if [ -z "$$jbr_jmods" ]; then \
+		jbr_jmods="$$(./run lib jbr $(DESKTOP_TARGET) | tail -n 1)" || exit $$?; \
+	fi; \
+	./release/windows/package.sh $(DESKTOP_TARGET_SCRIPT_ARG) $(WINDOWS_NO_SIGN_SCRIPT_ARG) --jbr-jmods "$$jbr_jmods"
 
 desktop_package_windows_all:
-	$(MAKE) libcore_desktop DESKTOP_TARGETS=windows/amd64,windows/arm64
 	@for desktop_target in $(DESKTOP_TARGETS_WINDOWS); do \
-		$(MAKE) desktop_package_windows DESKTOP_TARGET=$$desktop_target || exit $$?; \
+		$(MAKE) desktop_package_windows_jbr DESKTOP_TARGET=$$desktop_target WINDOWS_NO_SIGN=$(WINDOWS_NO_SIGN) || exit $$?; \
 	done
 
+# ProGuard-shrunk release jar. Place husi-core next to the jar, or on PATH, before running.
 desktop_uberjar:
-	BUILD_PLUGIN=none ./gradlew packageUberJarForCurrentOS $(DESKTOP_TARGET_GRADLE_ARG)
+	BUILD_PLUGIN=none ./gradlew packageReleaseUberJarForCurrentOS $(DESKTOP_TARGET_GRADLE_ARG)
 
 aboutlibraries: aboutlibraries_go aboutlibraries_android aboutlibraries_desktop
 
 aboutlibraries_go:
-	cd libcore && go run -tags=with_gvisor,with_quic,with_wireguard,with_utls ./cmd/licencecollect -d ../composeApp/src/commonMain/aboutlibraries/libraries -clean
+	cd libcore && go run ./cmd/internal/licencecollect -d ../composeApp/src/commonMain/aboutlibraries/libraries -clean
 
 aboutlibraries_android:
 	./gradlew :composeApp:exportLibraryDefinitions
@@ -115,37 +142,60 @@ apk_debug:
 assets:
 	./run lib assets
 
-update:
-	./run lib update
+icon:
+	./run icon
 
-lint_go:
-	cd libcore/ && GOOS=android golangci-lint run ./...
+proto:
+	./run proto
+
+proto_install:
+	@echo "protoc: install via your package manager (e.g. pacman -S protobuf)."
+	@echo "Go plugins are built from libcore/go.mod pins automatically."
+
+lint_go: lint_go_linux lint_go_android lint_go_windows lint_go_darwin
+
+# husi-core ships without cgo on Linux and Windows, so lint that configuration.
+lint_go_linux:
+	cd libcore/ && GOOS=linux CGO_ENABLED=0 golangci-lint run ./...
+
+lint_go_android:
+	cd libcore/ && GOOS=android GOARCH=arm64 golangci-lint run ./...
+
+lint_go_windows:
+	cd libcore/ && GOOS=windows GOARCH=amd64 CGO_ENABLED=0 golangci-lint run ./...
+
+lint_go_darwin:
+	cd libcore/ && GOOS=darwin GOARCH=arm64 golangci-lint run ./...
 
 lint_go_install:
-	go install -v github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	go install -v github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 
 fmt_go:
-	cd libcore/ && gofumpt -l -w .
-	cd libcore/ && gofmt -s -w .
-	cd libcore/ && gci write --custom-order -s standard -s localmodule -s "prefix(github.com/sagernet/)" -s "default" --skip-generated .
+	cd libcore/ && golangci-lint fmt ./...
 
-fmt_go_install:
-	go install -v mvdan.cc/gofumpt@latest
-	go install -v github.com/daixiang0/gci@latest
+fmt_go_install: lint_go_install
 
-test: test_gradle test_go
+test: test_gradle test_go test_zig
 
 test_gradle:
 	./gradlew :composeApp:allTests
 
+# Android lint, NewApi only: commonMain compiles against the desktop JDK, so a JDK API
+# missing below minSdk passes compilation and crashes old Android at runtime.
+lint_android:
+	BUILD_PLUGIN=none ./gradlew :composeApp:lintAndroidMain
+
 test_go:
-	cd libcore/ && go test -v -count=1 ./...
+	cd libcore/ && go test -v -count=1 -tags with_quic,badlinkname -ldflags=-checklinkname=0 ./...
+
+test_zig:
+	cd launcher && zig build test
 
 plugin:
 	BUILD_PLUGIN=$(PLUGIN) ./gradlew :plugin:$(PLUGIN):assembleFossRelease
 
 generate_option:
-	cd ./libcore/cmd/boxoption && go run . | $(CLIP)
+	cd ./libcore/cmd/internal/boxoption && go run . | $(CLIP)
 
 patch_go1230:
 	curl $(GO_PATCH_1230) | sudo patch --verbose -p 1 -d $(GOROOT)

@@ -21,18 +21,14 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarDuration
-import fr.husi.compose.SwipeableSnackbarHost
-import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
-import fr.husi.compose.CapsuleActionButton
+import androidx.compose.material3.rememberBottomSheetState
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import fr.husi.compose.CapsuleTopBar
-import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -50,41 +46,36 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.ernestoyaquello.dragdropswipelazycolumn.AllowedSwipeDirections
 import com.ernestoyaquello.dragdropswipelazycolumn.DragDropSwipeLazyColumn
 import com.ernestoyaquello.dragdropswipelazycolumn.DraggableSwipeableItem
 import com.ernestoyaquello.dragdropswipelazycolumn.DraggableSwipeableItemScope
 import com.ernestoyaquello.dragdropswipelazycolumn.config.DraggableSwipeableItemColors
 import com.ernestoyaquello.dragdropswipelazycolumn.state.rememberDragDropSwipeLazyColumnState
 import fr.husi.GroupType
-import fr.husi.bg.BackendState
-import fr.husi.bg.ServiceState
 import fr.husi.compose.BoxedVerticalScrollbar
-import fr.husi.compose.PlatformMenuIcon
 import fr.husi.compose.QRCodeDialog
-import fr.husi.compose.SagerFab
 import fr.husi.compose.SheetActionRow
 import fr.husi.compose.SheetSectionTitle
 import fr.husi.compose.SimpleIconButton
-import fr.husi.compose.StatsBar
 import fr.husi.compose.TextButton
 import fr.husi.compose.fadingEdge
 import fr.husi.compose.material3.Icon
 import fr.husi.compose.material3.Text
-import fr.husi.compose.rememberScrollHideState
 import fr.husi.compose.setPlainText
 import fr.husi.compose.withNavigation
 import fr.husi.database.SagerDatabase
 import fr.husi.fmt.toUniversalLink
 import fr.husi.ktx.blankAsNull
-import fr.husi.ktx.formatTime
-import fr.husi.ktx.onIoDispatcher
-import fr.husi.ktx.showAndDismissOld
-import fr.husi.libcore.Libcore
+import fr.husi.ktx.DisplayTime
+import fr.husi.ktx.formatBytes
 import fr.husi.repository.resolveRepository
 import fr.husi.resources.Res
 import fr.husi.resources.action_export
 import fr.husi.resources.action_export_clipboard
 import fr.husi.resources.action_export_file
+import fr.husi.resources.arrow_back
+import fr.husi.resources.back
 import fr.husi.resources.cancel
 import fr.husi.resources.clear_profiles
 import fr.husi.resources.clear_profiles_message
@@ -99,7 +90,7 @@ import fr.husi.resources.group_create
 import fr.husi.resources.group_status_empty
 import fr.husi.resources.group_status_empty_subscription
 import fr.husi.resources.group_status_proxies
-import fr.husi.resources.group_update
+import fr.husi.resources.group_status_updated_empty
 import fr.husi.resources.internal_link
 import fr.husi.resources.link
 import fr.husi.resources.menu
@@ -126,39 +117,24 @@ import io.github.vinceglb.filekit.dialogs.FileKitDialogSettings
 import io.github.vinceglb.filekit.dialogs.compose.rememberFileSaverLauncher
 import io.github.vinceglb.filekit.write
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.datetime.LocalDateTime
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.format.FormatStringsInDatetimeFormats
-import kotlinx.datetime.format.byUnicodePattern
-import kotlinx.datetime.toLocalDateTime
+import kotlinx.coroutines.withContext
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.vectorResource
 import kotlin.time.Instant
-
-@OptIn(FormatStringsInDatetimeFormats::class)
-private val subscriptionDateFormat = LocalDateTime.Format {
-    byUnicodePattern("yyyy-MM-dd HH:mm")
-}
-
-private fun formatSubscriptionUpdateTime(epochSeconds: Long): String {
-    val dateTime = Instant.fromEpochSeconds(epochSeconds)
-        .toLocalDateTime(TimeZone.currentSystemDefault())
-    return subscriptionDateFormat.format(dateTime)
-}
 
 @Composable
 fun GroupScreen(
     modifier: Modifier = Modifier,
     mainViewModel: MainViewModel,
     viewModel: GroupScreenViewModel = viewModel { GroupScreenViewModel() },
-    onDrawerClick: () -> Unit,
+    onBackPress: () -> Unit,
     openGroupSettings: (Long) -> Unit,
 ) {
-    val scope = rememberCoroutineScope()
-    val snackbarState = remember { SnackbarHostState() }
+    val snackbar = LocalSnackbarEmitter.current
     DisposableEffect(Unit) {
         onDispose {
             viewModel.commit()
@@ -168,22 +144,20 @@ fun GroupScreen(
     var showUpdateAll by remember { mutableStateOf(false) }
     var qrDialogData by remember { mutableStateOf<Pair<String, String>?>(null) } // url:name
     var clearGroupConfirm by remember { mutableStateOf<Long?>(null) }
-    var showAlertDialog by remember { mutableStateOf<MainViewModelUiEvent.AlertDialog?>(null) }
-
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     LaunchedEffect(uiState.hiddenGroups) {
         if (uiState.hiddenGroups > 0) {
-            val result = snackbarState.showAndDismissOld(
-                message = resolveRepository().getPluralString(
+            snackbar.show(
+                StringOrRes.PluralsRes(
                     Res.plurals.removed,
                     uiState.hiddenGroups,
                     uiState.hiddenGroups,
                 ),
-                actionLabel = resolveRepository().getString(Res.string.undo),
-                duration = SnackbarDuration.Short,
-            )
-            if (result == SnackbarResult.ActionPerformed) {
-                viewModel.undo()
+                StringOrRes.Res(Res.string.undo),
+            ) { result ->
+                if (result == SnackbarResult.ActionPerformed) {
+                    viewModel.undo()
+                }
             }
         }
     }
@@ -198,25 +172,15 @@ fun GroupScreen(
                 writeContent = { content ->
                     file.write(content.encodeToByteArray())
                 },
-                showSnackbar = { str ->
-                    scope.launch {
-                        snackbarState.showSnackbar(
-                            message = getStringOrRes(str),
-                            actionLabel = resolveRepository().getString(Res.string.ok),
-                            duration = SnackbarDuration.Short,
-                        )
-                    }
-                },
+                showSnackbar = snackbar::show,
             )
         }
     }
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val windowInsets = WindowInsets.safeDrawing
+    val hazeState = rememberHazeState()
     val dragDropListState = rememberDragDropSwipeLazyColumnState()
-    val scrollHideVisible by rememberScrollHideState(dragDropListState.lazyListState)
-
-    val serviceStatus by BackendState.status.collectAsStateWithLifecycle()
 
     Scaffold(
         modifier = modifier
@@ -224,12 +188,15 @@ fun GroupScreen(
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             CapsuleTopBar(
+                hazeState = hazeState,
                 title = { Text(stringResource(Res.string.menu_group)) },
-                navigationIcon = PlatformMenuIcon(
-                    imageVector = vectorResource(Res.drawable.menu),
-                    contentDescription = stringResource(Res.string.menu),
-                    onClick = onDrawerClick,
-                ),
+                navigationIcon = {
+                    SimpleIconButton(
+                        imageVector = vectorResource(Res.drawable.arrow_back),
+                        contentDescription = stringResource(Res.string.back),
+                        onClick = onBackPress,
+                    )
+                },
                 actions = {
                     CapsuleActionButton {
                         SimpleIconButton(
@@ -252,35 +219,12 @@ fun GroupScreen(
                 scrollBehavior = scrollBehavior,
             )
         },
-        snackbarHost = { SwipeableSnackbarHost(snackbarState) },
-        floatingActionButton = {
-            SagerFab(
-                visible = scrollHideVisible,
-                state = serviceStatus.state,
-                showSnackbar = { message ->
-                    scope.launch {
-                        snackbarState.showSnackbar(
-                            message = getStringOrRes(message),
-                            actionLabel = resolveRepository().getString(Res.string.ok),
-                            duration = SnackbarDuration.Short,
-                        )
-                    }
-                },
-            )
-        },
-        bottomBar = {
-            if (serviceStatus.state == ServiceState.Connected) {
-                StatsBar(
-                    status = serviceStatus,
-                    visible = scrollHideVisible,
-                    mainViewModel = mainViewModel,
-                )
-            }
-        },
     ) { innerPadding ->
         val contentPadding = innerPadding.withNavigation()
         Row(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .hazeSource(hazeState),
         ) {
             DragDropSwipeLazyColumn(
                 modifier = Modifier
@@ -295,14 +239,7 @@ fun GroupScreen(
                 contentPadding = contentPadding,
                 onIndicesChangedViaDragAndDrop = { viewModel.submitReorder(it) },
             ) { _, groupState ->
-                val swipeState = rememberSwipeToDismissBoxState()
-
-                LaunchedEffect(swipeState.currentValue) {
-                    if (swipeState.currentValue != SwipeToDismissBoxValue.Settled) {
-                        viewModel.undoableRemove(groupState.group.id)
-                        swipeState.snapTo(SwipeToDismissBoxValue.Settled)
-                    }
-                }
+                val removable = !groupState.group.ungrouped && !groupState.isUpdating
 
                 DraggableSwipeableItem(
                     modifier = Modifier.animateDraggableSwipeableItem(),
@@ -310,51 +247,34 @@ fun GroupScreen(
                         containerBackgroundColor = Color.Transparent,
                         containerBackgroundColorWhileDragged = Color.Transparent,
                     ),
+                    allowedSwipeDirections = if (removable) {
+                        AllowedSwipeDirections.All
+                    } else {
+                        AllowedSwipeDirections.None
+                    },
+                    onSwipeDismiss = { viewModel.undoableRemove(groupState.group.id) },
                 ) {
-                    SwipeToDismissBox(
-                        state = swipeState,
-                        enableDismissFromStartToEnd = !groupState.group.ungrouped && !groupState.isUpdating,
-                        enableDismissFromEndToStart = !groupState.group.ungrouped && !groupState.isUpdating,
-                        backgroundContent = {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(horizontal = 16.dp),
-                                contentAlignment = Alignment.CenterEnd,
-                            ) {
-                                Icon(vectorResource(Res.drawable.delete), null)
-                            }
+                    GroupCard(
+                        mainViewModel = mainViewModel,
+                        state = groupState,
+                        openGroupSettings = openGroupSettings,
+                        snackbar = { message ->
+                            snackbar.show(StringOrRes.Direct(message))
                         },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        GroupCard(
-                            mainViewModel = mainViewModel,
-                            state = groupState,
-                            openGroupSettings = openGroupSettings,
-                            snackbar = { message ->
-                                scope.launch {
-                                    snackbarState.showSnackbar(
-                                        message = message,
-                                        actionLabel = resolveRepository().getString(Res.string.ok),
-                                        duration = SnackbarDuration.Short,
-                                    )
-                                }
-                            },
-                            showQRDialog = { url, name ->
-                                qrDialogData = url to name
-                            },
-                            showClearGroupDialog = {
-                                clearGroupConfirm = groupState.group.id
-                            },
-                            exportToFile = {
-                                groupToExport = groupState.group.id
-                                exportProfiles.launch(
-                                    suggestedName = "profiles_${groupState.group.displayName()}",
-                                    defaultExtension = "txt",
-                                )
-                            },
-                        )
-                    }
+                        showQRDialog = { url, name ->
+                            qrDialogData = url to name
+                        },
+                        showClearGroupDialog = {
+                            clearGroupConfirm = groupState.group.id
+                        },
+                        exportToFile = {
+                            groupToExport = groupState.group.id
+                            exportProfiles.launch(
+                                suggestedName = "profiles_${groupState.group.displayName()}",
+                                defaultExtension = "txt",
+                            )
+                        },
+                    )
                 }
             }
 
@@ -394,13 +314,7 @@ fun GroupScreen(
             name = name,
             onDismiss = { qrDialogData = null },
             showSnackbar = { message ->
-                scope.launch {
-                    snackbarState.showSnackbar(
-                        message = message,
-                        actionLabel = resolveRepository().getString(Res.string.ok),
-                        duration = SnackbarDuration.Short,
-                    )
-                }
+                snackbar.show(StringOrRes.Direct(message))
             },
         )
     }
@@ -425,36 +339,6 @@ fun GroupScreen(
         )
     }
 
-    LaunchedEffect(Unit) {
-        mainViewModel.uiEvent.collect { event ->
-            when (event) {
-                is MainViewModelUiEvent.Snackbar -> scope.launch {
-                    snackbarState.showSnackbar(
-                        message = getStringOrRes(event.message),
-                        actionLabel = resolveRepository().getString(Res.string.ok),
-                        duration = SnackbarDuration.Short,
-                    )
-                }
-
-                is MainViewModelUiEvent.SnackbarWithAction -> scope.launch {
-                    val result = snackbarState.showSnackbar(
-                        message = getStringOrRes(event.message),
-                        actionLabel = getStringOrRes(event.actionLabel),
-                        duration = SnackbarDuration.Short,
-                    )
-                    event.callback(result)
-                }
-
-                is MainViewModelUiEvent.AlertDialog -> showAlertDialog = event
-            }
-        }
-    }
-
-    showAlertDialog?.let { dialog ->
-        MainViewModelAlertDialog(dialog) {
-            showAlertDialog = null
-        }
-    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -475,7 +359,10 @@ private fun DraggableSwipeableItemScope<GroupItemUiState>.GroupCard(
     val group = state.group
 
     var showOptionsSheet by remember { mutableStateOf(false) }
-    val optionsSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val optionsSheetState = rememberBottomSheetState(
+        initialValue = SheetValue.Hidden,
+        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
+    )
 
     ElevatedCard(
         modifier = modifier
@@ -709,7 +596,7 @@ private fun DraggableSwipeableItemScope<GroupItemUiState>.GroupCard(
                                                 },
                                                 onClick = {
                                                     scope.launch {
-                                                        val links = onIoDispatcher {
+                                                        val links = withContext(Dispatchers.IO) {
                                                             SagerDatabase.proxyDao
                                                                 .getByGroup(group.id)
                                                                 .first()
@@ -779,13 +666,13 @@ private fun DraggableSwipeableItemScope<GroupItemUiState>.GroupCard(
                                     text = if (subscription.bytesRemaining > 0L) {
                                         stringResource(
                                             Res.string.subscription_traffic,
-                                            Libcore.formatBytes(subscription.bytesUsed),
-                                            Libcore.formatBytes(subscription.bytesRemaining),
+                                            subscription.bytesUsed.formatBytes(),
+                                            subscription.bytesRemaining.formatBytes(),
                                         )
                                     } else {
                                         stringResource(
                                             Res.string.subscription_used,
-                                            Libcore.formatBytes(subscription.bytesUsed),
+                                            subscription.bytesUsed.formatBytes(),
                                         )
                                     },
                                     style = MaterialTheme.typography.bodySmall,
@@ -796,7 +683,7 @@ private fun DraggableSwipeableItemScope<GroupItemUiState>.GroupCard(
                                     Text(
                                         text = stringResource(
                                             Res.string.subscription_expire,
-                                            formatTime(subscription.expiryDate * 1000L),
+                                            DisplayTime.date(Instant.fromEpochSeconds(subscription.expiryDate)),
                                         ),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -805,14 +692,15 @@ private fun DraggableSwipeableItemScope<GroupItemUiState>.GroupCard(
                             }
 
                             if (state.group.type == GroupType.SUBSCRIPTION &&
-                                state.counts > 0L &&
                                 state.group.subscription!!.lastUpdated > 0
                             ) {
                                 Text(
                                     text = stringResource(
                                         Res.string.subscription_last_updated,
-                                        formatSubscriptionUpdateTime(
-                                            state.group.subscription!!.lastUpdated.toLong(),
+                                        DisplayTime.dateTime(
+                                            Instant.fromEpochSeconds(
+                                                state.group.subscription!!.lastUpdated.toLong(),
+                                            ),
                                         ),
                                     ),
                                     style = MaterialTheme.typography.bodySmall,
@@ -836,7 +724,11 @@ private fun DraggableSwipeableItemScope<GroupItemUiState>.GroupCard(
 
                                     GroupType.SUBSCRIPTION -> {
                                         if (state.counts == 0L) {
-                                            stringResource(Res.string.group_status_empty_subscription)
+                                            if (state.group.subscription!!.lastUpdated > 0) {
+                                                stringResource(Res.string.group_status_updated_empty)
+                                            } else {
+                                                stringResource(Res.string.group_status_empty_subscription)
+                                            }
                                         } else {
                                             pluralStringResource(
                                                 Res.plurals.group_status_proxies,
@@ -860,7 +752,7 @@ private fun DraggableSwipeableItemScope<GroupItemUiState>.GroupCard(
                                 enabled = !state.isUpdating,
                             ) {
                                 Text(
-                                    text = stringResource(Res.string.group_update),
+                                    text = stringResource(Res.string.update),
                                     color = MaterialTheme.colorScheme.primary,
                                 )
                             }

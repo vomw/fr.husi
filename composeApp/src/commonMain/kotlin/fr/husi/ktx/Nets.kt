@@ -1,68 +1,61 @@
 package fr.husi.ktx
 
-import fr.husi.BuildConfig
+import fr.husi.DOMAIN_STRATEGY_AUTO
 import fr.husi.database.DataStore
-import fr.husi.fmt.AbstractBean
 import fr.husi.fmt.LOCALHOST4
+import fr.husi.fmt.LOCALHOST_NAME
 import fr.husi.fmt.SingBoxOptions
-import fr.husi.libcore.Libcore
-import fr.husi.libcore.URL
+import io.github.xchacha20_poly1305.kpuri.Url
+import io.github.xchacha20_poly1305.kpuri.buildUrl
 import java.net.Inet4Address
-import java.net.InetAddress
 import java.net.Inet6Address
+import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.InterfaceAddress
 import java.net.Socket
 
-var URL.pathSegments: List<String>
-    get() = path.split("/").filter { it.isNotBlank() }
-    set(value) {
-        path = value.joinToString("/")
-    }
-
-fun URL.addPathSegments(vararg segments: String) {
-    pathSegments = pathSegments.toMutableList().apply {
-        addAll(segments)
-    }
-}
-
-fun URL.queryParameterNotBlank(key: String): String? {
+fun Url.queryParameterNotBlank(key: String): String? {
     return queryParameter(key).blankAsNull()
 }
 
-fun URL.queryParameterUnescapeNotBlank(key: String): String? {
-    return queryParameterUnescape(key).blankAsNull()
-}
-
-fun URL.parseBoolean(key: String): Boolean = when (queryParameter(key).lowercase()) {
+fun Url.parseBoolean(key: String): Boolean = when (queryParameter(key)?.lowercase()) {
     "1", "true", "yes" -> true
     else -> false
 }
 
-fun currentSocks5(): URL? = if (!DataStore.serviceState.connected) {
-    null
-} else {
-    Libcore.newURL("socks5").apply {
+suspend fun localProxyURL(scheme: String): Url {
+    val mixedPort = DataStore.mixedPort.get()
+    val inboundUsername = DataStore.inboundUsername.get().emptyAsNull()
+    val inboundPassword = DataStore.inboundPassword.get()
+    return buildUrl(scheme) {
         host = LOCALHOST4
-        ports = DataStore.mixedPort.toString()
+        port = mixedPort.toString()
 
-        // Avoid creating User field if not have.
-        val username = DataStore.inboundUsername
-        if (username.isNotEmpty()) {
-            this.username = username
-            password = DataStore.inboundPassword
+        inboundUsername?.let { name ->
+            username = name
+            password = inboundPassword
         }
     }
+}
+
+suspend fun currentSocks5(): Url? = if (!DataStore.serviceState.connected) {
+    null
+} else {
+    localProxyURL("socks5")
 }
 
 fun String.isIpAddress(): Boolean {
     return isIPv4() || isIPv6()
 }
 
-fun serverAddressDomainStrategy(): String? {
+suspend fun serverAddressDomainStrategy(): String? {
+    val domainStrategy = DataStore.domainStrategyForServer.get()
+        .replace(DOMAIN_STRATEGY_AUTO, "")
+        .blankAsNull()
+    val networkStrategy = DataStore.networkStrategy.get().blankAsNull()
     return defaultOr(
-        DataStore.domainStrategyForServer.replace("auto", "").blankAsNull(),
-        { DataStore.networkStrategy.blankAsNull() },
+        domainStrategy,
+        { networkStrategy },
     )
 }
 
@@ -120,8 +113,63 @@ fun String.wrapIPV6Host(): String {
     }
 }
 
-fun AbstractBean.wrapUri(): String {
-    return "${finalAddress.wrapIPV6Host()}:$finalPort"
+fun joinAddress(host: String, port: Int): String = joinAddress(host, port.toString())
+
+fun joinAddress(host: String, port: String): String = "${host.wrapIPV6Host()}:$port"
+
+fun splitAddress(address: String): Pair<String, String>? {
+    val separator = address.lastIndexOf(':')
+    if (separator <= 0 || separator == address.lastIndex) return null
+    val host = address.substring(0, separator)
+    val bracketed = host.startsWith("[") && host.endsWith("]")
+    if (!bracketed && ':' in host) return null
+    return host.unwrapIPV6Host() to address.substring(separator + 1)
+}
+
+private val VALID_PORTS = 1..65535
+
+fun String.toPortOrNull(): Int? = toIntOrNull()?.takeIf { it in VALID_PORTS }
+
+private const val ADDRESS_MASK = "***"
+private const val MASKED_IPV4_TAIL = ".*.*.*"
+
+fun String.blurAddress(): String {
+    val (host, port) = splitAddress(this) ?: return blurHost()
+    val blurredHost = host.blurHost()
+    val displayHost = if (host.isIPv6()) "[$blurredHost]" else blurredHost
+    return "$displayHost:${port.blurLabel()}"
+}
+
+private fun String.blurHost(): String = when {
+    isBlank() -> this
+
+    startsWith("[") && endsWith("]") -> "[${unwrapIPV6Host().blurHost()}]"
+
+    isIPv4() -> substringBefore('.') + MASKED_IPV4_TAIL
+
+    isIPv6() -> "${substringBefore(':')}:$ADDRESS_MASK"
+
+    else -> blurDomain()
+}
+
+private fun String.blurDomain(): String {
+    val labels = split('.')
+    val topLevelIndex = if (labels.size > 1) labels.lastIndex else -1
+    return labels.mapIndexed { index, label ->
+        if (index == topLevelIndex) label else label.blurLabel()
+    }.joinToString(".")
+}
+
+private fun String.blurLabel(): String {
+    if (isEmpty()) return this
+    return "${first()}$ADDRESS_MASK"
+}
+
+fun String.isLoopbackHost(): Boolean {
+    if (equals(LOCALHOST_NAME, ignoreCase = true)) return true
+    val literal = unwrapIPV6Host()
+    if (!literal.isIpAddress()) return false
+    return runCatching { InetAddress.getByName(literal).isLoopbackAddress }.getOrDefault(false)
 }
 
 fun mkPort(): Int {
@@ -131,18 +179,6 @@ fun mkPort(): Int {
     val port = socket.localPort
     socket.close()
     return port
-}
-
-val USER_AGENT by lazy { "husi/${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}; sing-box ${Libcore.versionBox()})" }
-
-/**
-Replace all version-about escapes in userAent
- */
-fun generateUserAgent(userAgent: String): String {
-    if (userAgent.isBlank()) return USER_AGENT
-    return userAgent.replace("\$version_code", BuildConfig.VERSION_CODE.toString())
-        .replace("\$version", BuildConfig.VERSION_NAME)
-        .replace("\$box_version", Libcore.versionBox())
 }
 
 fun InterfaceAddress.toPrefix(): String {

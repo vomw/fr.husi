@@ -2,6 +2,7 @@ package fr.husi.fmt
 
 import fr.husi.fmt.SingBoxOptions.DomainResolveOptions
 import fr.husi.fmt.SingBoxOptions.ExperimentalOptions
+import fr.husi.fmt.SingBoxOptions.HTTPClient
 import fr.husi.fmt.SingBoxOptions.LogOptions
 import fr.husi.fmt.SingBoxOptions.MyDNSOptions
 import fr.husi.fmt.SingBoxOptions.MyOptions
@@ -45,17 +46,21 @@ data class MyRouteOptionsKxs(
     val default_network_type: List<String>? = null,
     val default_fallback_network_type: List<String>? = null,
     val default_fallback_delay: String? = null,
+    val default_http_client: String? = null,
 )
 
 @KxsSerializable
 data class MyOptionsKxs(
+    val `$schema`: String? = null,
     val log: LogOptions? = null,
     val dns: MyDNSOptionsKxs? = null,
     val ntp: NTPOptions? = null,
+    val http_clients: List<HTTPClient>? = null,
     val inbounds: List<JsonObject>? = null,
     val outbounds: List<JsonObject>? = null,
     val endpoints: List<JsonObject>? = null,
     val route: MyRouteOptionsKxs? = null,
+    val services: List<JsonObject>? = null,
     val experimental: ExperimentalOptions? = null,
 )
 
@@ -87,15 +92,19 @@ fun MyRouteOptions.toKxs(): MyRouteOptionsKxs = MyRouteOptionsKxs(
     default_network_type = default_network_type,
     default_fallback_network_type = default_fallback_network_type,
     default_fallback_delay = default_fallback_delay,
+    default_http_client = default_http_client,
 )
 
 fun MyOptions.toKxs(): MyOptionsKxs = MyOptionsKxs(
+    `$schema` = `$schema`,
     log = log,
     dns = dns?.toKxs(),
     ntp = ntp,
+    http_clients = http_clients,
     inbounds = inbounds?.map { it.toJsonObjectKxs() },
     outbounds = outbounds?.map { it.toJsonObjectKxs() },
     endpoints = endpoints?.map { it.toJsonObjectKxs() },
     route = route?.toKxs(),
+    services = services?.map { it.toJsonObjectKxs() },
     experimental = experimental,
 )

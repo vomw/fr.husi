@@ -1,57 +1,174 @@
 package fr.husi.bg.proto
 
-import fr.husi.ktx.emptyAsNull
-import fr.husi.libcore.ConnectionEvent
-import fr.husi.libcore.Libcore
+import fr.husi.core.chainHops
+import fr.husi.core.matchedOutbound
+import fr.husi.fmt.SingBoxOptions
+import fr.husi.fmt.TrafficNode
+import fr.husi.proto.daemon.Connection
+import fr.husi.proto.daemon.ConnectionEvent
+import fr.husi.proto.daemon.ConnectionEventType
+import fr.husi.proto.daemon.ConnectionEvents
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.concurrent.atomics.AtomicLong
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlin.concurrent.atomics.fetchAndUpdate
 
+/** Bytes accumulated since the previous drain. */
+data class TrafficDelta(val upload: Long = 0L, val download: Long = 0L)
+
+/** Everything one drain took out of the aggregator. */
+class TrafficSnapshot(
+    /** Per profile id, the bytes its connections carried. */
+    val byProfile: Map<Long, TrafficDelta>,
+    /** Proxied bytes, counted once per connection however long its chain is. */
+    val proxied: TrafficDelta,
+    /** Bytes routed to the outbounds that leave the device without a proxy. */
+    val direct: TrafficDelta,
+)
+
+/** Outbound types that reach the destination without a proxy server. */
+private val directOutboundTypes = setOf(SingBoxOptions.TYPE_DIRECT, SingBoxOptions.TYPE_BRIDGE)
+
+/**
+ * Attributes connection traffic to the profiles that carried it.
+ *
+ * A connection names the outbound its rules matched plus the selectors sing-box
+ * resolved from there — nested selectors included, since it keeps walking while each
+ * hop is a group. It stops at the first hop that dials, so the rest of the chain
+ * comes from [graph] instead. Selectors sitting behind a detour are invisible to that
+ * walk as well; for those the last selection the groups stream reported is used.
+ */
 @OptIn(ExperimentalAtomicApi::class)
-class OutboundTrafficAggregator {
+class OutboundTrafficAggregator(private val graph: Map<String, TrafficNode> = emptyMap()) {
 
-    private class OutboundCounter(
-        val upload: AtomicLong = AtomicLong(0L),
-        val download: AtomicLong = AtomicLong(0L),
-    )
+    private class Counter {
+        val upload = AtomicLong(0L)
+        val download = AtomicLong(0L)
 
-    private val idToTag = ConcurrentHashMap<String, String>()
-    private val tagToCounter = ConcurrentHashMap<String, OutboundCounter>()
+        fun add(upload: Long, download: Long) {
+            this.upload.addAndFetch(upload)
+            this.download.addAndFetch(download)
+        }
 
-    fun onEvent(event: ConnectionEvent) {
-        when (event.type) {
-            Libcore.ConnectionEventNew -> {
-                val info = event.trackerInfo ?: return
-                val tag = info.matchedOutbound.emptyAsNull() ?: return
-                idToTag[event.id] = tag
+        fun drain() = TrafficDelta(
+            upload = upload.fetchAndUpdate { 0L },
+            download = download.fetchAndUpdate { 0L },
+        )
+    }
 
-                tagToCounter.computeIfAbsent(tag) { OutboundCounter() }.apply {
-                    upload.addAndFetch(info.uploadTotal)
-                    download.addAndFetch(info.downloadTotal)
-                }
-            }
+    /** What one connection's bytes count towards, resolved once when it appears. */
+    private class Attribution(val profileIDs: Set<Long>, val direct: Boolean)
 
-            Libcore.ConnectionEventUpdate -> {
-                val tag = idToTag[event.id] ?: return
-                tagToCounter[tag]?.let { counter ->
-                    counter.upload.addAndFetch(event.uplinkDelta)
-                    counter.download.addAndFetch(event.downlinkDelta)
-                }
-            }
+    private val profileCounters = ConcurrentHashMap<Long, Counter>()
+    private val proxiedCounter = Counter()
+    private val directCounter = Counter()
+    private val selectedByGroup = ConcurrentHashMap<String, String>()
+    private val attributionById = ConcurrentHashMap<String, Attribution>()
 
-            Libcore.ConnectionEventClosed -> {
-                idToTag.remove(event.id)
-            }
+    /** Last seen cumulative up/down per connection id; survives stream resets. */
+    private val idTotals = ConcurrentHashMap<String, Pair<Long, Long>>()
+
+    /** Resolves selectors that no connection can report because a detour hides them. */
+    fun updateSelection(groupTag: String, selected: String) {
+        selectedByGroup[groupTag] = selected
+    }
+
+    fun onEvents(events: ConnectionEvents) {
+        if (events.reset) {
+            val liveIds = events.eventsList.mapTo(HashSet()) { it.id }
+            attributionById.clear()
+            // Drop watermarks for connections absent from the replay batch.
+            idTotals.keys.retainAll(liveIds)
+            // Do not clear the counters — those may already have been drained into
+            // profile totals and persisted.
+        }
+        for (event in events.eventsList) {
+            onEvent(event)
         }
     }
 
-    fun drain(tag: String, isUpload: Boolean): Long {
-        val counter = tagToCounter[tag] ?: return 0L
-        return if (isUpload) {
-            counter.upload.fetchAndUpdate { 0L }
-        } else {
-            counter.download.fetchAndUpdate { 0L }
+    fun onEvent(event: ConnectionEvent) {
+        when (event.type) {
+            ConnectionEventType.CONNECTION_EVENT_NEW -> {
+                val connection = event.connection ?: return
+                val attribution = connection.attribution() ?: return
+                attributionById[event.id] = attribution
+                val watermark = idTotals[event.id] ?: (0L to 0L)
+                val upload = (connection.uplinkTotal - watermark.first).coerceAtLeast(0L)
+                val download = (connection.downlinkTotal - watermark.second).coerceAtLeast(0L)
+                idTotals[event.id] = connection.uplinkTotal to connection.downlinkTotal
+                if (upload == 0L && download == 0L) return
+                credit(attribution, upload, download)
+            }
+
+            ConnectionEventType.CONNECTION_EVENT_UPDATE -> {
+                attributionById[event.id]?.let {
+                    credit(it, event.uplinkDelta, event.downlinkDelta)
+                }
+                idTotals.compute(event.id) { _, previous ->
+                    val (upload, download) = previous ?: (0L to 0L)
+                    (upload + event.uplinkDelta) to (download + event.downlinkDelta)
+                }
+            }
+
+            ConnectionEventType.CONNECTION_EVENT_CLOSED -> {
+                attributionById.remove(event.id)
+                idTotals.remove(event.id)
+            }
+
+            ConnectionEventType.UNRECOGNIZED -> {}
         }
+    }
+
+    fun drain(): TrafficSnapshot = TrafficSnapshot(
+        byProfile = profileCounters.mapValues { it.value.drain() },
+        proxied = proxiedCounter.drain(),
+        direct = directCounter.drain(),
+    )
+
+    private fun credit(attribution: Attribution, upload: Long, download: Long) {
+        val counter = if (attribution.direct) directCounter else proxiedCounter
+        counter.add(upload, download)
+        for (id in attribution.profileIDs) {
+            profileCounters.computeIfAbsent(id) { Counter() }.add(upload, download)
+        }
+    }
+
+    private fun Connection.attribution(): Attribution? {
+        val matched = matchedOutbound().ifEmpty { return null }
+        // outbound is the hop that dials; a detour behind it still means a proxy.
+        val direct = outboundType in directOutboundTypes && graph[outbound]?.detour == null
+        val profileIDs = when {
+            matched in graph -> carriers(matched)
+            direct -> emptySet()
+            else -> return null // Rejected, hijacked or otherwise not a profile of ours.
+        }
+        return Attribution(profileIDs, direct)
+    }
+
+    /** Walks from the matched outbound down to the hop that dials. */
+    private fun Connection.carriers(matched: String): Set<Long> {
+        // Each hop is followed by the member the selector on the way resolved to.
+        val hops = chainHops()
+        val resolvedByChain = buildMap(hops.size) {
+            for (i in 0..<hops.lastIndex) {
+                this[hops[i]] = hops[i + 1]
+            }
+        }
+
+        val carriers = LinkedHashSet<Long>()
+        val visited = HashSet<String>()
+        var tag: String? = matched
+        while (tag != null && visited.add(tag)) {
+            val node = graph[tag] ?: break
+            carriers += node.profileIDs
+            tag = if (node.memberTags.isEmpty()) {
+                node.detour
+            } else {
+                val selected = resolvedByChain[tag] ?: selectedByGroup[tag]
+                selected?.takeIf { it in node.memberTags }
+            }
+        }
+        return carriers
     }
 }

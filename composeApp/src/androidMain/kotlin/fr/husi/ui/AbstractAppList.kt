@@ -6,9 +6,6 @@ import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import androidx.collection.ArraySet
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
@@ -30,6 +27,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExpandedFullScreenSearchBar
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -39,9 +37,7 @@ import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBar
 import androidx.compose.material3.SearchBarDefaults
-import androidx.compose.material3.SnackbarDuration
-import fr.husi.compose.SwipeableSnackbarHost
-import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SearchBarValue
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.runtime.Composable
@@ -56,38 +52,36 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.util.fastCoerceIn
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.accompanist.drawablepainter.rememberDrawablePainter
-import fr.husi.compose.CapsuleActionButton
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
+import fr.husi.compose.CapsuleHeader
 import fr.husi.compose.CapsuleTopBar
 import fr.husi.compose.SimpleIconButton
 import fr.husi.compose.material3.Card
 import fr.husi.compose.material3.Icon
-import fr.husi.compose.material3.Surface
 import fr.husi.compose.material3.Switch
 import fr.husi.compose.material3.Text
 import fr.husi.compose.setPlainText
 import fr.husi.compose.withNavigation
 import fr.husi.ktx.blankAsNull
-import fr.husi.repository.resolveRepository
 import fr.husi.resources.Res
 import fr.husi.resources.action_copy
 import fr.husi.resources.action_import
 import fr.husi.resources.action_import_err
 import fr.husi.resources.action_import_msg
+import fr.husi.resources.cancel
 import fr.husi.resources.close
 import fr.husi.resources.content_paste
 import fr.husi.resources.copy_all
 import fr.husi.resources.copy_success
 import fr.husi.resources.more
 import fr.husi.resources.more_vert
-import fr.husi.resources.ok
 import fr.husi.resources.search
 import fr.husi.utils.PackageCache
 import io.github.oikvpqya.compose.fastscroller.VerticalScrollbar
@@ -347,16 +341,12 @@ internal fun AppListScaffold(
     dropdownMenuItems: @Composable (onDismiss: () -> Unit) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
-    val snackbarHostState = remember { SnackbarHostState() }
+    val snackbar = LocalSnackbarEmitter.current
     val clipboard = LocalClipboard.current
 
     LaunchedEffect(snackbarMessage) {
         snackbarMessage?.let { message ->
-            snackbarHostState.showSnackbar(
-                message = getStringOrRes(message),
-                actionLabel = resolveRepository().getString(Res.string.ok),
-                duration = SnackbarDuration.Short,
-            )
+            snackbar.show(message)
         }
     }
 
@@ -374,112 +364,113 @@ internal fun AppListScaffold(
             leadingIcon = {
                 Icon(vectorResource(Res.drawable.search), null)
             },
+            trailingIcon = if (searchBarState.currentValue == SearchBarValue.Expanded) {
+                {
+                    SimpleIconButton(
+                        imageVector = vectorResource(Res.drawable.close),
+                        contentDescription = stringResource(Res.string.cancel),
+                        onClick = {
+                            textFieldState.setTextAndPlaceCursorAtEnd("")
+                            scope.launch { searchBarState.animateToCollapsed() }
+                        },
+                    )
+                }
+            } else {
+                null
+            },
         )
     }
 
     var showMoreActions by remember { mutableStateOf(false) }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    val hazeState = rememberHazeState()
     val listScrollState = rememberLazyListState()
     val windowInsets = WindowInsets.safeDrawing
-    val topAppBarColors = TopAppBarDefaults.topAppBarColors()
-    val appBarContainerColor by animateColorAsState(
-        targetValue = lerp(
-            topAppBarColors.containerColor,
-            topAppBarColors.scrolledContainerColor,
-            scrollBehavior.state.overlappedFraction.fastCoerceIn(0f, 1f),
-        ),
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-        label = "appBarContainerColor",
-    )
 
     Scaffold(
         modifier = modifier
             .fillMaxSize()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            Surface(
-                color = appBarContainerColor,
+            CapsuleHeader(
+                hazeState = hazeState,
+                scrollBehavior = scrollBehavior,
             ) {
-                Column {
-                    CapsuleTopBar(
-                        navigationIcon = {
+                CapsuleTopBar(
+                    hazeState = hazeState,
+                    navigationIcon = {
+                        SimpleIconButton(
+                            imageVector = vectorResource(Res.drawable.close),
+                            contentDescription = stringResource(Res.string.close),
+                            onClick = onNavigationClick,
+                        )
+                    },
+                    title = title,
+                    actions = {
+                        CapsuleActionButton {
                             SimpleIconButton(
-                                imageVector = vectorResource(Res.drawable.close),
-                                contentDescription = stringResource(Res.string.close),
-                                onClick = onNavigationClick,
-                            )
-                        },
-                        title = title,
-                        actions = {
-                            CapsuleActionButton {
-                                SimpleIconButton(
-                                    imageVector = vectorResource(Res.drawable.copy_all),
-                                    contentDescription = stringResource(Res.string.action_copy),
-                                    onClick = {
-                                        val toExport = viewModel.export()
-                                        scope.launch {
-                                            clipboard.setPlainText(toExport)
-                                            snackbarHostState.showSnackbar(
-                                                message = resolveRepository().getString(Res.string.copy_success),
-                                                actionLabel = resolveRepository().getString(Res.string.ok),
-                                                duration = SnackbarDuration.Short,
-                                            )
-                                        }
-                                    },
-                                )
-                            }
-                            CapsuleActionButton {
-                                SimpleIconButton(
-                                    imageVector = vectorResource(Res.drawable.content_paste),
-                                    contentDescription = stringResource(Res.string.action_import),
-                                    onClick = {
-                                        scope.launch {
-                                            val text = clipboard.getClipEntry()?.clipData
-                                                ?.getItemAt(0)?.text
-                                                ?.toString()
-                                            viewModel.import(text)
-                                        }
-                                    },
-                                )
-                            }
-                            CapsuleActionButton {
-                                Box {
-                                    SimpleIconButton(
-                                        imageVector = vectorResource(Res.drawable.more_vert),
-                                        contentDescription = stringResource(Res.string.more),
-                                        onClick = { showMoreActions = true },
-                                    )
-
-                                    DropdownMenu(
-                                        expanded = showMoreActions,
-                                        onDismissRequest = { showMoreActions = false },
-                                        shape = MenuDefaults.standaloneGroupShape,
-                                        containerColor = MenuDefaults.groupStandardContainerColor,
-                                    ) {
-                                        dropdownMenuItems { showMoreActions = false }
+                                imageVector = vectorResource(Res.drawable.copy_all),
+                                contentDescription = stringResource(Res.string.action_copy),
+                                onClick = {
+                                    val toExport = viewModel.export()
+                                    scope.launch {
+                                        clipboard.setPlainText(toExport)
+                                        snackbar.show(StringOrRes.Res(Res.string.copy_success))
                                     }
+                                },
+                            )
+                        }
+                        CapsuleActionButton {
+                            SimpleIconButton(
+                                imageVector = vectorResource(Res.drawable.content_paste),
+                                contentDescription = stringResource(Res.string.action_import),
+                                onClick = {
+                                    scope.launch {
+                                        val text = clipboard.getClipEntry()?.clipData
+                                        ?.getItemAt(0)?.text
+                                        ?.toString()
+                                        viewModel.import(text)
+                                    }
+                                },
+                            )
+                        }
+                        CapsuleActionButton {
+                            Box {
+                                SimpleIconButton(
+                                    imageVector = vectorResource(Res.drawable.more_vert),
+                                    contentDescription = stringResource(Res.string.more),
+                                    onClick = { showMoreActions = true },
+                                )
+
+                                DropdownMenu(
+                                    expanded = showMoreActions,
+                                    onDismissRequest = { showMoreActions = false },
+                                    shape = MenuDefaults.standaloneGroupShape,
+                                    containerColor = MenuDefaults.groupStandardContainerColor,
+                                ) {
+                                    dropdownMenuItems { showMoreActions = false }
                                 }
                             }
-                        },
-                        windowInsets = windowInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
-                        scrollBehavior = scrollBehavior,
-                    )
+                        }
+                    },
+                    windowInsets = windowInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+                    scrollBehavior = scrollBehavior,
+                )
 
-                    SearchBar(
-                        state = searchBarState,
-                        inputField = searchInputField,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                SearchBar(
+                    state = searchBarState,
+                    inputField = searchInputField,
+                    modifier = Modifier.fillMaxWidth(),
+                )
 
-                    extraTopBarContent()
-                }
+                extraTopBarContent()
             }
         },
-        snackbarHost = { SwipeableSnackbarHost(snackbarHostState) },
     ) { innerPadding ->
         Crossfade(
             targetState = isLoading,
             animationSpec = tween(durationMillis = 300),
+            modifier = Modifier.hazeSource(hazeState),
         ) { loading ->
             if (loading) {
                 Box(

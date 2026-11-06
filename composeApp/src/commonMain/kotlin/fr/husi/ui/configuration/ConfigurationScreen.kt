@@ -2,11 +2,9 @@
 
 package fr.husi.ui.configuration
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -31,11 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBarValue
-import androidx.compose.material3.SnackbarDuration
-import fr.husi.compose.SwipeableSnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.Surface
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.runtime.Composable
@@ -51,17 +45,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalClipboard
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastCoerceAtLeast
 import androidx.compose.ui.util.fastCoerceIn
@@ -77,32 +69,32 @@ import androidx.lifecycle.compose.rememberLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.lifecycle.viewmodel.compose.viewModel
-import fr.husi.bg.BackendState
-import fr.husi.bg.ServiceState
-import fr.husi.compose.CapsuleActionButton
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
+import fr.husi.compose.CapsuleHeader
+import fr.husi.compose.paddingHorizontal
+import fr.husi.compose.ClipboardContent
 import fr.husi.compose.CapsuleSearchInputField
 import fr.husi.compose.CapsuleSearchTopBar
-import fr.husi.compose.ExpandableDropdownMenuItem
-import fr.husi.compose.PlatformMenuIcon
+import fr.husi.compose.DropdownMenuAction
+import fr.husi.compose.DropdownMenuActions
 import fr.husi.compose.QRCodeDialog
-import fr.husi.compose.SagerFab
+import fr.husi.compose.SagerFabClearance
 import fr.husi.compose.ScrollableDialog
 import fr.husi.compose.SimpleIconButton
-import fr.husi.compose.StatsBar
 import fr.husi.compose.TextButton
 import fr.husi.compose.colorForUrlTestDelay
-import fr.husi.compose.getPlainText
+import fr.husi.compose.decodeQRCode
+import fr.husi.compose.getFirstContent
 import fr.husi.compose.material3.Icon
 import fr.husi.compose.material3.PrimaryScrollableTabRow
 import fr.husi.compose.material3.Tab
 import fr.husi.compose.material3.Text
-import fr.husi.compose.paddingExceptBottom
 import fr.husi.database.DataStore
 import fr.husi.database.ProxyEntity
 import fr.husi.database.displayType
 import fr.husi.keyevent.isTypeControlPressed
 import fr.husi.ktx.runOnIoDispatcher
-import fr.husi.ktx.showAndDismissOld
 import fr.husi.repository.resolveRepository
 import fr.husi.resources.Res
 import fr.husi.resources.action_anytls
@@ -112,14 +104,18 @@ import fr.husi.resources.action_hysteria
 import fr.husi.resources.action_import
 import fr.husi.resources.action_import_file
 import fr.husi.resources.action_juicity
+import fr.husi.resources.action_masque
 import fr.husi.resources.action_mieru
 import fr.husi.resources.action_naive
+import fr.husi.resources.action_openconnect
+import fr.husi.resources.action_openvpn
 import fr.husi.resources.action_shadowquic
 import fr.husi.resources.action_shadowsocks
 import fr.husi.resources.action_shadowtls
 import fr.husi.resources.action_snell
 import fr.husi.resources.action_socks
 import fr.husi.resources.action_ssh
+import fr.husi.resources.action_tailcat
 import fr.husi.resources.action_trojan
 import fr.husi.resources.action_trusttunnel
 import fr.husi.resources.action_tuic
@@ -147,15 +143,16 @@ import fr.husi.resources.connection_test_unreachable
 import fr.husi.resources.connection_test_url_test
 import fr.husi.resources.copy_success
 import fr.husi.resources.custom_config
-import fr.husi.resources.delete_confirm_prompt
+import fr.husi.resources.delete_profiles_confirm_prompt
 import fr.husi.resources.ecg
 import fr.husi.resources.group_order_by_delay
 import fr.husi.resources.group_order_by_name
 import fr.husi.resources.group_order_origin
-import fr.husi.resources.menu
+import fr.husi.resources.menu_group
 import fr.husi.resources.more
 import fr.husi.resources.more_vert
 import fr.husi.resources.need_reload
+import fr.husi.resources.no_proxies_found_in_clipboard
 import fr.husi.resources.no_proxies_found_in_file
 import fr.husi.resources.note_add
 import fr.husi.resources.ok
@@ -165,17 +162,21 @@ import fr.husi.resources.proxy_set
 import fr.husi.resources.remove_duplicate
 import fr.husi.resources.removed
 import fr.husi.resources.search
-import fr.husi.resources.search_go
 import fr.husi.resources.sort_mode
+import fr.husi.resources.tailscale
 import fr.husi.resources.undo
+import fr.husi.resources.view_list
+import fr.husi.results.ResultEffect
+import fr.husi.ui.LocalSnackbarEmitter
 import fr.husi.ui.MainViewModel
-import fr.husi.ui.MainViewModelAlertDialog
-import fr.husi.ui.MainViewModelUiEvent
 import fr.husi.ui.NavRoutes
-import fr.husi.ui.getStringOrRes
+import fr.husi.ui.StringOrRes
+import fr.husi.ui.profile.ProfileEditorResult
 import io.github.vinceglb.filekit.dialogs.compose.rememberFilePickerLauncher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import org.jetbrains.compose.resources.getString
+import kotlinx.coroutines.withContext
+import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.vectorResource
 import kotlin.reflect.KClass
@@ -184,18 +185,30 @@ import kotlin.reflect.KClass
 fun ConfigurationScreen(
     modifier: Modifier = Modifier,
     mainViewModel: MainViewModel,
-    onNavigationClick: () -> Unit,
+    onOpenGroups: () -> Unit,
+    onOpenGroupSettings: (Long) -> Unit,
     vm: ConfigurationScreenViewModel = viewModel { ConfigurationScreenViewModel() },
     onOpenProfileEditor: ((NavRoutes.ProfileEditor) -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
-    val snackbarState = remember { SnackbarHostState() }
-    var scrollHideVisible by remember { mutableStateOf(true) }
-    var fabHeight by remember { mutableIntStateOf(0) }
-    var showAlertDialog by remember { mutableStateOf<MainViewModelUiEvent.AlertDialog?>(null) }
+    val snackbar = LocalSnackbarEmitter.current
     val clipboard = LocalClipboard.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val focusManager = LocalFocusManager.current
+
+    ResultEffect<ProfileEditorResult> { result ->
+        if (!result.updated) return@ResultEffect
+        if (result.profileId != DataStore.selectedProxy.get()) return@ResultEffect
+        if (!DataStore.serviceState.started) return@ResultEffect
+        snackbar.show(
+            StringOrRes.Res(Res.string.need_reload),
+            StringOrRes.Res(Res.string.apply),
+        ) { action ->
+            if (action == SnackbarResult.ActionPerformed) {
+                resolveRepository().reloadService()
+            }
+        }
+    }
 
     val importFile = rememberFilePickerLauncher { file ->
         if (file != null) {
@@ -210,22 +223,10 @@ fun ConfigurationScreen(
                     mainViewModel.importSubscription(uri)
                 },
                 onNoProxies = {
-                    scope.launch {
-                        snackbarState.showSnackbar(
-                            message = getString(Res.string.no_proxies_found_in_file),
-                            actionLabel = getString(Res.string.ok),
-                            duration = SnackbarDuration.Short,
-                        )
-                    }
+                    snackbar.show(StringOrRes.Res(Res.string.no_proxies_found_in_file))
                 },
                 onError = { message ->
-                    scope.launch {
-                        snackbarState.showSnackbar(
-                            message = message,
-                            actionLabel = getString(Res.string.ok),
-                            duration = SnackbarDuration.Short,
-                        )
-                    }
+                    snackbar.show(StringOrRes.Direct(message))
                 },
             )
         }
@@ -233,41 +234,25 @@ fun ConfigurationScreen(
 
     val uiState by vm.uiState.collectAsStateWithLifecycle()
     val hasGroups = uiState.groups.isNotEmpty()
-    val selectedGroup by vm.selectedGroup.collectAsStateWithLifecycle(DataStore.selectedGroup)
+    val selectedGroup by vm.selectedGroup.collectAsStateWithLifecycle(
+        DataStore.GROUP_NOPE,
+    )
     val pagerState = rememberPagerState(
         initialPage = uiState.groups
             .indexOfFirst { it.id == selectedGroup }
             .fastCoerceIn(0, (uiState.groups.size - 1).fastCoerceAtLeast(0)),
         pageCount = { uiState.groups.size },
     )
-    var isPageRestored by remember { mutableStateOf(false) }
-    var lastPage by remember { mutableIntStateOf(pagerState.currentPage) }
-    LaunchedEffect(selectedGroup, hasGroups, uiState.groups) {
-        if (!hasGroups) return@LaunchedEffect
-        val index = uiState.groups.indexOfFirst { it.id == selectedGroup }
-        if (index < 0) return@LaunchedEffect
-        if (index != pagerState.currentPage) {
-            pagerState.scrollToPage(index)
-        }
-        isPageRestored = true
-    }
-    LaunchedEffect(pagerState.currentPage, hasGroups, isPageRestored) {
-        if (!hasGroups || pagerState.currentPage >= uiState.groups.size) {
-            return@LaunchedEffect
-        }
-        val currentPage = pagerState.currentPage
-        if (lastPage != currentPage) {
+    GroupPagerSelectionSync(
+        pagerState = pagerState,
+        groups = uiState.groups,
+        selectedGroup = selectedGroup,
+        onSettledGroupChange = { DataStore.selectedGroup.set(it) },
+        onPageChange = {
             vm.clearSearchQuery()
             focusManager.clearFocus()
-            lastPage = currentPage
-        }
-        val groupID = uiState.groups[currentPage].id
-        if (isPageRestored) {
-            DataStore.selectedGroup = groupID
-        }
-        vm.requestFocusIfNotHave(groupID)
-        scrollHideVisible = true
-    }
+        },
+    )
 
     var showAddMenu by remember { mutableStateOf(false) }
     var showAddManualMenu by remember { mutableStateOf(false) }
@@ -281,7 +266,7 @@ fun ConfigurationScreen(
             textFieldState = searchTextFieldState,
             searchBarState = searchBarState,
             onSearch = { focusManager.clearFocus() },
-            placeholder = { Text(stringResource(Res.string.search_go)) },
+            placeholder = { Text(stringResource(Res.string.search)) },
             leadingIcon = {
                 Icon(vectorResource(Res.drawable.search), null)
             },
@@ -311,25 +296,16 @@ fun ConfigurationScreen(
 
     val windowInsets = WindowInsets.safeDrawing
 
-    val serviceStatus by BackendState.status.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
-    val topAppBarColors = TopAppBarDefaults.topAppBarColors()
-    val appBarContainerColor by animateColorAsState(
-        targetValue = lerp(
-            topAppBarColors.containerColor,
-            topAppBarColors.scrolledContainerColor,
-            scrollBehavior.state.overlappedFraction.fastCoerceIn(0f, 1f),
-        ),
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-        label = "appBarContainerColor",
-    )
+    val hazeState = rememberHazeState()
 
     LaunchedEffect(Unit) {
-        vm.scrollToProxy(DataStore.selectedProxy)
+        vm.scrollToProxy(DataStore.selectedProxy.get())
     }
 
     val manualProfileEntries = remember {
         listOf(
+            Res.string.proxy_set to ProxyEntity.TYPE_PROXY_SET,
             Res.string.action_socks to ProxyEntity.TYPE_SOCKS,
             Res.string.action_http to ProxyEntity.TYPE_HTTP,
             Res.string.action_shadowsocks to ProxyEntity.TYPE_SS,
@@ -344,12 +320,16 @@ fun ConfigurationScreen(
             Res.string.action_direct to ProxyEntity.TYPE_DIRECT,
             Res.string.action_ssh to ProxyEntity.TYPE_SSH,
             Res.string.action_wireguard to ProxyEntity.TYPE_WG,
+            Res.string.action_openconnect to ProxyEntity.TYPE_OPENCONNECT,
+            Res.string.action_openvpn to ProxyEntity.TYPE_OPENVPN,
+            Res.string.action_masque to ProxyEntity.TYPE_MASQUE,
+            Res.string.tailscale to ProxyEntity.TYPE_TAILSCALE,
+            Res.string.action_tailcat to ProxyEntity.TYPE_TAILCAT,
             Res.string.action_shadowtls to ProxyEntity.TYPE_SHADOWTLS,
             Res.string.action_anytls to ProxyEntity.TYPE_ANYTLS,
             Res.string.action_shadowquic to ProxyEntity.TYPE_SHADOWQUIC,
             Res.string.action_trusttunnel to ProxyEntity.TYPE_TRUST_TUNNEL,
             Res.string.action_snell to ProxyEntity.TYPE_SNELL,
-            Res.string.proxy_set to ProxyEntity.TYPE_PROXY_SET,
             Res.string.custom_config to ProxyEntity.TYPE_CONFIG,
             Res.string.proxy_chain to ProxyEntity.TYPE_CHAIN,
         )
@@ -368,8 +348,22 @@ fun ConfigurationScreen(
 
     fun importFromClipboard() {
         lifecycleOwner.lifecycleScope.launch {
-            val text = clipboard.getPlainText()
-            mainViewModel.parseProxy(text)
+            when (val content = clipboard.getFirstContent()) {
+                is ClipboardContent.Text -> mainViewModel.parseProxy(content.text)
+
+                is ClipboardContent.Image -> {
+                    val text = withContext(Dispatchers.IO) { decodeQRCode(content.bitmap) }
+                    if (text == null) {
+                        snackbar.show(
+                            StringOrRes.Res(Res.string.no_proxies_found_in_clipboard),
+                        )
+                    } else {
+                        mainViewModel.parseProxy(text)
+                    }
+                }
+
+                null -> mainViewModel.parseProxy(null)
+            }
         }
     }
 
@@ -377,7 +371,7 @@ fun ConfigurationScreen(
         focusManager.clearFocus()
         scope.launch {
             searchBarState.animateToCollapsed()
-            val proxyId = DataStore.selectedProxy
+            val proxyId = DataStore.selectedProxy.get()
             val groupId = vm.proxyGroupId(proxyId) ?: return@launch
             val page = uiState.groups.indexOfFirst { it.id == groupId }
             if (page < 0) return@launch
@@ -396,27 +390,57 @@ fun ConfigurationScreen(
                 if (keyEvent.type != KeyEventType.KeyDown) {
                     return@onPreviewKeyEvent false
                 }
-                if (!keyEvent.isTypeControlPressed || keyEvent.key != Key.V) {
-                    return@onPreviewKeyEvent false
+
+                val action = vm.handleKeyAction(
+                    key = keyEvent.key,
+                    isCtrl = keyEvent.isTypeControlPressed,
+                    isShift = keyEvent.isShiftPressed,
+                    isSearchActive = searchBarState.currentValue == SearchBarValue.Expanded,
+                )
+                when (action) {
+                    KeyAction.Consumed -> true
+                    KeyAction.Unhandled -> false
+
+                    KeyAction.ImportClipboard -> {
+                        importFromClipboard()
+                        true
+                    }
+
+                    is KeyAction.SwitchTab -> {
+                        val target = pagerState.currentPage + action.delta
+                        if (target in 0 until pagerState.pageCount) {
+                            scope.launch { pagerState.animateScrollToPage(target) }
+                        }
+                        true
+                    }
+
+                    KeyAction.OpenSearch -> {
+                        scope.launch { searchBarState.animateToExpanded() }
+                        true
+                    }
                 }
-                importFromClipboard()
-                true
             },
         topBar = {
-            Surface(color = appBarContainerColor) {
-                Column {
-                    CapsuleSearchTopBar(
-                        inputField = searchInputField,
-                        navigationIcon = PlatformMenuIcon(
-                            imageVector = vectorResource(Res.drawable.menu),
-                            contentDescription = stringResource(Res.string.menu),
-                            onClick = onNavigationClick,
-                        ),
-                        onSearchPillClick = {
-                            scope.launch { searchBarState.animateToExpanded() }
-                        },
-                        onSearchPillLongPress = ::scrollToSelectedProxyAcrossGroups,
-                        actions = {
+            CapsuleHeader(
+                hazeState = hazeState,
+                scrollBehavior = scrollBehavior,
+            ) {
+                CapsuleSearchTopBar(
+                    hazeState = hazeState,
+                    inputField = searchInputField,
+                    navigationIcon = null,
+                    onSearchPillClick = {
+                        scope.launch { searchBarState.animateToExpanded() }
+                    },
+                    onSearchPillLongPress = ::scrollToSelectedProxyAcrossGroups,
+                    actions = {
+                        CapsuleActionButton {
+                            SimpleIconButton(
+                                imageVector = vectorResource(Res.drawable.view_list),
+                                contentDescription = stringResource(Res.string.menu_group),
+                                onClick = onOpenGroups,
+                            )
+                        }
                         CapsuleActionButton {
                             Box {
                                 SimpleIconButton(
@@ -430,27 +454,31 @@ fun ConfigurationScreen(
                                     containerColor = MenuDefaults.groupStandardContainerColor,
                                     shape = MenuDefaults.standaloneGroupShape,
                                 ) {
-                                    ScannerDropdownMenuItem()
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(Res.string.action_import)) },
-                                        onClick = {
-                                            showAddMenu = false
-                                            importFromClipboard()
-                                        },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(Res.string.action_import_file)) },
-                                        onClick = {
-                                            showAddMenu = false
-                                            importFile.launch()
-                                        },
-                                    )
-                                    ExpandableDropdownMenuItem(
-                                        text = stringResource(Res.string.add_profile_methods_manual_settings),
-                                        onClick = {
-                                            showAddMenu = false
-                                            showAddManualMenu = true
-                                        },
+                                    DropdownMenuActions(
+                                        listOfNotNull(
+                                            scannerMenuAction(
+                                                onDismissMenu = { showAddMenu = false },
+                                            ),
+                                            DropdownMenuAction(
+                                                text = stringResource(Res.string.action_import),
+                                            ) {
+                                                showAddMenu = false
+                                                importFromClipboard()
+                                            },
+                                            DropdownMenuAction(
+                                                text = stringResource(Res.string.action_import_file),
+                                            ) {
+                                                showAddMenu = false
+                                                importFile.launch()
+                                            },
+                                            DropdownMenuAction(
+                                                text = stringResource(Res.string.add_profile_methods_manual_settings),
+                                                opensSubmenu = true,
+                                            ) {
+                                                showAddMenu = false
+                                                showAddManualMenu = true
+                                            },
+                                        ),
                                     )
                                 }
                                 DropdownMenu(
@@ -459,14 +487,13 @@ fun ConfigurationScreen(
                                     containerColor = MenuDefaults.groupStandardContainerColor,
                                     shape = MenuDefaults.standaloneGroupShape,
                                 ) {
-                                    manualProfileEntries.forEach { (title, type) ->
-                                        DropdownMenuItem(
-                                            text = { Text(stringResource(title)) },
-                                            onClick = {
+                                    DropdownMenuActions(
+                                        manualProfileEntries.map { (title, type) ->
+                                            DropdownMenuAction(text = stringResource(title)) {
                                                 openProfileEditor(type)
-                                            },
-                                        )
-                                    }
+                                            }
+                                        },
+                                    )
                                 }
                             }
                         }
@@ -484,28 +511,36 @@ fun ConfigurationScreen(
                                     containerColor = MenuDefaults.groupStandardContainerColor,
                                     shape = MenuDefaults.standaloneGroupShape,
                                 ) {
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(Res.string.clear_traffic_statistics)) },
-                                        onClick = {
-                                            showOverflowMenu = false
-                                            vm.clearTrafficStatistics(DataStore.selectedGroup)
-                                        },
+                                    DropdownMenuActions(
+                                        listOf(
+                                            DropdownMenuAction(
+                                                text = stringResource(Res.string.clear_traffic_statistics),
+                                            ) {
+                                                showOverflowMenu = false
+                                                vm.clearTrafficStatistics(selectedGroup)
+                                            },
+                                            DropdownMenuAction(
+                                                text = stringResource(Res.string.remove_duplicate),
+                                            ) {
+                                                showOverflowMenu = false
+                                                vm.removeDuplicate(selectedGroup)
+                                            },
+                                            DropdownMenuAction(
+                                                text = stringResource(Res.string.connection_test),
+                                                opensSubmenu = true,
+                                            ) {
+                                                showOverflowMenu = false
+                                                showConnectionTestMenu = true
+                                            },
+                                            DropdownMenuAction(
+                                                text = stringResource(Res.string.sort_mode),
+                                                opensSubmenu = true,
+                                            ) {
+                                                showOverflowMenu = false
+                                                showOrderMenu = true
+                                            },
+                                        ),
                                     )
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(Res.string.remove_duplicate)) },
-                                        onClick = {
-                                            showOverflowMenu = false
-                                            vm.removeDuplicate(DataStore.selectedGroup)
-                                        },
-                                    )
-                                    ExpandableDropdownMenuItem(stringResource(Res.string.connection_test)) {
-                                        showOverflowMenu = false
-                                        showConnectionTestMenu = true
-                                    }
-                                    ExpandableDropdownMenuItem(stringResource(Res.string.sort_mode)) {
-                                        showOverflowMenu = false
-                                        showOrderMenu = true
-                                    }
                                 }
                                 DropdownMenu(
                                     expanded = showConnectionTestMenu,
@@ -513,49 +548,54 @@ fun ConfigurationScreen(
                                     containerColor = MenuDefaults.groupStandardContainerColor,
                                     shape = MenuDefaults.standaloneGroupShape,
                                 ) {
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(Res.string.connection_test_icmp_ping)) },
-                                        onClick = {
-                                            showConnectionTestMenu = false
-                                            vm.doTest(
-                                                DataStore.currentGroupId(),
-                                                TestType.ICMPPing,
-                                            )
-                                        },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(Res.string.connection_test_tcp_ping)) },
-                                        onClick = {
-                                            showConnectionTestMenu = false
-                                            vm.doTest(
-                                                DataStore.currentGroupId(),
-                                                TestType.TCPPing,
-                                            )
-                                        },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(Res.string.connection_test_url_test)) },
-                                        onClick = {
-                                            showConnectionTestMenu = false
-                                            vm.doTest(
-                                                DataStore.currentGroupId(),
-                                                TestType.URLTest,
-                                            )
-                                        },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(Res.string.connection_test_delete_unavailable)) },
-                                        onClick = {
-                                            showConnectionTestMenu = false
-                                            vm.deleteUnavailable(DataStore.selectedGroup)
-                                        },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(Res.string.connection_test_clear_results)) },
-                                        onClick = {
-                                            showConnectionTestMenu = false
-                                            vm.clearResults(DataStore.selectedGroup)
-                                        },
+                                    DropdownMenuActions(
+                                        listOf(
+                                            DropdownMenuAction(
+                                                text = stringResource(Res.string.connection_test_icmp_ping),
+                                            ) {
+                                                showConnectionTestMenu = false
+                                                scope.launch {
+                                                    vm.doTest(
+                                                        DataStore.currentGroupId(),
+                                                        TestType.ICMPPing,
+                                                    )
+                                                }
+                                            },
+                                            DropdownMenuAction(
+                                                text = stringResource(Res.string.connection_test_tcp_ping),
+                                            ) {
+                                                showConnectionTestMenu = false
+                                                scope.launch {
+                                                    vm.doTest(
+                                                        DataStore.currentGroupId(),
+                                                        TestType.TCPPing,
+                                                    )
+                                                }
+                                            },
+                                            DropdownMenuAction(
+                                                text = stringResource(Res.string.connection_test_url_test),
+                                            ) {
+                                                showConnectionTestMenu = false
+                                                scope.launch {
+                                                    vm.doTest(
+                                                        DataStore.currentGroupId(),
+                                                        TestType.URLTest,
+                                                    )
+                                                }
+                                            },
+                                            DropdownMenuAction(
+                                                text = stringResource(Res.string.connection_test_delete_unavailable),
+                                            ) {
+                                                showConnectionTestMenu = false
+                                                vm.deleteUnavailable(selectedGroup)
+                                            },
+                                            DropdownMenuAction(
+                                                text = stringResource(Res.string.connection_test_clear_results),
+                                            ) {
+                                                showConnectionTestMenu = false
+                                                vm.clearResults(selectedGroup)
+                                            },
+                                        ),
                                     )
                                 }
                                 DropdownMenu(
@@ -574,7 +614,7 @@ fun ConfigurationScreen(
                                             selected = currentOrder == i,
                                             onClick = {
                                                 showOrderMenu = false
-                                                vm.updateOrder(DataStore.selectedGroup, i)
+                                                vm.updateOrder(selectedGroup, i)
                                             },
                                             text = { Text(text = option) },
                                             shapes = MenuDefaults.itemShape(i, orders.size),
@@ -594,7 +634,7 @@ fun ConfigurationScreen(
                         uiState.groups.size - 1,
                     ),
                     edgePadding = 0.dp,
-                    containerColor = appBarContainerColor,
+                    containerColor = Color.Transparent,
                 ) {
                     uiState.groups.forEachIndexed { index, group ->
                         Tab(
@@ -605,7 +645,7 @@ fun ConfigurationScreen(
                                     if (pagerState.currentPage == index) {
                                         vm.scrollToProxy(
                                             group.id,
-                                            DataStore.selectedProxy,
+                                            DataStore.selectedProxy.get(),
                                             fallbackToTop = true,
                                         )
                                     } else {
@@ -613,54 +653,28 @@ fun ConfigurationScreen(
                                     }
                                 }
                             },
+                            onLongClick = { onOpenGroupSettings(group.id) },
                         )
                     }
                 }
             }
-            }
-        },
-        snackbarHost = { SwipeableSnackbarHost(snackbarState) },
-        floatingActionButton = {
-            SagerFab(
-                visible = scrollHideVisible,
-                state = serviceStatus.state,
-                showSnackbar = { message ->
-                    scope.launch {
-                        snackbarState.showSnackbar(
-                            message = getStringOrRes(message),
-                            actionLabel = resolveRepository().getString(Res.string.ok),
-                            duration = SnackbarDuration.Short,
-                        )
-                    }
-                },
-                onSizeChanged = { fabHeight = it },
-            )
-        },
-        bottomBar = {
-            if (serviceStatus.state == ServiceState.Connected) {
-                StatsBar(
-                    status = serviceStatus,
-                    visible = scrollHideVisible,
-                    mainViewModel = mainViewModel,
-                )
-            }
         },
     ) { innerPadding ->
-        val density = LocalDensity.current
-        val bottomPadding =
-            innerPadding.calculateBottomPadding() + with(density) { fabHeight.toDp() }
         ConfigurationContent(
             modifier = Modifier
                 .fillMaxSize()
-                .paddingExceptBottom(innerPadding),
+                .paddingHorizontal(innerPadding)
+                .hazeSource(hazeState),
             vm = vm,
-            snackbarState = snackbarState,
             pagerState = pagerState,
             preSelected = null,
             showActions = true,
             onProfileSelect = vm::onProfileSelect,
-            bottomPadding = bottomPadding,
-            onScrollHideChange = { scrollHideVisible = it },
+            contentPadding = PaddingValues(
+                top = innerPadding.calculateTopPadding(),
+                bottom = innerPadding.calculateBottomPadding() + SagerFabClearance,
+            ),
+            canHoldFocus = searchBarState.currentValue != SearchBarValue.Expanded,
             onOpenProfileEditor = onOpenProfileEditor,
         )
     }
@@ -678,129 +692,60 @@ fun ConfigurationScreen(
         val childVm = currentGroup?.let { vm.childViewModels[it.id] }
         if (childVm != null) {
             val expandedScope = rememberCoroutineScope()
-            val expandedSnackbarState = remember { SnackbarHostState() }
-            Box(modifier = Modifier.fillMaxSize()) {
-                GroupHolderScreen(
-                    modifier = Modifier.fillMaxSize(),
-                    viewModel = childVm,
-                    showActions = true,
-                    bottomPadding = 0.dp,
-                    onProfileSelect = { id ->
-                        vm.onProfileSelect(id)
+            val snackbar = LocalSnackbarEmitter.current
+            GroupHolderScreen(
+                modifier = Modifier.fillMaxSize(),
+                viewModel = childVm,
+                showActions = true,
+                contentPadding = PaddingValues(),
+                canHoldFocus = false,
+                onProfileSelect = { id ->
+                    vm.onProfileSelect(id)
+                    expandedScope.launch { searchBarState.animateToCollapsed() }
+                },
+                onOpenProfileEditor = onOpenProfileEditor?.let { callback ->
+                    { route ->
                         expandedScope.launch { searchBarState.animateToCollapsed() }
-                    },
-                    onOpenProfileEditor = onOpenProfileEditor?.let { callback ->
-                        { route ->
-                            expandedScope.launch { searchBarState.animateToCollapsed() }
-                            callback(route)
+                        callback(route)
+                    }
+                },
+                showQR = { name, url ->
+                    expandedScope.launch { searchBarState.animateToCollapsed() }
+                    // QR dialog will be shown in the parent composition
+                },
+                onCopySuccess = {
+                    snackbar.show(StringOrRes.Res(Res.string.copy_success))
+                },
+                showSnackbar = snackbar::show,
+                showUndoSnackbar = { count, onUndo ->
+                    snackbar.show(
+                        StringOrRes.PluralsRes(Res.plurals.removed, count, count),
+                        StringOrRes.Res(Res.string.undo),
+                    ) { result ->
+                        if (result == SnackbarResult.ActionPerformed) {
+                            onUndo()
                         }
-                    },
-                    needReload = {
-                        expandedScope.launch {
-                            if (!DataStore.serviceState.started) return@launch
-                            val result = expandedSnackbarState.showSnackbar(
-                                message = resolveRepository().getString(Res.string.need_reload),
-                                actionLabel = resolveRepository().getString(Res.string.apply),
-                                duration = SnackbarDuration.Short,
-                            )
-                            if (result == SnackbarResult.ActionPerformed) {
-                                resolveRepository().reloadService()
-                            }
-                        }
-                    },
-                    showQR = { name, url ->
-                        expandedScope.launch { searchBarState.animateToCollapsed() }
-                        // QR dialog will be shown in the parent composition
-                    },
-                    onCopySuccess = {
-                        expandedScope.launch {
-                            expandedSnackbarState.showSnackbar(
-                                message = resolveRepository().getString(Res.string.copy_success),
-                                actionLabel = resolveRepository().getString(Res.string.ok),
-                                duration = SnackbarDuration.Short,
-                            )
-                        }
-                    },
-                    showSnackbar = { message ->
-                        expandedScope.launch {
-                            expandedSnackbarState.showSnackbar(
-                                message = getStringOrRes(message),
-                                actionLabel = resolveRepository().getString(Res.string.ok),
-                                duration = SnackbarDuration.Short,
-                            )
-                        }
-                    },
-                    showUndoSnackbar = { count, onUndo ->
-                        expandedScope.launch {
-                            val result = expandedSnackbarState.showAndDismissOld(
-                                message = resolveRepository().getPluralString(
-                                    Res.plurals.removed,
-                                    count,
-                                    count,
-                                ),
-                                actionLabel = resolveRepository().getString(Res.string.undo),
-                                duration = SnackbarDuration.Short,
-                            )
-                            if (result == SnackbarResult.ActionPerformed) {
-                                onUndo()
-                            }
-                        }
-                    },
-                )
-                SwipeableSnackbarHost(
-                    expandedSnackbarState,
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                )
-            }
+                    }
+                },
+            )
         }
     }
 
-    LaunchedEffect(Unit) {
-        mainViewModel.uiEvent.collect { event ->
-            when (event) {
-                is MainViewModelUiEvent.Snackbar -> scope.launch {
-                    snackbarState.showSnackbar(
-                        message = getStringOrRes(event.message),
-                        actionLabel = resolveRepository().getString(Res.string.ok),
-                        duration = SnackbarDuration.Short,
-                    )
-                }
-
-                is MainViewModelUiEvent.SnackbarWithAction -> scope.launch {
-                    val result = snackbarState.showSnackbar(
-                        message = getStringOrRes(event.message),
-                        actionLabel = getStringOrRes(event.actionLabel),
-                        duration = SnackbarDuration.Short,
-                    )
-                    event.callback(result)
-                }
-
-                is MainViewModelUiEvent.AlertDialog -> showAlertDialog = event
-            }
-        }
-    }
-
-    showAlertDialog?.let { dialog ->
-        MainViewModelAlertDialog(dialog) {
-            showAlertDialog = null
-        }
-    }
 }
 
 @Composable
 fun ConfigurationContent(
     modifier: Modifier = Modifier,
     vm: ConfigurationScreenViewModel,
-    snackbarState: SnackbarHostState,
     pagerState: androidx.compose.foundation.pager.PagerState,
     preSelected: Long?,
     showActions: Boolean,
     onProfileSelect: (Long) -> Unit,
-    bottomPadding: Dp,
+    contentPadding: PaddingValues,
+    canHoldFocus: Boolean,
     onOpenProfileEditor: ((NavRoutes.ProfileEditor) -> Unit)? = null,
-    onScrollHideChange: (Boolean) -> Unit = {},
 ) {
-    val scope = rememberCoroutineScope()
+    val snackbar = LocalSnackbarEmitter.current
 
     val uiState by vm.uiState.collectAsStateWithLifecycle()
     val hasGroups = uiState.groups.isNotEmpty()
@@ -848,62 +793,27 @@ fun ConfigurationContent(
                     GroupHolderScreen(
                         viewModel = pageViewModel,
                         showActions = showActions,
-                        bottomPadding = bottomPadding,
+                        contentPadding = contentPadding,
+                        // Focusing a page brings it into view, so a page passed during an
+                        // animated jump must not take focus or it cancels the jump.
+                        canHoldFocus = canHoldFocus && pagerState.settledPage == page,
                         onProfileSelect = onProfileSelect,
                         onOpenProfileEditor = onOpenProfileEditor,
-                        needReload = {
-                            scope.launch {
-                                if (!DataStore.serviceState.started) return@launch
-                                val result = snackbarState.showSnackbar(
-                                    message = resolveRepository().getString(Res.string.need_reload),
-                                    actionLabel = resolveRepository().getString(Res.string.apply),
-                                    duration = SnackbarDuration.Short,
-                                )
-                                if (result == SnackbarResult.ActionPerformed) {
-                                    resolveRepository().reloadService()
-                                }
-                            }
-                        },
                         showQR = { name, url ->
                             qrCodeInfo = name to url
                         },
                         onCopySuccess = {
-                            scope.launch {
-                                snackbarState.showSnackbar(
-                                    message = resolveRepository().getString(Res.string.copy_success),
-                                    actionLabel = resolveRepository().getString(Res.string.ok),
-                                    duration = SnackbarDuration.Short,
-                                )
-                            }
+                            snackbar.show(StringOrRes.Res(Res.string.copy_success))
                         },
-                        showSnackbar = { message ->
-                            scope.launch {
-                                snackbarState.showSnackbar(
-                                    message = getStringOrRes(message),
-                                    actionLabel = resolveRepository().getString(Res.string.ok),
-                                    duration = SnackbarDuration.Short,
-                                )
-                            }
-                        },
+                        showSnackbar = snackbar::show,
                         showUndoSnackbar = { count, onUndo ->
-                            scope.launch {
-                                val result = snackbarState.showAndDismissOld(
-                                    message = resolveRepository().getPluralString(
-                                        Res.plurals.removed,
-                                        count,
-                                        count,
-                                    ),
-                                    actionLabel = resolveRepository().getString(Res.string.undo),
-                                    duration = SnackbarDuration.Short,
-                                )
+                            snackbar.show(
+                                StringOrRes.PluralsRes(Res.plurals.removed, count, count),
+                                StringOrRes.Res(Res.string.undo),
+                            ) { result ->
                                 if (result == SnackbarResult.ActionPerformed) {
                                     onUndo()
                                 }
-                            }
-                        },
-                        onScrollHideChange = { visible ->
-                            if (pagerState.currentPage == page) {
-                                onScrollHideChange(visible)
                             }
                         },
                     )
@@ -920,11 +830,7 @@ fun ConfigurationContent(
             name = it.first,
             onDismiss = { qrCodeInfo = null },
             showSnackbar = { message ->
-                snackbarState.showSnackbar(
-                    message = message,
-                    actionLabel = resolveRepository().getString(Res.string.ok),
-                    duration = SnackbarDuration.Short,
-                )
+                snackbar.show(StringOrRes.Direct(message))
             },
         )
     }
@@ -967,8 +873,9 @@ private fun ConfigurationDialogs(
             onDismissRequest = { vm.dismissAlert() },
             title = {
                 Text(
-                    stringResource(
-                        Res.string.delete_confirm_prompt,
+                    pluralStringResource(
+                        Res.plurals.delete_profiles_confirm_prompt,
+                        alert.size,
                         alert.size,
                     ),
                 )

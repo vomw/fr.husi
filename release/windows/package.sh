@@ -6,8 +6,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 METADATA_FILE="$ROOT_DIR/husi.properties"
 DESKTOP_METADATA_FILE="$ROOT_DIR/release/desktop/package-metadata.sh"
+DESKTOP_JRE_MODULES_FILE="$ROOT_DIR/release/desktop/jre-modules.sh"
 NSIS_TEMPLATE_FILE="$ROOT_DIR/release/windows/desktop/installer.nsi"
 WINDOWS_JAVA_OPTS_FILE="$ROOT_DIR/release/windows/desktop/desktop-java-opts.conf"
+# husi-core loads Cronet from its own directory, so the library travels with it.
+CORE_LIBRARY_NAME="libcronet.dll"
 JAR_DIR_DEFAULT="$ROOT_DIR/composeApp/build/compose/jars"
 OUTPUT_DIR_DEFAULT="$ROOT_DIR/composeApp/build/compose/packages/windows"
 TAG_NAME=""
@@ -15,6 +18,9 @@ TAG_EPOCH=""
 HOST_OS=""
 PYTHON_BIN=""
 NSIS_BIN=""
+JBR_JMODS_DIR=""
+RUNTIME_DIR=""
+VARIANT_SUFFIX=""
 
 log() {
     echo "[package] $*"
@@ -24,20 +30,37 @@ error() {
     echo "[package] $*" >&2
 }
 
+# shellcheck source=release/windows/codesign.sh
+source "$SCRIPT_DIR/codesign.sh"
+
 usage() {
     cat <<EOF
 Usage:
-  $(basename "$0") [--formats zip,nsis] [--target <platform/arch>] [--input-jar <file>] [--launcher-bin <file>] [--output-dir <dir>]
-  $(basename "$0") --check-tools [--formats zip,nsis] [--target <platform/arch>]
+  $(basename "$0") [--formats zip,nsis] [--target <platform/arch>] [--input-jar <file>] [--launcher-bin <file>] [--core-bin <file>] [--output-dir <dir>] [--jbr-jmods <dir>] [--no-sign]
+  $(basename "$0") --check-tools [--formats zip,nsis] [--target <platform/arch>] [--jbr-jmods <dir>] [--no-sign]
 
 Description:
   Build Windows portable zip and NSIS installer packages from desktop uber jar.
+
+  Thin packages (no bundled runtime) are always written. With --jbr-jmods the
+  run also writes a second pair whose names carry a -jbr suffix and which
+  bundle a Java runtime linked with jlink from the JetBrains Runtime modules
+  of the target. Those need no system Java. Both pairs share the same signed
+  launcher, husi-core and $CORE_LIBRARY_NAME.
 
 Defaults:
   --formats      zip,nsis
   --input-jar    newest matching jar under $JAR_DIR_DEFAULT
   --launcher-bin $ROOT_DIR/launcher/zig-out/bin/launcher-windows-<x86_64|aarch64>.exe
+  --core-bin     $ROOT_DIR/libcore/build/windows_<amd64|arm64>/husi-core.exe
+                 ($CORE_LIBRARY_NAME is taken from the same directory)
   --output-dir   $OUTPUT_DIR_DEFAULT
+  --jbr-jmods    unset (env: JBR_JMODS); fetch them with ./run lib jbr windows/<arch>
+
+Code signing:
+  Enabled by default. Configure the certificate through WINDOWS_SIGNING_P12
+  (or WINDOWS_SIGNING_P12_BASE64) and WINDOWS_SIGNING_P12_PASSWORD, or pass
+  --no-sign to build unsigned packages. See release/windows/codesign.sh.
 EOF
 }
 
@@ -91,8 +114,20 @@ source_desktop_metadata() {
         exit 1
     fi
 
-    # shellcheck disable=SC1090
+    # Named so that shellcheck can follow it; the path is only dynamic because
+    # it is anchored at the repository root.
+    # shellcheck source=../desktop/package-metadata.sh
     source "$DESKTOP_METADATA_FILE"
+}
+
+source_desktop_jre_modules() {
+    if [[ ! -f "$DESKTOP_JRE_MODULES_FILE" ]]; then
+        error "Desktop JRE module list not found: $DESKTOP_JRE_MODULES_FILE"
+        exit 1
+    fi
+
+    # shellcheck source=../desktop/jre-modules.sh
+    source "$DESKTOP_JRE_MODULES_FILE"
 }
 
 resolve_python() {
@@ -124,6 +159,7 @@ load_metadata() {
     fi
 
     source_desktop_metadata
+    source_desktop_jre_modules
 }
 
 resolve_host_os() {
@@ -272,6 +308,43 @@ resolve_nsis() {
     exit 2
 }
 
+# The bundled runtime is what makes a package installable on a machine with no
+# Java at all. It is opt-in: without --jbr-jmods only the thin pair is written.
+# When the modules are present the thin pair is still written; VARIANT_SUFFIX
+# is applied per pair later, not here.
+resolve_jbr_jmods() {
+    local requested="$1"
+
+    if [[ -n "$requested" ]]; then
+        JBR_JMODS_DIR="$requested"
+    elif [[ -n "${JBR_JMODS:-}" ]]; then
+        JBR_JMODS_DIR="${JBR_JMODS}"
+    else
+        # Bare `return` would carry the failed test's status into set -e.
+        return 0
+    fi
+
+    if [[ ! -d "$JBR_JMODS_DIR" ]]; then
+        error "JetBrains Runtime modules directory not found: $JBR_JMODS_DIR"
+        error "Fetch them first: ./run lib jbr windows/$TARGET_ARCH"
+        exit 1
+    fi
+}
+
+resolve_jlink() {
+    if [[ -z "$JBR_JMODS_DIR" ]]; then
+        return 0
+    fi
+
+    if command -v jlink >/dev/null 2>&1; then
+        return 0
+    fi
+
+    error "Missing required tool: jlink. Install a JDK and put its bin directory on PATH."
+    error "Its feature version has to be at least the one of the JetBrains Runtime being linked."
+    exit 2
+}
+
 require_tools() {
     local -a tools=(awk sed cp mkdir mktemp git sort head rm "$PYTHON_BIN")
     local -a missing=()
@@ -352,20 +425,24 @@ resolve_input_jar() {
     fi
 
     local latest=""
+    local candidate=""
     local -a matches=()
     shopt -s nullglob
-    matches=("$JAR_DIR_DEFAULT"/${PACKAGE_NAME}-windows-${JAR_ARCH}-*.jar)
+    # Everything but the wildcard stays quoted, so only the glob expands.
+    matches=("$JAR_DIR_DEFAULT/${PACKAGE_NAME}-windows-${JAR_ARCH}-"*.jar)
     shopt -u nullglob
-    if [[ "${#matches[@]}" -gt 0 ]]; then
-        latest="$(ls -t "${matches[@]}" 2>/dev/null | head -n 1)"
-    fi
+    for candidate in "${matches[@]}"; do
+        if [[ -z "$latest" || "$candidate" -nt "$latest" ]]; then
+            latest="$candidate"
+        fi
+    done
     if [[ -n "$latest" ]]; then
         INPUT_JAR="$latest"
         return
     fi
 
     error "No matching desktop jar found in $JAR_DIR_DEFAULT"
-    error "Build one first: ./gradlew -p composeApp packageUberJarForCurrentOS -PdesktopTarget=windows/$TARGET_ARCH"
+    error "Build one first: ./gradlew -p composeApp packageReleaseUberJarForCurrentOS -PdesktopTarget=windows/$TARGET_ARCH"
     exit 1
 }
 
@@ -392,6 +469,39 @@ resolve_launcher_bin() {
     exit 1
 }
 
+resolve_core_bin() {
+    local requested="$1"
+    local default_path="$ROOT_DIR/libcore/build/${TARGET_PLATFORM}_${TARGET_ARCH}/husi-core.exe"
+
+    if [[ -n "$requested" ]]; then
+        if [[ ! -f "$requested" ]]; then
+            error "Core host binary not found: $requested"
+            exit 1
+        fi
+        INPUT_CORE_BIN="$requested"
+        return
+    fi
+
+    if [[ -f "$default_path" ]]; then
+        INPUT_CORE_BIN="$default_path"
+        return
+    fi
+
+    error "Core host binary not found: $default_path"
+    error "Build one first: make core_desktop DESKTOP_TARGETS=${TARGET_PLATFORM}/${TARGET_ARCH}"
+    exit 1
+}
+
+resolve_core_library() {
+    INPUT_CORE_LIBRARY="$(dirname "$INPUT_CORE_BIN")/$CORE_LIBRARY_NAME"
+    if [[ ! -f "$INPUT_CORE_LIBRARY" ]]; then
+        error "$CORE_LIBRARY_NAME not found beside the core host binary: $INPUT_CORE_LIBRARY"
+        error "make core_desktop puts it there."
+        exit 1
+    fi
+}
+
+
 nsis_url_scheme_install_entries() {
     local scheme
     for scheme in "${DESKTOP_URL_SCHEMES[@]}"; do
@@ -411,24 +521,76 @@ nsis_url_scheme_uninstall_entries() {
     done
 }
 
+# jlink links an image for the platform its modules belong to, not for the host,
+# so this runs on Linux just as well as on Windows. Two flags the Linux AppImage
+# passes are deliberately absent: --strip-native-debug-symbols shells out to
+# objcopy and only understands ELF, and Windows debug symbols live in separate
+# pdb files anyway; --generate-cds-archive cannot be generated cross-platform.
+build_runtime() {
+    local runtime_dir="$1"
+
+    rm -rf "$runtime_dir"
+    mkdir -p "$(dirname "$runtime_dir")"
+    jlink \
+        --module-path "$JBR_JMODS_DIR" \
+        --add-modules "$DESKTOP_JRE_MODULES_WINDOWS" \
+        --strip-java-debug-attributes \
+        --no-header-files \
+        --no-man-pages \
+        --compress=zip-6 \
+        --output "$runtime_dir"
+    log "Linked bundled runtime: $runtime_dir"
+}
+
+output_filename() {
+    local extension="$1"
+    echo "${PACKAGE_NAME}-${VERSION_NAME}-windows-${TARGET_ARCH}${VARIANT_SUFFIX}${extension}"
+}
+
+# jlink emits hundreds of files, so the installer takes the tree wholesale and
+# the uninstaller drops it the same way. RMDir /r stays scoped to this one
+# subdirectory of $INSTDIR.
+nsis_runtime_install_entries() {
+    cat <<EOF
+    SetOutPath "\$INSTDIR\\runtime"
+    File /r "$RUNTIME_DIR/*"
+    SetOutPath "\$INSTDIR"
+EOF
+}
+
+nsis_runtime_uninstall_entries() {
+    cat <<'EOF'
+    RMDir /r "$INSTDIR\runtime"
+EOF
+}
+
 prepare_rootfs() {
     local root="$1"
     local launcher_name="$APP_NAME.exe"
     local launcher_path="$root/$launcher_name"
+    local core_path="$root/husi-core.exe"
 
     mkdir -p "$root/app"
     cp "$INPUT_JAR" "$root/app/$PACKAGE_NAME.jar"
     cp "$INPUT_LAUNCHER_BIN" "$launcher_path"
     chmod 755 "$launcher_path"
+    cp "$INPUT_CORE_BIN" "$core_path"
+    chmod 755 "$core_path"
+    cp "$INPUT_CORE_LIBRARY" "$root/$CORE_LIBRARY_NAME"
+    chmod 644 "$root/$CORE_LIBRARY_NAME"
     cp "$WINDOWS_JAVA_OPTS_FILE" "$root/desktop-java-opts.conf.template"
     cp "$ROOT_DIR/release/linux/desktop/desktop-app-args.conf" "$root/desktop-app-args.conf.template"
     cp "$ROOT_DIR/LICENSE" "$root/LICENSE"
+    if [[ -n "$RUNTIME_DIR" ]]; then
+        cp -a "$RUNTIME_DIR" "$root/runtime"
+    fi
     touch_path_tree "$root"
 }
 
 build_zip() {
     local portable_root="$1"
-    local output_path="$OUTPUT_DIR/${PACKAGE_NAME}-${VERSION_NAME}-windows-${TARGET_ARCH}.zip"
+    local output_path
+    output_path="$OUTPUT_DIR/$(output_filename ".zip")"
 
     rm -f "$output_path"
     "$PYTHON_BIN" - "$portable_root" "$output_path" <<'PY'
@@ -458,11 +620,14 @@ PY
 
 build_nsis() {
     local work_dir="$1"
-    local nsis_source="$work_dir/installer.nsi"
-    local output_path="$OUTPUT_DIR/${PACKAGE_NAME}-${VERSION_NAME}-windows-${TARGET_ARCH}-installer.exe"
+    local nsis_source="$work_dir/installer${VARIANT_SUFFIX}.nsi"
+    local output_path
+    output_path="$OUTPUT_DIR/$(output_filename "-installer.exe")"
     local vi_version
     local url_scheme_registry
     local url_scheme_unregistry
+    local runtime_install=""
+    local runtime_uninstall=""
 
     vi_version="$(normalize_vi_version)" || {
         error "VERSION_NAME=$VERSION_NAME cannot be converted to a VIProductVersion."
@@ -471,6 +636,10 @@ build_nsis() {
 
     url_scheme_registry="$(nsis_url_scheme_install_entries)"
     url_scheme_unregistry="$(nsis_url_scheme_uninstall_entries)"
+    if [[ -n "$RUNTIME_DIR" ]]; then
+        runtime_install="$(nsis_runtime_install_entries)"
+        runtime_uninstall="$(nsis_runtime_uninstall_entries)"
+    fi
 
     render_template \
         "$NSIS_TEMPLATE_FILE" \
@@ -486,16 +655,41 @@ build_nsis() {
         "__HUSI_OUTPUT_FILE__" "$output_path" \
         "__HUSI_LICENSE_FILE__" "$ROOT_DIR/LICENSE" \
         "__HUSI_LAUNCHER_FILE__" "$INPUT_LAUNCHER_BIN" \
+        "__HUSI_CORE_FILE__" "$INPUT_CORE_BIN" \
+        "__HUSI_CORE_LIBRARY_NAME__" "$CORE_LIBRARY_NAME" \
+        "__HUSI_CORE_LIBRARY_FILE__" "$INPUT_CORE_LIBRARY" \
         "__HUSI_JAR_FILE__" "$INPUT_JAR" \
         "__HUSI_JAVA_OPTS_FILE__" "$WINDOWS_JAVA_OPTS_FILE" \
         "__HUSI_APP_ARGS_FILE__" "$ROOT_DIR/release/linux/desktop/desktop-app-args.conf" \
         "__HUSI_URL_SCHEME_REGISTRY__" "$url_scheme_registry" \
-        "__HUSI_URL_SCHEME_UNREGISTRY__" "$url_scheme_unregistry"
+        "__HUSI_URL_SCHEME_UNREGISTRY__" "$url_scheme_unregistry" \
+        "__HUSI_RUNTIME_INSTALL__" "$runtime_install" \
+        "__HUSI_RUNTIME_UNINSTALL__" "$runtime_uninstall"
 
     rm -f "$output_path"
     "$NSIS_BIN" "$nsis_source"
+    # Sign before the timestamp is forced: signing rewrites the file.
+    if [[ "$SIGNING_ENABLED" -eq 1 ]]; then
+        sign_pe "$output_path"
+    fi
     touch_path "$output_path"
     log "Built NSIS installer: $output_path"
+}
+
+# VARIANT_SUFFIX and RUNTIME_DIR select the pair: empty / empty for thin,
+# -jbr / the jlink tree for the bundled-runtime packages.
+emit_packages() {
+    local work_dir="$1"
+    local portable_root
+
+    if [[ -n "${ENABLED_FORMATS[zip]:-}" ]]; then
+        portable_root="$work_dir/${APP_NAME}-${VERSION_NAME}-windows-${TARGET_ARCH}${VARIANT_SUFFIX}"
+        prepare_rootfs "$portable_root"
+        build_zip "$portable_root"
+    fi
+    if [[ -n "${ENABLED_FORMATS[nsis]:-}" ]]; then
+        build_nsis "$work_dir"
+    fi
 }
 
 TARGET=""
@@ -503,6 +697,8 @@ TARGET_PLATFORM=""
 TARGET_ARCH=""
 INPUT_JAR=""
 INPUT_LAUNCHER_BIN=""
+INPUT_CORE_BIN=""
+INPUT_CORE_LIBRARY=""
 OUTPUT_DIR="$OUTPUT_DIR_DEFAULT"
 FORMATS="zip,nsis"
 CHECK_TOOLS=0
@@ -513,6 +709,7 @@ APP_NAME_ZH_CN=""
 APP_DESCRIPTION=""
 APP_URL=""
 MAINTAINER=""
+JBR_JMODS_ARG=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -536,10 +733,24 @@ while [[ $# -gt 0 ]]; do
             INPUT_LAUNCHER_BIN="$2"
             shift 2
             ;;
+        --core-bin)
+            require_arg "$1" "${2:-}"
+            INPUT_CORE_BIN="$2"
+            shift 2
+            ;;
         -o|--output-dir)
             require_arg "$1" "${2:-}"
             OUTPUT_DIR="$2"
             shift 2
+            ;;
+        --jbr-jmods)
+            require_arg "$1" "${2:-}"
+            JBR_JMODS_ARG="$2"
+            shift 2
+            ;;
+        --no-sign)
+            SIGNING_ENABLED=0
+            shift
             ;;
         --check-tools)
             CHECK_TOOLS=1
@@ -564,6 +775,9 @@ resolve_target
 resolve_arch
 resolve_formats "$FORMATS"
 resolve_nsis
+resolve_jbr_jmods "$JBR_JMODS_ARG"
+resolve_jlink
+require_signing_tool
 require_tools
 
 if [[ "$CHECK_TOOLS" -eq 1 ]]; then
@@ -574,6 +788,8 @@ fi
 resolve_tag_epoch
 resolve_input_jar "$INPUT_JAR"
 resolve_launcher_bin "$INPUT_LAUNCHER_BIN"
+resolve_core_bin "$INPUT_CORE_BIN"
+resolve_core_library
 mkdir -p "$OUTPUT_DIR"
 
 work_dir="$(mktemp -d)"
@@ -582,13 +798,18 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [[ -n "${ENABLED_FORMATS[zip]:-}" ]]; then
-    portable_root="$work_dir/${APP_NAME}-${VERSION_NAME}-windows-${TARGET_ARCH}"
-    prepare_rootfs "$portable_root"
-    build_zip "$portable_root"
-fi
-if [[ -n "${ENABLED_FORMATS[nsis]:-}" ]]; then
-    build_nsis "$work_dir"
+resolve_signing "$work_dir"
+sign_payloads "$work_dir"
+
+VARIANT_SUFFIX=""
+RUNTIME_DIR=""
+emit_packages "$work_dir"
+
+if [[ -n "$JBR_JMODS_DIR" ]]; then
+    RUNTIME_DIR="$work_dir/runtime"
+    build_runtime "$RUNTIME_DIR"
+    VARIANT_SUFFIX="-jbr"
+    emit_packages "$work_dir"
 fi
 
 log "Done. Output directory: $OUTPUT_DIR"
