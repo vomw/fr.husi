@@ -40,6 +40,12 @@ jobs:
           java-version: "21"
           cache: gradle
 
+      # This modifies only the disposable Actions checkout. Keeping the Gradle
+      # namespace/source package intact avoids breaking generated R classes.
+      - name: Namespace the Android fork for side-by-side installation
+        shell: bash
+        run: python3 .github/scripts/fork_android_identity.py --suffix vomw
+
       - name: Set up Go from libcore/go.mod
         uses: actions/setup-go@v6
         with:
@@ -175,6 +181,22 @@ jobs:
             echo "APK does not contain the expected $ABI native-code entry." >&2
             exit 1
           }
+          default_label=$(sed -n 's|.*<string name="app_name">\([^<]*\)</string>.*|\1|p' composeApp/src/androidMain/res/values/strings.xml)
+          [[ "$app_id" == *.vomw && "$default_label" == *.vomw ]] || {
+            echo 'Fork application ID or launcher label was not suffixed with .vomw.' >&2
+            exit 1
+          }
+          [[ "$badging" == *"application-label:'$default_label'"* ]] || {
+            echo 'APK launcher label does not match the forked app_name resource.' >&2
+            exit 1
+          }
+          manifest_tree=$("$build_tools/aapt" dump xmltree signed.apk AndroidManifest.xml)
+          for identifier in "$app_id.permission.SERVICE" "$app_id.cache" "$app_id.androidx-startup"; do
+            grep -Fqx "$identifier" < <(printf '%s\n' "$manifest_tree" | grep -oF "$identifier" || true) || {
+              echo "APK manifest is missing fork-specific identifier: $identifier" >&2
+              exit 1
+            }
+          done
 
           mkdir -p dist
           artifact_name="${app_id}-${version_name}-${version_code}-${ABI}.apk"
