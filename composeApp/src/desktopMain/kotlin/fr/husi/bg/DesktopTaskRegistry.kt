@@ -62,8 +62,6 @@ internal object DesktopTaskRegistry {
     private val definitions = listOf(subscriptionAutoUpdateTask, routeAssetAutoUpdateTask)
         .associateBy(DesktopTaskDefinition::id)
 
-    val ids: Set<String> get() = definitions.keys
-
     fun require(taskId: String): DesktopTaskDefinition {
         return definitions[taskId] ?: error("Unknown desktop task: $taskId")
     }

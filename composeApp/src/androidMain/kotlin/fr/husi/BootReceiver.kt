@@ -24,15 +24,15 @@ class BootReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (!DataStore.persistAcrossReboot.getBlocking()) {   // sanity check
+        if (!DataStore.persistAcrossReboot) {   // sanity check
             enabled = false
             return
         }
 
         val doStart = when (intent.action) {
             Intent.ACTION_LOCKED_BOOT_COMPLETED -> false // DataStore.directBootAware
-            else -> resolveAndroidRepository().user.isUserUnlocked
-        } && DataStore.selectedProxy.getBlocking() > 0
+            else -> Build.VERSION.SDK_INT < 24 || resolveAndroidRepository().user.isUserUnlocked
+        } && DataStore.selectedProxy > 0
 
         if (doStart) resolveRepository().startService()
     }

@@ -10,15 +10,14 @@ import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.PowerManager
 import androidx.core.content.ContextCompat
+import fr.husi.ExpectedException
 import fr.husi.Key
 import fr.husi.database.DataStore
 import fr.husi.fmt.LOCALHOST4
-import fr.husi.fmt.RuleApps
 import fr.husi.fmt.SingBoxOptions
 import fr.husi.fmt.hysteria.HysteriaBean
 import fr.husi.ktx.Logs
 import fr.husi.ktx.blankAsNull
-import fr.husi.ktx.listByLineIgnoringComments
 import fr.husi.repository.resolveAndroidRepository
 import fr.husi.repository.resolveRepository
 import fr.husi.resources.Res
@@ -27,7 +26,6 @@ import fr.husi.resources.reboot_required
 import fr.husi.ui.VpnRequestActivity
 import fr.husi.utils.Subnet
 import kotlinx.coroutines.runBlocking
-import java.util.regex.PatternSyntaxException
 import android.net.VpnService as BaseVpnService
 
 @SuppressLint("VpnServicePolicy")
@@ -84,28 +82,20 @@ class VpnService : BaseVpnService(),
         ServiceNotification(this, profileName, "service-vpn")
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (DataStore.serviceMode.getBlocking() == Key.MODE_VPN) {
+        if (DataStore.serviceMode == Key.MODE_VPN) {
             if (prepare(this) != null) {
-                requestVpnPermission()
+                startActivity(
+                    Intent(this, VpnRequestActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
             } else return super<BaseService.Interface>.onStartCommand(intent, flags, startId)
         }
         stopRunner()
         return START_NOT_STICKY
     }
 
-    /**
-     * Hands the VPN consent dialog to the user. The direct launch only lands when the caller
-     * happens to be exempt from the background activity limits, so a notification backs it up.
-     */
-    private fun requestVpnPermission() {
-        startActivity(
-            Intent(this, VpnRequestActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-        )
-        runBlocking { VpnRequestNotification.show(this@VpnService) }
-    }
-
-    inner class NullConnectionException : NullPointerException() {
+    inner class NullConnectionException : NullPointerException(),
+        ExpectedException {
         override fun getLocalizedMessage() = runBlocking {
             resolveRepository().getString(Res.string.reboot_required)
         }
@@ -113,12 +103,12 @@ class VpnService : BaseVpnService(),
 
     fun startVpn(): Int {
         // address & route & MTU ...... use GUI config
-        val sessionName = DataStore.vpnSessionName.getBlocking().trim().blankAsNull()
+        val sessionName = DataStore.vpnSessionName.trim().blankAsNull()
             ?: runBlocking { resolveRepository().getString(Res.string.app_name) }
         val builder = Builder().setConfigureIntent(resolveAndroidRepository().configureIntent(this))
             .setSession(sessionName)
-            .setMtu(DataStore.mtu.getBlocking())
-        val networkStrategy = DataStore.networkStrategy.getBlocking()
+            .setMtu(DataStore.mtu)
+        val networkStrategy = DataStore.networkStrategy
 
         when (networkStrategy) {
             SingBoxOptions.STRATEGY_IPV4_ONLY -> {
@@ -141,19 +131,19 @@ class VpnService : BaseVpnService(),
         }
 
         // route
-        if (DataStore.bypassLan.getBlocking()) {
+        if (DataStore.bypassLan) {
             for (cidr in privateRoutes) {
                 val address = cidr.substringBefore("/")
                 val prefixLength = cidr.substringAfter("/").toInt()
                 builder.addRoute(address, prefixLength)
             }
             val fakeDNSRange4 by lazy {
-                DataStore.fakeDNSRange4.getBlocking().blankAsNull()?.let {
+                DataStore.fakeDNSRange4.blankAsNull()?.let {
                     Subnet.fromString(it)
                 }
             }
             val fakeDNSRange6 by lazy {
-                DataStore.fakeDNSRange6.getBlocking().blankAsNull()?.let {
+                DataStore.fakeDNSRange6.blankAsNull()?.let {
                     Subnet.fromString(it)
                 }
             }
@@ -205,13 +195,15 @@ class VpnService : BaseVpnService(),
 
         // app route
         val packageName = packageName
-        val proxyApps = DataStore.proxyApps.getBlocking()
-        val metadata = data.proxy!!.metadata
-        val needBypassRootUid = metadata.trafficProfiles.any {
-            it.hysteriaBean?.protocol == HysteriaBean.PROTOCOL_FAKETCP
+        val proxyApps = DataStore.proxyApps
+        var bypass = DataStore.bypassMode
+        val workaroundSYSTEM = false /* DataStore.tunImplementation == TunImplementation.SYSTEM */
+        val needBypassRootUid = workaroundSYSTEM || data.proxy!!.config.trafficMap.values.any {
+            it[0].hysteriaBean?.protocol == HysteriaBean.PROTOCOL_FAKETCP
         }
 
         if (proxyApps || needBypassRootUid) {
+            val individual = mutableSetOf<String>()
             val allApps by lazy {
                 packageManager.getInstalledPackages(PackageManager.GET_PERMISSIONS).filter {
                     when (it.packageName) {
@@ -221,28 +213,24 @@ class VpnService : BaseVpnService(),
                     }
                 }.map { it.packageName }
             }
-            val selectedApps = DataStore.packages.getBlocking().filterTo(HashSet()) { it.isNotBlank() }
-            val bypassMode = DataStore.bypassMode.getBlocking()
-            // Excluding the root uid is only possible through an allow list.
-            val bypass = proxyApps && bypassMode && !needBypassRootUid
-            val individual = when {
-                !proxyApps -> allApps
-                bypassMode && needBypassRootUid -> allApps - selectedApps
-                else -> selectedApps
-            }.toMutableSet()
-
-            // Rules matching an app only work if that app's traffic enters the VPN.
-            val ruleApps = resolveRuleApps(metadata.ruleApps) { allApps }
-            if (bypass) {
-                individual.removeAll(ruleApps)
+            if (proxyApps) {
+                individual.addAll(DataStore.packages.filter { it.isNotBlank() })
+                if (bypass && needBypassRootUid) {
+                    val individualNew = allApps.toMutableList()
+                    individualNew.removeAll(individual)
+                    individual.clear()
+                    individual.addAll(individualNew)
+                    bypass = false
+                }
             } else {
-                individual.addAll(ruleApps)
+                individual.addAll(allApps)
+                bypass = false
             }
 
             val added = mutableListOf<String>()
 
             individual.apply {
-                // Allow husi itself using VPN.
+                // Allow Matsuri itself using VPN.
                 remove(packageName)
                 if (!bypass) add(packageName)
             }.forEach {
@@ -265,24 +253,26 @@ class VpnService : BaseVpnService(),
             }
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && DataStore.appendHttpProxy.getBlocking() &&
-            DataStore.inboundUsername.getBlocking().isEmpty() && DataStore.inboundPassword.getBlocking().isEmpty()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && DataStore.appendHttpProxy &&
+            DataStore.inboundUsername.isEmpty() && DataStore.inboundPassword.isEmpty()
         ) {
             builder.setHttpProxy(
                 ProxyInfo.buildDirectProxy(
                     LOCALHOST4,
-                    DataStore.mixedPort.getBlocking(),
-                    DataStore.httpProxyBypass.getBlocking().listByLineIgnoringComments(),
+                    DataStore.mixedPort,
+                    DataStore.httpProxyBypass.lines().mapNotNull { line ->
+                        line.trim().takeIf { it.isNotBlank() && !it.startsWith("#") }
+                    },
                 ).also {
                     Logs.d("Appended HTTP info: $it")
                 },
             )
         }
 
-        metered = DataStore.meteredNetwork.getBlocking()
+        metered = DataStore.meteredNetwork
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) builder.setMetered(metered)
 
-        if (DataStore.allowAppsBypassVpn.getBlocking()) {
+        if (DataStore.allowAppsBypassVpn) {
             builder.allowBypass()
         }
 
@@ -291,31 +281,12 @@ class VpnService : BaseVpnService(),
         return conn!!.fd
     }
 
-    private fun resolveRuleApps(
-        ruleApps: RuleApps,
-        installedApps: () -> List<String>,
-    ): Set<String> {
-        val regexes = ruleApps.packageNameRegexes.mapNotNull {
-            try {
-                Regex(it)
-            } catch (e: PatternSyntaxException) {
-                Logs.w("Skip invalid package name regex: $it", e)
-                null
-            }
-        }
-        if (regexes.isEmpty()) {
-            return ruleApps.packageNames
-        }
-        return ruleApps.packageNames + installedApps().filter { app ->
-            regexes.any { it.containsMatchIn(app) }
-        }
-    }
-
     override fun onRevoke() = stopRunner()
 
     override fun onDestroy() {
         ServiceRegistry.vpnService = null
         super.onDestroy()
+        data.binder.close()
     }
 
     private val privateRoutes

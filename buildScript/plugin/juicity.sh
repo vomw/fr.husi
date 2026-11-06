@@ -1,11 +1,7 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
-
-PLUGIN=juicity
-GO_SOURCE_DIR="src/main/go/juicity"
-GO_MAIN_PKG="./cmd/client"
-
-source "buildScript/plugin/common.sh"
-
-dispatch "$@"
+buildScript/plugin/juicity/init.sh &&  set -x &&
+  buildScript/plugin/juicity/armeabi-v7a.sh &&
+  buildScript/plugin/juicity/arm64-v8a.sh &&
+  buildScript/plugin/juicity/x86.sh &&
+  buildScript/plugin/juicity/x86_64.sh

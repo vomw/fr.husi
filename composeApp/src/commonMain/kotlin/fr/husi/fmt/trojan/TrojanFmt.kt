@@ -3,10 +3,10 @@ package fr.husi.fmt.trojan
 import fr.husi.fmt.v2ray.parseDuckSoft
 import fr.husi.ktx.parseBoolean
 import fr.husi.ktx.queryParameterNotBlank
-import io.github.xchacha20_poly1305.kpuri.Url
+import fr.husi.libcore.Libcore
 
 fun parseTrojan(link: String): TrojanBean {
-    val url = Url.parse(link)
+    val url = Libcore.parseURL(link)
     return TrojanBean().apply {
         parseDuckSoft(url)
         allowInsecure = url.parseBoolean("allowInsecure")

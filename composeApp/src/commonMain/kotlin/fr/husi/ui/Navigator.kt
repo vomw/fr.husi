@@ -1,11 +1,6 @@
 package fr.husi.ui
 
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.navigation3.runtime.NavKey
-
-val LocalNavigator = staticCompositionLocalOf<Navigator> {
-    error("No Navigator provided")
-}
 
 class Navigator(
     private val backStack: MutableList<NavKey>,
@@ -13,26 +8,30 @@ class Navigator(
     val currentRoute: NavRoutes?
         get() = backStack.lastOrNull() as? NavRoutes
 
-    val selectedTopLevelRoute: NavRoutes?
+    val selectedDrawerRoute: NavRoutes?
         get() = backStack.lastOrNull {
-            (it as? NavRoutes)?.isTopLevelRoute() == true
+            (it as? NavRoutes)?.isDrawerRoute() == true
         } as? NavRoutes
 
-    private fun NavRoutes.isTopLevelRoute(): Boolean {
+    private fun NavRoutes.isDrawerRoute(): Boolean {
         return when (this) {
             NavRoutes.Configuration,
-            NavRoutes.Dashboard,
+            NavRoutes.Groups,
             NavRoutes.Route,
-            NavRoutes.Log,
             NavRoutes.Settings,
+            NavRoutes.Plugin,
+            NavRoutes.Log,
+            NavRoutes.Dashboard,
+            NavRoutes.Tools,
+            NavRoutes.About,
                 -> true
 
             else -> false
         }
     }
 
-    val isCurrentTopLevel: Boolean
-        get() = currentRoute?.isTopLevelRoute() == true
+    val isAtStartDestination: Boolean
+        get() = currentRoute == NavRoutes.Configuration
 
     fun popBackStack(): Boolean {
         if (backStack.size <= 1) {
@@ -46,7 +45,7 @@ class Navigator(
         backStack.add(route)
     }
 
-    fun navigateToTopLevelRoute(route: NavRoutes) {
+    fun navigateToDrawerRoute(route: NavRoutes) {
         while (backStack.size > 1) {
             backStack.removeLastOrNull()
         }

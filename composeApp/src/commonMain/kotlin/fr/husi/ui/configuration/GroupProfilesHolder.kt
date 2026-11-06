@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalLayoutApi::class)
+
 package fr.husi.ui.configuration
 
 import androidx.compose.foundation.BorderStroke
@@ -6,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -22,30 +25,27 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.PlainTooltip
-import androidx.compose.material3.SheetValue
 import androidx.compose.material3.TooltipAnchorPosition
 import androidx.compose.material3.TooltipBox
 import androidx.compose.material3.TooltipDefaults
-import androidx.compose.material3.rememberBottomSheetState
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.isShiftPressed
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -63,24 +63,23 @@ import fr.husi.compose.SimpleIconButton
 import fr.husi.compose.TextButton
 import fr.husi.compose.colorForUrlTestDelay
 import fr.husi.compose.fadingEdge
-import fr.husi.compose.focusRestoreAnchor
 import fr.husi.compose.material3.Icon
 import fr.husi.compose.material3.IconButton
 import fr.husi.compose.material3.Text
-import fr.husi.compose.rememberFocusRestoreState
+import fr.husi.compose.rememberScrollHideState
 import fr.husi.compose.setPlainText
+import fr.husi.database.DataStore
 import fr.husi.database.ProxyEntity
 import fr.husi.database.displayType
 import fr.husi.fmt.ValidateResult
 import fr.husi.fmt.config.ConfigBean
 import fr.husi.fmt.toUniversalLink
-import fr.husi.keyevent.isTypeControlPressed
 import fr.husi.ktx.Logs
 import fr.husi.ktx.blankAsNull
-import fr.husi.ktx.blurAddress
-import fr.husi.ktx.formatBytes
+import fr.husi.ktx.onMainDispatcher
 import fr.husi.ktx.readableMessage
 import fr.husi.ktx.readableUrlTestError
+import fr.husi.libcore.Libcore
 import fr.husi.resources.Res
 import fr.husi.resources.action_export_clipboard
 import fr.husi.resources.action_export_file
@@ -113,6 +112,8 @@ import fr.husi.resources.standard
 import fr.husi.resources.traffic
 import fr.husi.resources.unavailable
 import fr.husi.resources.warning
+import fr.husi.results.LocalResultEventBus
+import fr.husi.results.ResultEffect
 import fr.husi.ui.NavRoutes
 import fr.husi.ui.StringOrRes
 import io.github.oikvpqya.compose.fastscroller.material3.defaultMaterialScrollbarStyle
@@ -121,30 +122,34 @@ import io.github.vinceglb.filekit.dialogs.FileKitDialogSettings
 import io.github.vinceglb.filekit.dialogs.compose.rememberFileSaverLauncher
 import io.github.vinceglb.filekit.write
 import kotlinx.collections.immutable.toImmutableList
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.vectorResource
+
+private data class PendingProfileEdit(
+    val resultKey: String,
+    val profileId: Long,
+)
 
 @Composable
 internal fun GroupHolderScreen(
     modifier: Modifier = Modifier,
     viewModel: GroupProfilesHolderViewModel,
-    contentPadding: PaddingValues,
+    bottomPadding: Dp,
     showActions: Boolean = true,
-    canHoldFocus: Boolean,
     onProfileSelect: (Long) -> Unit,
     onOpenProfileEditor: ((NavRoutes.ProfileEditor) -> Unit)? = null,
+    needReload: () -> Unit,
     showQR: (name: String, url: String) -> Unit,
     onCopySuccess: () -> Unit,
     showSnackbar: (message: StringOrRes) -> Unit,
     showUndoSnackbar: (count: Int, onUndo: () -> Unit) -> Unit,
+    onScrollHideChange: (Boolean) -> Unit = {},
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
-    val clipboard = LocalClipboard.current
-    val scope = rememberCoroutineScope()
+    val resultBus = onOpenProfileEditor?.let { LocalResultEventBus.current }
+    val pendingProfileEdits = remember { mutableStateListOf<PendingProfileEdit>() }
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -167,7 +172,12 @@ internal fun GroupHolderScreen(
     val securityAdvisory by viewModel.securityAdvisory.collectAsStateWithLifecycle(true)
 
     val dragDropListState = rememberDragDropSwipeLazyColumnState()
-    val focusRestore = rememberFocusRestoreState()
+    val focusRequester = remember { FocusRequester() }
+
+    val scrollHideVisible by rememberScrollHideState(dragDropListState.lazyListState)
+    LaunchedEffect(scrollHideVisible) {
+        onScrollHideChange(scrollHideVisible)
+    }
 
     LaunchedEffect(uiState.scrollIndex) {
         uiState.scrollIndex?.let { index ->
@@ -176,18 +186,44 @@ internal fun GroupHolderScreen(
         }
     }
 
-    LaunchedEffect(canHoldFocus, focusRestore.isAttached) {
-        if (canHoldFocus) {
-            focusRestore.restore()
+    LaunchedEffect(uiState.shouldRequestFocus) {
+        if (uiState.shouldRequestFocus) {
+            try {
+                focusRequester.requestFocus()
+            } catch (_: Exception) {
+                // non-TV environments
+            }
+            viewModel.consumeFocusRequest()
+        }
+    }
+
+    resultBus?.let { bus ->
+        for (pending in pendingProfileEdits.toList()) {
+            ResultEffect<Boolean>(
+                resultEventBus = bus,
+                resultKey = pending.resultKey,
+            ) { updated ->
+                if (updated && pending.profileId == DataStore.selectedProxy) {
+                    needReload()
+                }
+                pendingProfileEdits.remove(pending)
+            }
         }
     }
 
     fun openProfileEditor(profile: ProxyEntity) {
+        val resultKey = "profile-editor-${profile.id}"
+        pendingProfileEdits.removeAll { it.resultKey == resultKey }
+        pendingProfileEdits += PendingProfileEdit(
+            resultKey = resultKey,
+            profileId = profile.id,
+        )
         onOpenProfileEditor?.invoke(
             NavRoutes.ProfileEditor(
                 type = profile.type,
                 id = profile.id,
                 subscription = viewModel.group.type == GroupType.SUBSCRIPTION,
+                resultKey = resultKey,
             ),
         )
     }
@@ -196,15 +232,15 @@ internal fun GroupHolderScreen(
     val exportFileLauncher = rememberFileSaverLauncher(
         dialogSettings = FileKitDialogSettings.createDefault(),
     ) { file ->
-        if (file != null) lifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+        if (file != null) lifecycleOwner.lifecycleScope.launch {
             try {
                 file.write(exportConfig.encodeToByteArray())
-                withContext(Dispatchers.Main) {
+                onMainDispatcher {
                     showSnackbar(StringOrRes.Res(Res.string.action_export_msg))
                 }
             } catch (e: Exception) {
                 Logs.w(e)
-                withContext(Dispatchers.Main) {
+                onMainDispatcher {
                     showSnackbar(StringOrRes.Direct(e.readableMessage))
                 }
             }
@@ -221,90 +257,15 @@ internal fun GroupHolderScreen(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxHeight()
-                .focusRestoreAnchor(focusRestore, canHoldFocus)
-                .onPreviewKeyEvent { keyEvent ->
-                    if (keyEvent.type != KeyEventType.KeyDown) {
-                        return@onPreviewKeyEvent false
-                    }
-
-                    fun selected() = uiState.profiles.firstOrNull { it.isSelected }
-                    when {
-                        !keyEvent.isTypeControlPressed && !keyEvent.isShiftPressed &&
-                            keyEvent.key == Key.J -> {
-                            viewModel.profileToSelect(1)?.let {
-                                onProfileSelect(it)
-                                viewModel.scrollToProxy(it, false)
-                            }
-                            true
-                        }
-
-                        !keyEvent.isTypeControlPressed && !keyEvent.isShiftPressed &&
-                            keyEvent.key == Key.K -> {
-                            viewModel.profileToSelect(-1)?.let {
-                                onProfileSelect(it)
-                                viewModel.scrollToProxy(it, false)
-                            }
-                            true
-                        }
-
-                        keyEvent.isTypeControlPressed && keyEvent.key == Key.E -> {
-                            selected()?.profile?.let(::openProfileEditor)
-                            true
-                        }
-
-                        !keyEvent.isTypeControlPressed && !keyEvent.isShiftPressed &&
-                            keyEvent.key == Key.Delete -> {
-                            selected()?.profile?.id?.let(viewModel::undoableRemove)
-                            true
-                        }
-
-                        keyEvent.isTypeControlPressed && keyEvent.isShiftPressed &&
-                            keyEvent.key == Key.C -> {
-                            selected()?.profile?.takeIf { it.haveLink() }?.let { entity ->
-                                scope.launch {
-                                    clipboard.setPlainText(entity.requireBean().toUniversalLink())
-                                    onCopySuccess()
-                                }
-                            }
-                            true
-                        }
-
-                        keyEvent.isTypeControlPressed && !keyEvent.isShiftPressed &&
-                            keyEvent.key == Key.C -> {
-                            selected()?.profile?.takeIf { it.haveStandardLink() }?.let { entity ->
-                                scope.launch {
-                                    clipboard.setPlainText(entity.toStdLink())
-                                    onCopySuccess()
-                                }
-                            }
-                            true
-                        }
-
-                        keyEvent.isTypeControlPressed && keyEvent.isShiftPressed &&
-                            keyEvent.key == Key.Q -> {
-                            selected()?.profile?.takeIf { it.haveLink() }?.let { entity ->
-                                showQR(entity.displayName(), entity.requireBean().toUniversalLink())
-                            }
-                            true
-                        }
-
-                        keyEvent.isTypeControlPressed && !keyEvent.isShiftPressed &&
-                            keyEvent.key == Key.Q -> {
-                            selected()?.profile?.takeIf { it.haveStandardLink() }?.let { entity ->
-                                showQR(entity.displayName(), entity.toStdLink())
-                            }
-                            true
-                        }
-
-                        else -> false
-                    }
-                }
+                .focusRequester(focusRequester)
                 .fadingEdge(dragDropListState.lazyListState),
             state = dragDropListState,
             items = uiState.profiles.toImmutableList(),
             key = { it.profile.id },
             contentType = { 0 },
-            contentPadding = contentPadding,
+            contentPadding = PaddingValues(
+                bottom = bottomPadding,
+            ),
             userScrollEnabled = true,
             onIndicesChangedViaDragAndDrop = { viewModel.submitReordered(it) },
         ) { index, item ->
@@ -319,7 +280,6 @@ internal fun GroupHolderScreen(
                     behindSwipeContainerBackgroundColor = Color.Transparent,
                     behindSwipeIconColor = Color.Transparent,
                 ),
-                dragDropEnabled = uiState.canReorder,
             ) {
                 ProxyCard(
                     profile = item,
@@ -347,9 +307,7 @@ internal fun GroupHolderScreen(
         }
 
         BoxedVerticalScrollbar(
-            modifier = Modifier
-                .padding(contentPadding)
-                .fillMaxHeight(),
+            modifier = Modifier.fillMaxHeight(),
             adapter = rememberScrollbarAdapter(scrollState = dragDropListState.lazyListState),
             style = defaultMaterialScrollbarStyle().copy(
                 thickness = 12.dp,
@@ -397,8 +355,8 @@ private fun DraggableSwipeableItemScope<ProfileItem>.ProxyCard(
     val bean = entity.requireBean()
 
     val (name, address) = when {
-        blurAddress && bean.name.isBlank() -> bean.displayAddress().blurAddress() to null
-        blurAddress && showAddress -> bean.displayName() to bean.displayAddress().blurAddress()
+        blurAddress && bean.name.isBlank() -> bean.displayAddress().blur() to null
+        blurAddress && showAddress -> bean.displayName() to bean.displayAddress().blur()
         showAddress -> bean.displayName() to bean.displayAddress()
         else -> bean.displayName() to null
     }
@@ -407,8 +365,8 @@ private fun DraggableSwipeableItemScope<ProfileItem>.ProxyCard(
     val trafficText = hasTraffic.takeIf { trafficStatistic }?.let {
         stringResource(
             Res.string.traffic,
-            entity.tx.formatBytes(),
-            entity.rx.formatBytes(),
+            Libcore.formatBytes(entity.tx),
+            Libcore.formatBytes(entity.rx),
         )
     }
 
@@ -444,10 +402,7 @@ private fun DraggableSwipeableItemScope<ProfileItem>.ProxyCard(
 
     var showShareSheet by remember { mutableStateOf(false) }
     var showSecurityAlert by remember { mutableStateOf(false) }
-    val shareSheetState = rememberBottomSheetState(
-        initialValue = SheetValue.Hidden,
-        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
-    )
+    val shareSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val validateResult = if (showActions && securityAdvice) {
         bean.isInsecure()
     } else {
@@ -721,13 +676,11 @@ private fun DraggableSwipeableItemScope<ProfileItem>.ProxyCard(
                                                 )
                                             },
                                             onClick = {
-                                                scope.launch {
-                                                    runCatching {
-                                                        val data = entity.exportConfig()
-                                                        exportToFile(data.second, data.first)
-                                                    }.onFailure { e ->
-                                                        showErrorAlert(e.readableMessage)
-                                                    }
+                                                runCatching {
+                                                    val data = entity.exportConfig()
+                                                    exportToFile(data.second, data.first)
+                                                }.onFailure { e ->
+                                                    showErrorAlert(e.readableMessage)
                                                 }
                                                 showShareSheet = false
                                             },
@@ -770,10 +723,8 @@ private fun DraggableSwipeableItemScope<ProfileItem>.ProxyCard(
                                                     )
                                                 },
                                                 onClick = {
-                                                    scope.launch {
-                                                        val data = entity.exportOutbound()
-                                                        exportToFile(data.second, data.first)
-                                                    }
+                                                    val data = entity.exportOutbound()
+                                                    exportToFile(data.second, data.first)
                                                     showShareSheet = false
                                                 },
                                             )
@@ -883,4 +834,16 @@ private fun DraggableSwipeableItemScope<ProfileItem>.ProxyCard(
             }
         },
     )
+}
+
+/** Make server address blurred. */
+private fun String.blur(): String = when (length) {
+    in 0 until 20 -> {
+        val halfLength = length / 2
+        substring(0, halfLength) + "*".repeat(length - halfLength)
+    }
+
+    in 20..30 -> substring(0, 15) + "*".repeat(length - 15)
+
+    else -> substring(0, 15) + "*".repeat(15)
 }

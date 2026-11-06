@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
@@ -14,15 +15,12 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import fr.husi.compose.IconMaskColors
 import fr.husi.compose.IconMaskShapes
-import fr.husi.compose.ListPreference
 import fr.husi.compose.MaskedIcon
 import fr.husi.compose.MultilineTextField
 import fr.husi.compose.PasswordPreference
 import fr.husi.compose.PreferenceCategory
-import fr.husi.compose.PreferenceGroupDefaults
+import fr.husi.compose.PreferenceDivider
 import fr.husi.compose.SimpleIconButton
-import fr.husi.compose.SwitchPreference
-import fr.husi.compose.TextFieldPreference
 import fr.husi.compose.UIntegerTextField
 import fr.husi.compose.material3.Text
 import fr.husi.compose.preferenceGroup
@@ -62,11 +60,15 @@ import fr.husi.resources.udp_over_tcp
 import fr.husi.resources.view_in_ar
 import fr.husi.results.ResultEffect
 import fr.husi.ui.NavRoutes
+import me.zhanghai.compose.preference.ListPreference
 import me.zhanghai.compose.preference.ListPreferenceType
+import me.zhanghai.compose.preference.SwitchPreference
+import me.zhanghai.compose.preference.TextFieldPreference
 import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.vectorResource
 import kotlin.random.Random
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ShadowsocksSettingsScreen(
     profileId: Long,
@@ -86,7 +88,8 @@ fun ShadowsocksSettingsScreen(
         val number = viewModel.editingId.takeIf { it >= 0 } ?: Random.nextLong()
         "sip003-editor-$number"
     }
-    ResultEffect<String>(resultKey = sip003ResultKey) { result ->
+    ResultEffect<String?>(resultKey = sip003ResultKey) { result ->
+        if (result == null) return@ResultEffect
         viewModel.setPluginConfig(result)
     }
 
@@ -167,6 +170,7 @@ private fun LazyListScope.shadowsocksSettings(
             summary = { Text(contentOrUnset(uiState.address)) },
             valueToText = { it },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = uiState.port,
             onValueChange = { viewModel.setPort(it) },
@@ -180,10 +184,11 @@ private fun LazyListScope.shadowsocksSettings(
             },
             summary = { Text(contentOrUnset(uiState.port)) },
             valueToText = { it.toString() },
-            textField = { state, onOk ->
-                UIntegerTextField(state, onOk)
+            textField = { value, onValueChange, onOk ->
+                UIntegerTextField(value, onValueChange, onOk)
             },
         )
+        PreferenceDivider()
         ListPreference(
             value = uiState.method,
             values = encryptionMethods,
@@ -199,6 +204,7 @@ private fun LazyListScope.shadowsocksSettings(
             type = ListPreferenceType.DROPDOWN_MENU,
             valueToText = { AnnotatedString(it) },
         )
+        PreferenceDivider()
         PasswordPreference(
             value = uiState.password,
             onValueChange = { viewModel.setPassword(it) },
@@ -227,7 +233,8 @@ private fun LazyListScope.shadowsocksSettings(
             },
         )
         AnimatedVisibility(visible = uiState.enableMux) {
-            Column(verticalArrangement = PreferenceGroupDefaults.itemArrangement) {
+            Column {
+                PreferenceDivider()
                 SwitchPreference(
                     value = uiState.brutal,
                     onValueChange = { viewModel.setBrutal(it) },
@@ -240,6 +247,7 @@ private fun LazyListScope.shadowsocksSettings(
                         )
                     },
                 )
+                PreferenceDivider()
                 ListPreference(
                     value = uiState.muxType,
                     values = intListN(muxTypes.size),
@@ -255,6 +263,7 @@ private fun LazyListScope.shadowsocksSettings(
                     type = ListPreferenceType.DROPDOWN_MENU,
                     valueToText = { AnnotatedString(muxTypes[it]) },
                 )
+                PreferenceDivider()
                 ListPreference(
                     value = uiState.muxStrategy,
                     values = intListN(muxStrategies.size),
@@ -271,6 +280,7 @@ private fun LazyListScope.shadowsocksSettings(
                     valueToText = { AnnotatedString(stringResource(muxStrategies[it])) },
                     enabled = !uiState.brutal,
                 )
+                PreferenceDivider()
                 TextFieldPreference(
                     value = uiState.muxNumber,
                     onValueChange = { viewModel.setMuxNumber(it) },
@@ -287,6 +297,7 @@ private fun LazyListScope.shadowsocksSettings(
                     valueToText = { it.toString() },
                     enabled = !uiState.brutal,
                 )
+                PreferenceDivider()
                 SwitchPreference(
                     value = uiState.muxPadding,
                     onValueChange = { viewModel.setMuxPadding(it) },
@@ -318,6 +329,7 @@ private fun LazyListScope.shadowsocksSettings(
             type = ListPreferenceType.DROPDOWN_MENU,
             valueToText = { AnnotatedString(it) },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = uiState.pluginConfig,
             onValueChange = { viewModel.setPluginConfig(it) },
@@ -329,12 +341,13 @@ private fun LazyListScope.shadowsocksSettings(
             },
             summary = { Text(contentOrUnset(uiState.pluginConfig)) },
             valueToText = { it },
-            textField = { state, onOk ->
+            textField = { value, onValueChange, onOk ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     MultilineTextField(
-                        state = state,
+                        value = value,
+                        onValueChange = onValueChange,
                         onOk = onOk,
                         modifier = Modifier.weight(1f),
                     )
@@ -345,7 +358,7 @@ private fun LazyListScope.shadowsocksSettings(
                             onOpenSIP003Editor(
                                 NavRoutes.SIP003Editor(
                                     pluginName = uiState.pluginName,
-                                    initialOpts = state.text.toString(),
+                                    initialOpts = value.text,
                                     resultKey = sip003ResultKey,
                                 ),
                             )

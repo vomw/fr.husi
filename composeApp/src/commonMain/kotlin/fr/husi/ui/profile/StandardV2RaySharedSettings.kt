@@ -6,14 +6,11 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.ui.text.AnnotatedString
 import fr.husi.compose.IconMaskColors
 import fr.husi.compose.IconMaskShapes
-import fr.husi.compose.ListPreference
 import fr.husi.compose.MaskedIcon
 import fr.husi.compose.MultilineTextField
 import fr.husi.compose.PortTextField
 import fr.husi.compose.PreferenceCategory
-import fr.husi.compose.PreferenceGroupDefaults
-import fr.husi.compose.SwitchPreference
-import fr.husi.compose.TextFieldPreference
+import fr.husi.compose.PreferenceDivider
 import fr.husi.compose.material3.Text
 import fr.husi.compose.preferenceGroup
 import fr.husi.fmt.SingBoxOptions
@@ -29,10 +26,7 @@ import fr.husi.resources.block
 import fr.husi.resources.bolt
 import fr.husi.resources.border_inner
 import fr.husi.resources.cert_public_key_sha256
-import fr.husi.resources.certificate_sha256
 import fr.husi.resources.certificates
-import fr.husi.resources.client_certificate
-import fr.husi.resources.client_key
 import fr.husi.resources.code
 import fr.husi.resources.compare_arrows
 import fr.husi.resources.computer_cancel
@@ -46,7 +40,6 @@ import fr.husi.resources.ech_query_server_name
 import fr.husi.resources.emoji_symbols
 import fr.husi.resources.enable
 import fr.husi.resources.enable_brutal
-import fr.husi.resources.encrypted
 import fr.husi.resources.enhanced_encryption
 import fr.husi.resources.grpc_service_name
 import fr.husi.resources.http_headers
@@ -78,6 +71,7 @@ import fr.husi.resources.security_settings
 import fr.husi.resources.server_address
 import fr.husi.resources.server_port
 import fr.husi.resources.sni
+import fr.husi.resources.ssh_private_key
 import fr.husi.resources.stream
 import fr.husi.resources.texture
 import fr.husi.resources.timer
@@ -98,7 +92,10 @@ import fr.husi.resources.wb_sunny
 import fr.husi.resources.ws_host
 import fr.husi.resources.ws_max_early_data
 import fr.husi.resources.ws_path
+import me.zhanghai.compose.preference.ListPreference
 import me.zhanghai.compose.preference.ListPreferenceType
+import me.zhanghai.compose.preference.SwitchPreference
+import me.zhanghai.compose.preference.TextFieldPreference
 import org.jetbrains.compose.resources.stringResource
 
 private const val KEY_SECURITY = "security"
@@ -125,6 +122,7 @@ internal fun LazyListScope.headSettings(
             summary = { Text(contentOrUnset(state.name)) },
             valueToText = { it },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = state.address,
             onValueChange = { viewModel.setAddress(it) },
@@ -139,6 +137,7 @@ internal fun LazyListScope.headSettings(
             summary = { Text(contentOrUnset(state.address)) },
             valueToText = { it },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = state.port,
             onValueChange = { viewModel.setPort(it) },
@@ -151,7 +150,7 @@ internal fun LazyListScope.headSettings(
                 )
             },
             summary = { Text(contentOrUnset(state.port)) },
-            textField = { state, onOk -> PortTextField(state, onOk) },
+            textField = { value, onValueChange, onOk -> PortTextField(value, onValueChange, onOk) },
         )
     }
 }
@@ -206,6 +205,7 @@ internal fun LazyListScope.tlsSettings(
                 summary = { Text(contentOrUnset(state.sni)) },
                 valueToText = { it },
             )
+            PreferenceDivider()
             TextFieldPreference(
                 value = state.alpn,
                 onValueChange = { viewModel.setAlpn(it) },
@@ -219,10 +219,11 @@ internal fun LazyListScope.tlsSettings(
                 },
                 summary = { Text(contentOrUnset(state.alpn)) },
                 valueToText = { it },
-                textField = { state, onOk ->
-                    MultilineTextField(state, onOk)
+                textField = { value, onValueChange, onOk ->
+                    MultilineTextField(value, onValueChange, onOk)
                 },
             )
+            PreferenceDivider()
             TextFieldPreference(
                 value = state.certificate,
                 onValueChange = { viewModel.setCertificate(it) },
@@ -237,28 +238,11 @@ internal fun LazyListScope.tlsSettings(
                 },
                 summary = { Text(contentOrUnset(state.certificate)) },
                 valueToText = { it },
-                textField = { state, onOk ->
-                    MultilineTextField(state, onOk)
+                textField = { value, onValueChange, onOk ->
+                    MultilineTextField(value, onValueChange, onOk)
                 },
             )
-            TextFieldPreference(
-                value = state.certificateSha256,
-                onValueChange = { viewModel.setCertificateSha256(it) },
-                title = { Text(stringResource(Res.string.certificate_sha256)) },
-                textToValue = { it },
-                icon = {
-                    MaskedIcon(
-                        Res.drawable.encrypted,
-                        color = IconMaskColors.IconLightGreen,
-                        shape = IconMaskShapes.credential(),
-                    )
-                },
-                summary = { Text(contentOrUnset(state.certificateSha256)) },
-                valueToText = { it },
-                textField = { state, onOk ->
-                    MultilineTextField(state, onOk)
-                },
-            )
+            PreferenceDivider()
             TextFieldPreference(
                 value = state.certPublicKeySha256,
                 onValueChange = { viewModel.setCertPublicKeySha256(it) },
@@ -272,10 +256,11 @@ internal fun LazyListScope.tlsSettings(
                 },
                 summary = { Text(contentOrUnset(state.certPublicKeySha256)) },
                 valueToText = { it },
-                textField = { state, onOk ->
-                    MultilineTextField(state, onOk)
+                textField = { value, onValueChange, onOk ->
+                    MultilineTextField(value, onValueChange, onOk)
                 },
             )
+            PreferenceDivider()
             SwitchPreference(
                 value = state.allowInsecure,
                 onValueChange = { viewModel.setAllowInsecure(it) },
@@ -290,6 +275,7 @@ internal fun LazyListScope.tlsSettings(
                 },
             )
             if (!isReality) {
+                PreferenceDivider()
                 SwitchPreference(
                     value = state.disableSNI,
                     onValueChange = { viewModel.setDisableSNI(it) },
@@ -302,6 +288,7 @@ internal fun LazyListScope.tlsSettings(
                     },
                 )
             }
+            PreferenceDivider()
             SwitchPreference(
                 value = state.tlsFragment,
                 onValueChange = { viewModel.setTlsFragment(it) },
@@ -314,6 +301,7 @@ internal fun LazyListScope.tlsSettings(
                     )
                 },
             )
+            PreferenceDivider()
             TextFieldPreference(
                 value = state.tlsFragmentFallbackDelay,
                 onValueChange = { viewModel.setTlsFragmentFallbackDelay(it) },
@@ -329,6 +317,7 @@ internal fun LazyListScope.tlsSettings(
                 summary = { Text(contentOrUnset(state.tlsFragmentFallbackDelay)) },
                 valueToText = { it },
             )
+            PreferenceDivider()
             SwitchPreference(
                 value = state.tlsRecordFragment,
                 onValueChange = { viewModel.setTlsRecordFragment(it) },
@@ -362,6 +351,7 @@ internal fun LazyListScope.tlsSettings(
                 type = ListPreferenceType.DROPDOWN_MENU,
                 valueToText = { AnnotatedString(it) },
             )
+            PreferenceDivider()
             TextFieldPreference(
                 value = state.realityPublicKey,
                 onValueChange = { viewModel.setRealityPublicKey(it) },
@@ -377,6 +367,7 @@ internal fun LazyListScope.tlsSettings(
                 summary = { Text(contentOrUnset(state.realityPublicKey)) },
                 valueToText = { it },
             )
+            PreferenceDivider()
             TextFieldPreference(
                 value = state.realityShortID,
                 onValueChange = { viewModel.setRealityShortID(it) },
@@ -393,6 +384,7 @@ internal fun LazyListScope.tlsSettings(
                 valueToText = { it },
             )
             if (!PlatformInfo.isAndroid) {
+                PreferenceDivider()
                 TextFieldPreference(
                     value = state.tlsSpoof,
                     onValueChange = { viewModel.setTlsSpoof(it) },
@@ -407,6 +399,7 @@ internal fun LazyListScope.tlsSettings(
                     summary = { Text(contentOrUnset(state.tlsSpoof)) },
                     valueToText = { it },
                 )
+                PreferenceDivider()
                 ListPreference(
                     value = state.tlsSpoofMethod,
                     values = tlsSpoofMethod,
@@ -440,6 +433,7 @@ internal fun LazyListScope.tlsSettings(
                     )
                 },
             )
+            PreferenceDivider()
             TextFieldPreference(
                 value = state.echConfig,
                 onValueChange = { viewModel.setEchConfig(it) },
@@ -455,10 +449,11 @@ internal fun LazyListScope.tlsSettings(
                 enabled = state.ech,
                 summary = { Text(contentOrUnset(state.echConfig)) },
                 valueToText = { it },
-                textField = { state, onOk ->
-                    MultilineTextField(state, onOk)
+                textField = { value, onValueChange, onOk ->
+                    MultilineTextField(value, onValueChange, onOk)
                 },
             )
+            PreferenceDivider()
             TextFieldPreference(
                 value = state.echQueryServerName,
                 onValueChange = { viewModel.setEchQueryServerName(it) },
@@ -483,7 +478,7 @@ internal fun LazyListScope.tlsSettings(
             TextFieldPreference(
                 value = state.clientCert,
                 onValueChange = { viewModel.setClientCert(it) },
-                title = { Text(stringResource(Res.string.client_certificate)) },
+                title = { Text(stringResource(Res.string.certificates)) },
                 textToValue = { it },
                 icon = {
                     MaskedIcon(
@@ -494,14 +489,15 @@ internal fun LazyListScope.tlsSettings(
                 },
                 summary = { Text(contentOrUnset(state.clientCert)) },
                 valueToText = { it },
-                textField = { state, onOk ->
-                    MultilineTextField(state, onOk)
+                textField = { value, onValueChange, onOk ->
+                    MultilineTextField(value, onValueChange, onOk)
                 },
             )
+            PreferenceDivider()
             TextFieldPreference(
                 value = state.clientKey,
                 onValueChange = { viewModel.setClientKey(it) },
-                title = { Text(stringResource(Res.string.client_key)) },
+                title = { Text(stringResource(Res.string.ssh_private_key)) },
                 textToValue = { it },
                 icon = {
                     MaskedIcon(
@@ -512,8 +508,8 @@ internal fun LazyListScope.tlsSettings(
                 },
                 summary = { Text(contentOrUnset(state.clientKey)) },
                 valueToText = { it },
-                textField = { state, onOk ->
-                    MultilineTextField(state, onOk)
+                textField = { value, onValueChange, onOk ->
+                    MultilineTextField(value, onValueChange, onOk)
                 },
             )
         }
@@ -540,7 +536,8 @@ internal fun LazyListScope.muxSettings(
             },
         )
         AnimatedVisibility(visible = state.enableMux) {
-            Column(verticalArrangement = PreferenceGroupDefaults.itemArrangement) {
+            Column {
+                PreferenceDivider()
                 SwitchPreference(
                     value = state.brutal,
                     onValueChange = { viewModel.setBrutal(it) },
@@ -553,6 +550,7 @@ internal fun LazyListScope.muxSettings(
                         )
                     },
                 )
+                PreferenceDivider()
                 ListPreference(
                     value = state.muxType,
                     values = intListN(muxTypes.size),
@@ -568,6 +566,7 @@ internal fun LazyListScope.muxSettings(
                     type = ListPreferenceType.DROPDOWN_MENU,
                     valueToText = { AnnotatedString(muxTypes[it]) },
                 )
+                PreferenceDivider()
                 ListPreference(
                     value = state.muxStrategy,
                     values = intListN(muxStrategies.size),
@@ -584,6 +583,7 @@ internal fun LazyListScope.muxSettings(
                     valueToText = { AnnotatedString(stringResource(muxStrategies[it])) },
                     enabled = !state.brutal,
                 )
+                PreferenceDivider()
                 TextFieldPreference(
                     value = state.muxNumber,
                     onValueChange = { viewModel.setMuxNumber(it) },
@@ -600,6 +600,7 @@ internal fun LazyListScope.muxSettings(
                     valueToText = { it.toString() },
                     enabled = !state.brutal,
                 )
+                PreferenceDivider()
                 SwitchPreference(
                     value = state.muxPadding,
                     onValueChange = { viewModel.setMuxPadding(it) },
@@ -653,6 +654,7 @@ internal fun LazyListScope.transportSettings(
                 -> Unit
 
             SingBoxOptions.TRANSPORT_HTTP -> {
+                PreferenceDivider()
                 TextFieldPreference(
                     value = state.host,
                     onValueChange = { viewModel.setHost(it) },
@@ -666,10 +668,11 @@ internal fun LazyListScope.transportSettings(
                     },
                     summary = { Text(contentOrUnset(state.host)) },
                     valueToText = { it },
-                    textField = { state, onOk ->
-                        MultilineTextField(state, onOk)
+                    textField = { value, onValueChange, onOk ->
+                        MultilineTextField(value, onValueChange, onOk)
                     },
                 )
+                PreferenceDivider()
                 TextFieldPreference(
                     value = state.path,
                     onValueChange = { viewModel.setPath(it) },
@@ -685,6 +688,7 @@ internal fun LazyListScope.transportSettings(
                     summary = { Text(contentOrUnset(state.path)) },
                     valueToText = { it },
                 )
+                PreferenceDivider()
                 TextFieldPreference(
                     value = state.headers,
                     onValueChange = { viewModel.setHeaders(it) },
@@ -698,13 +702,14 @@ internal fun LazyListScope.transportSettings(
                     },
                     summary = { Text(contentOrUnset(state.headers)) },
                     valueToText = { it },
-                    textField = { state, onOk ->
-                        MultilineTextField(state, onOk)
+                    textField = { value, onValueChange, onOk ->
+                        MultilineTextField(value, onValueChange, onOk)
                     },
                 )
             }
 
             SingBoxOptions.TRANSPORT_WS -> {
+                PreferenceDivider()
                 TextFieldPreference(
                     value = state.host,
                     onValueChange = { viewModel.setHost(it) },
@@ -718,10 +723,11 @@ internal fun LazyListScope.transportSettings(
                     },
                     summary = { Text(contentOrUnset(state.host)) },
                     valueToText = { it },
-                    textField = { state, onOk ->
-                        MultilineTextField(state, onOk)
+                    textField = { value, onValueChange, onOk ->
+                        MultilineTextField(value, onValueChange, onOk)
                     },
                 )
+                PreferenceDivider()
                 TextFieldPreference(
                     value = state.path,
                     onValueChange = { viewModel.setPath(it) },
@@ -737,6 +743,7 @@ internal fun LazyListScope.transportSettings(
                     summary = { Text(contentOrUnset(state.path)) },
                     valueToText = { it },
                 )
+                PreferenceDivider()
                 TextFieldPreference(
                     value = state.headers,
                     onValueChange = { viewModel.setHeaders(it) },
@@ -750,10 +757,11 @@ internal fun LazyListScope.transportSettings(
                     },
                     summary = { Text(contentOrUnset(state.headers)) },
                     valueToText = { it },
-                    textField = { state, onOk ->
-                        MultilineTextField(state, onOk)
+                    textField = { value, onValueChange, onOk ->
+                        MultilineTextField(value, onValueChange, onOk)
                     },
                 )
+                PreferenceDivider()
                 TextFieldPreference(
                     value = state.wsMaxEarlyData,
                     onValueChange = { viewModel.setWsMaxEarlyData(it) },
@@ -767,6 +775,7 @@ internal fun LazyListScope.transportSettings(
                     },
                     summary = { Text(contentOrUnset(state.wsMaxEarlyData)) },
                 )
+                PreferenceDivider()
                 TextFieldPreference(
                     value = state.wsEarlyDataHeaderName,
                     onValueChange = { viewModel.setWsEarlyDataHeaderName(it) },
@@ -784,6 +793,7 @@ internal fun LazyListScope.transportSettings(
             }
 
             SingBoxOptions.TRANSPORT_GRPC -> {
+                PreferenceDivider()
                 TextFieldPreference(
                     value = state.path,
                     onValueChange = { viewModel.setPath(it) },
@@ -802,6 +812,7 @@ internal fun LazyListScope.transportSettings(
             }
 
             SingBoxOptions.TRANSPORT_HTTPUPGRADE -> {
+                PreferenceDivider()
                 TextFieldPreference(
                     value = state.host,
                     onValueChange = { viewModel.setHost(it) },
@@ -816,10 +827,11 @@ internal fun LazyListScope.transportSettings(
                     },
                     summary = { Text(contentOrUnset(state.host)) },
                     valueToText = { it },
-                    textField = { state, onOk ->
-                        MultilineTextField(state, onOk)
+                    textField = { value, onValueChange, onOk ->
+                        MultilineTextField(value, onValueChange, onOk)
                     },
                 )
+                PreferenceDivider()
                 TextFieldPreference(
                     value = state.path,
                     onValueChange = { viewModel.setPath(it) },
@@ -834,6 +846,7 @@ internal fun LazyListScope.transportSettings(
                     summary = { Text(contentOrUnset(state.path)) },
                     valueToText = { it },
                 )
+                PreferenceDivider()
                 TextFieldPreference(
                     value = state.headers,
                     onValueChange = { viewModel.setHeaders(it) },
@@ -847,8 +860,8 @@ internal fun LazyListScope.transportSettings(
                     },
                     summary = { Text(contentOrUnset(state.headers)) },
                     valueToText = { it },
-                    textField = { state, onOk ->
-                        MultilineTextField(state, onOk)
+                    textField = { value, onValueChange, onOk ->
+                        MultilineTextField(value, onValueChange, onOk)
                     },
                 )
             }

@@ -3,17 +3,16 @@ package fr.husi.ui.profile
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.text.AnnotatedString
-import fr.husi.compose.ListPreference
 import fr.husi.compose.MultilineTextField
 import fr.husi.compose.PasswordPreference
 import fr.husi.compose.PreferenceCategory
+import fr.husi.compose.PreferenceDivider
 import fr.husi.compose.IconMaskColors
 import fr.husi.compose.IconMaskShapes
 import fr.husi.compose.MaskedIcon
-import fr.husi.compose.PreferenceGroupDefaults
-import fr.husi.compose.TextFieldPreference
 import fr.husi.compose.UIntegerTextField
 import fr.husi.compose.material3.Text
 import fr.husi.compose.preferenceGroup
@@ -40,9 +39,12 @@ import fr.husi.resources.ssh_public_key
 import fr.husi.resources.username
 import fr.husi.resources.vpn_key
 import fr.husi.ui.NavRoutes
+import me.zhanghai.compose.preference.ListPreference
 import me.zhanghai.compose.preference.ListPreferenceType
+import me.zhanghai.compose.preference.TextFieldPreference
 import org.jetbrains.compose.resources.stringResource
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SSHSettingsScreen(
     profileId: Long,
@@ -84,6 +86,7 @@ private fun LazyListScope.sshSettings(uiState: SshUiState, viewModel: SSHSetting
             summary = { Text(contentOrUnset(uiState.name)) },
             valueToText = { it },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = uiState.address,
             onValueChange = { viewModel.setAddress(it) },
@@ -98,6 +101,7 @@ private fun LazyListScope.sshSettings(uiState: SshUiState, viewModel: SSHSetting
             summary = { Text(contentOrUnset(uiState.address)) },
             valueToText = { it },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = uiState.port,
             onValueChange = { viewModel.setPort(it) },
@@ -111,10 +115,11 @@ private fun LazyListScope.sshSettings(uiState: SshUiState, viewModel: SSHSetting
             },
             summary = { Text(contentOrUnset(uiState.port)) },
             valueToText = { it.toString() },
-            textField = { state, onOk ->
-                UIntegerTextField(state, onOk)
+            textField = { value, onValueChange, onOk ->
+                UIntegerTextField(value, onValueChange, onOk)
             },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = uiState.username,
             onValueChange = { viewModel.setUsername(it) },
@@ -129,6 +134,7 @@ private fun LazyListScope.sshSettings(uiState: SshUiState, viewModel: SSHSetting
             summary = { Text(contentOrUnset(uiState.username)) },
             valueToText = { it },
         )
+        PreferenceDivider()
         fun authType(type: Int) =
             when (type) {
                 SSHBean.AUTH_TYPE_NONE -> Res.string.ssh_auth_type_none
@@ -160,7 +166,8 @@ private fun LazyListScope.sshSettings(uiState: SshUiState, viewModel: SSHSetting
             valueToText = { AnnotatedString(stringResource(authType(it))) },
         )
         AnimatedVisibility(visible = uiState.authType == SSHBean.AUTH_TYPE_PASSWORD) {
-            Column(verticalArrangement = PreferenceGroupDefaults.itemArrangement) {
+            Column {
+                PreferenceDivider()
                 PasswordPreference(
                     value = uiState.password,
                     onValueChange = { viewModel.setPassword(it) },
@@ -168,7 +175,8 @@ private fun LazyListScope.sshSettings(uiState: SshUiState, viewModel: SSHSetting
             }
         }
         AnimatedVisibility(visible = uiState.authType == SSHBean.AUTH_TYPE_PRIVATE_KEY) {
-            Column(verticalArrangement = PreferenceGroupDefaults.itemArrangement) {
+            Column {
+                PreferenceDivider()
                 TextFieldPreference(
                     value = uiState.privateKey,
                     onValueChange = { viewModel.setPrivateKey(it) },
@@ -183,10 +191,11 @@ private fun LazyListScope.sshSettings(uiState: SshUiState, viewModel: SSHSetting
                     },
                     summary = { Text(contentOrUnset(uiState.privateKey)) },
                     valueToText = { it },
-                    textField = { state, onOk ->
-                        MultilineTextField(state, onOk)
+                    textField = { value, onValueChange, onOk ->
+                        MultilineTextField(value, onValueChange, onOk)
                     },
                 )
+                PreferenceDivider()
                 PasswordPreference(
                     value = uiState.privateKeyPassphrase,
                     onValueChange = { viewModel.setPrivateKeyPassphrase(it) },
@@ -194,6 +203,7 @@ private fun LazyListScope.sshSettings(uiState: SshUiState, viewModel: SSHSetting
                 )
             }
         }
+        PreferenceDivider()
         TextFieldPreference(
             value = uiState.publicKey,
             onValueChange = { viewModel.setPublicKey(it) },
@@ -207,8 +217,8 @@ private fun LazyListScope.sshSettings(uiState: SshUiState, viewModel: SSHSetting
             },
             summary = { Text(contentOrUnset(uiState.publicKey)) },
             valueToText = { it },
-            textField = { state, onOk ->
-                MultilineTextField(state, onOk)
+            textField = { value, onValueChange, onOk ->
+                MultilineTextField(value, onValueChange, onOk)
             },
         )
     }

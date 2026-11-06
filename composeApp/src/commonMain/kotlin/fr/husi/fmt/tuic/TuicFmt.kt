@@ -8,45 +8,48 @@ import fr.husi.ktx.JSONMap
 import fr.husi.ktx.blankAsNull
 import fr.husi.ktx.listByLineOrComma
 import fr.husi.ktx.parseBoolean
-import io.github.xchacha20_poly1305.kpuri.Url
-import io.github.xchacha20_poly1305.kpuri.buildUrl
+import fr.husi.libcore.Libcore
 
 // https://github.com/daeuniverse/dae/discussions/182
 fun parseTuic(link: String): TuicBean {
-    val url = Url.parse(link)
+    val url = Libcore.parseURL(link)
     return TuicBean().apply {
-        name = url.fragment.orEmpty()
-        uuid = url.username.orEmpty()
-        token = url.password.orEmpty()
-        serverAddress = url.host.orEmpty()
-        serverPort = url.port?.toIntOrNull() ?: 443
+        name = url.fragment
+        uuid = url.username
+        token = url.password
+        serverAddress = url.host
+        serverPort = url.ports.toIntOrNull() ?: 443
 
-        sni = url.queryParameter("sni").orEmpty()
-        congestionController = url.queryParameter("congestion_control").orEmpty()
-        udpRelayMode = url.queryParameter("udp_relay_mode").orEmpty()
-        alpn = url.queryParameter("alpn").orEmpty()
+        sni = url.queryParameter("sni")
+        congestionController = url.queryParameter("congestion_control")
+        udpRelayMode = url.queryParameter("udp_relay_mode")
+        alpn = url.queryParameter("alpn")
         allowInsecure = url.parseBoolean("allow_insecure")
         disableSNI = url.parseBoolean("disable_sni")
     }
 }
 
-fun TuicBean.toUri(): String = buildUrl("tuic") {
-    username = uuid
-    password = token
-    host = serverAddress
-    port = serverPort.toString()
+fun TuicBean.toUri(): String {
+    val builder = Libcore.newURL("tuic").apply {
+        username = uuid
+        password = token
+        host = serverAddress
+        ports = serverPort.toString()
+    }
 
-    addQueryParameter("congestion_control", congestionController)
+    builder.addQueryParameter("congestion_control", congestionController)
     var udpMode = udpRelayMode
     if (udpMode == "UDP over Stream") udpMode = "native"
-    addQueryParameter("udp_relay_mode", udpMode)
+    builder.addQueryParameter("udp_relay_mode", udpMode)
 
-    if (sni.isNotBlank()) addQueryParameter("sni", sni)
-    if (alpn.isNotBlank()) addQueryParameter("alpn", alpn)
-    if (allowInsecure) addQueryParameter("allow_insecure", "1")
-    if (disableSNI) addQueryParameter("disable_sni", "1")
-    if (name.isNotBlank()) fragment = name
-}.toString()
+    if (sni.isNotBlank()) builder.addQueryParameter("sni", sni)
+    if (alpn.isNotBlank()) builder.addQueryParameter("alpn", alpn)
+    if (allowInsecure) builder.addQueryParameter("allow_insecure", "1")
+    if (disableSNI) builder.addQueryParameter("disable_sni", "1")
+    if (name.isNotBlank()) builder.fragment = name
+
+    return builder.string
+}
 
 fun buildSingBoxOutboundTuicBean(bean: TuicBean): SingBoxOptions.Outbound_TUICOptions {
     return SingBoxOptions.Outbound_TUICOptions().apply {
@@ -84,10 +87,6 @@ fun buildSingBoxOutboundTuicBean(bean: TuicBean): SingBoxOptions.Outbound_TUICOp
             }
             alpn = bean.alpn.blankAsNull()?.listByLineOrComma()?.toMutableList()
             certificate = bean.certificates.blankAsNull()?.lines()?.toMutableList()
-            certificate_sha256 = bean.certificateSha256
-                .blankAsNull()
-                ?.lines()
-                ?.toMutableList()
             certificate_public_key_sha256 = bean.certPublicKeySha256
                 .blankAsNull()
                 ?.lines()
@@ -130,7 +129,6 @@ fun parseTuicOutbound(json: JSONMap): TuicBean = TuicBean().apply {
                 allowInsecure = tls.insecure == true
                 disableSNI = tls.disable_sni == true
                 certificates = tls.certificate?.joinToString("\n").orEmpty()
-                certificateSha256 = tls.certificate_sha256?.joinToString("\n").orEmpty()
                 certPublicKeySha256 =
                     tls.certificate_public_key_sha256?.joinToString("\n").orEmpty()
                 clientCert = tls.client_certificate?.joinToString("\n").orEmpty()

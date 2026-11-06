@@ -1,9 +1,12 @@
 package fr.husi.ui
 
-import androidx.compose.runtime.Composable
+import androidx.compose.foundation.lazy.LazyListScope
 
-@Composable
-internal expect fun AppSelectPreference(
+internal expect fun LazyListScope.appSelectPreference(
     packages: Set<String>,
     onSelectApps: (Set<String>) -> Unit,
+)
+
+internal expect fun LazyListScope.proxyAppsPreferences(
+    openAppManager: () -> Unit,
 )

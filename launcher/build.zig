@@ -14,8 +14,8 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = optimize,
-            .strip = if (optimize != .debug) true else null,
-            .unwind_tables = if (optimize != .debug) .none else null, // Decrease 10 kB for zig 0.16 boom
+            .strip = if (optimize != .Debug) true else null,
+            .unwind_tables = if (optimize != .Debug) .none else null, // Decrease 10 kB for zig 0.16 boom
             .imports = &.{
                 .{ .name = "config", .module = options.createModule() },
             },
@@ -23,16 +23,19 @@ pub fn build(b: *std.Build) void {
     });
     if (target.result.os.tag == .windows) {
         exe.win32_manifest = b.path("launcher.manifest");
-        exe.subsystem = .windows;
+        exe.subsystem = .Windows;
         exe.root_module.addWin32ResourceFile(.{ .file = b.path("icon.rc") });
     }
+
     b.installArtifact(exe);
 
     const run_step = b.step("run", "Run the app");
     const run_cmd = b.addRunArtifact(exe);
     run_step.dependOn(&run_cmd.step);
     run_cmd.step.dependOn(b.getInstallStep());
-    run_cmd.addPassthruArgs();
+    if (b.args) |args| {
+        run_cmd.addArgs(args);
+    }
 
     const test_step = b.step("test", "Run tests");
     const exe_tests = b.addTest(.{

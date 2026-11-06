@@ -6,31 +6,18 @@ import androidx.room.Insert
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Update
+import com.esotericsoftware.kryo.io.ByteBufferInput
+import com.esotericsoftware.kryo.io.ByteBufferOutput
 import fr.husi.GroupOrder
 import fr.husi.GroupType
 import fr.husi.fmt.Serializable
-import fr.husi.io.BinaryInput
-import fr.husi.io.BinaryOutput
 import fr.husi.ktx.applyDefaultValues
 import fr.husi.ktx.blankAsNull
 import fr.husi.repository.resolveRepository
-import fr.husi.resources.*
 import kotlinx.coroutines.flow.Flow
+import fr.husi.resources.*
 import kotlinx.coroutines.runBlocking
 
-/**
- * A group is a container of proxies.
- *
- * A group-level option is only allowed if it acts on a proxy's own server address. Every proxy
- * belongs to exactly one group, so such an option stays unambiguous even when a chain or proxy
- * set imports proxies from other groups. [SubscriptionBean.forceResolve] and [outboundDns] are
- * examples of this kind.
- *
- * NEVER add an option that acts on the traffic passing through a proxy: front/landing proxy,
- * group-level uTLS fingerprint, or making a group a selector. That traffic can belong to whoever
- * referenced the proxy through a chain or proxy set in another group, so there is no single
- * group whose option should apply.
- */
 @Entity(tableName = "proxy_groups")
 data class ProxyGroup(
     @PrimaryKey(autoGenerate = true) var id: Long = 0L,
@@ -40,7 +27,8 @@ data class ProxyGroup(
     var type: Int = GroupType.BASIC,
     var subscription: SubscriptionBean? = null,
     var order: Int = GroupOrder.ORIGIN,
-    var outboundDns: String? = null,
+    var frontProxy: Long = -1L,
+    var landingProxy: Long = -1L,
 ) : Serializable() {
 
     @Transient
@@ -50,7 +38,7 @@ data class ProxyGroup(
         subscription?.applyDefaultValues()
     }
 
-    override fun serializeToBuffer(output: BinaryOutput) {
+    override fun serializeToBuffer(output: ByteBufferOutput) {
         if (export) {
 
             output.writeInt(0)
@@ -60,7 +48,7 @@ data class ProxyGroup(
             subscription.serializeForShare(output)
 
         } else {
-            output.writeInt(1)
+            output.writeInt(0)
             output.writeLong(id)
             output.writeLong(userOrder)
             output.writeBoolean(ungrouped)
@@ -71,15 +59,14 @@ data class ProxyGroup(
                 subscription?.serializeToBuffer(output)
             }
             output.writeInt(order)
-            output.writeString(outboundDns)
         }
     }
 
-    override fun deserializeFromBuffer(input: BinaryInput) {
+    override fun deserializeFromBuffer(input: ByteBufferInput) {
         if (export) {
             val version = input.readInt()
 
-            name = input.readNullableString()
+            name = input.readString()
             type = input.readInt()
             val subscription = SubscriptionBean()
             this.subscription = subscription
@@ -91,7 +78,7 @@ data class ProxyGroup(
             id = input.readLong()
             userOrder = input.readLong()
             ungrouped = input.readBoolean()
-            name = input.readNullableString()
+            name = input.readString()
             type = input.readInt()
 
             if (type == GroupType.SUBSCRIPTION) {
@@ -101,9 +88,6 @@ data class ProxyGroup(
                 subscription.deserializeFromBuffer(input)
             }
             order = input.readInt()
-            if (version >= 1) {
-                outboundDns = input.readNullableString()
-            }
         }
     }
 
@@ -116,7 +100,7 @@ data class ProxyGroup(
     @androidx.room.Dao
     interface Dao {
 
-        @Query("SELECT * FROM proxy_groups ORDER BY userOrder, id")
+        @Query("SELECT * FROM proxy_groups ORDER BY userOrder")
         fun allGroups(): Flow<List<ProxyGroup>>
 
         @Query("SELECT * FROM proxy_groups WHERE type = ${GroupType.SUBSCRIPTION}")
@@ -125,7 +109,7 @@ data class ProxyGroup(
         @Query("SELECT MAX(userOrder) + 1 FROM proxy_groups")
         suspend fun nextOrder(): Long?
 
-        @Query("SELECT id FROM proxy_groups ORDER BY userOrder, id LIMIT 1")
+        @Query("SELECT id FROM proxy_groups ORDER BY userOrder LIMIT 1")
         suspend fun firstGroupId(): Long?
 
         @Query("SELECT id FROM proxy_groups WHERE ungrouped = 1 LIMIT 1")

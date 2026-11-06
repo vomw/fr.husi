@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -24,22 +25,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.AnnotatedString
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import dev.chrisbanes.haze.hazeSource
-import dev.chrisbanes.haze.rememberHazeState
 import fr.husi.compose.BackHandler
+import fr.husi.compose.CapsuleActionButton
 import fr.husi.compose.CapsuleTopBar
 import fr.husi.compose.IconMaskColors
 import fr.husi.compose.IconMaskShapes
-import fr.husi.compose.ListPreference
 import fr.husi.compose.MaskedIcon
 import fr.husi.compose.MultilineTextField
 import fr.husi.compose.PreferenceCategory
+import fr.husi.compose.PreferenceDivider
 import fr.husi.compose.PreferenceType
-import fr.husi.compose.ProvidePreferenceLocals
 import fr.husi.compose.SimpleIconButton
-import fr.husi.compose.SwitchPreference
 import fr.husi.compose.TextButton
-import fr.husi.compose.TextFieldPreference
 import fr.husi.compose.UIntegerTextField
 import fr.husi.compose.material3.Icon
 import fr.husi.compose.material3.Text
@@ -71,10 +68,15 @@ import fr.husi.resources.unsaved_changes_prompt
 import fr.husi.resources.v2ray_transport
 import fr.husi.resources.vpn_key
 import fr.husi.results.LocalResultEventBus
+import me.zhanghai.compose.preference.ListPreference
 import me.zhanghai.compose.preference.ListPreferenceType
+import me.zhanghai.compose.preference.ProvidePreferenceLocals
+import me.zhanghai.compose.preference.SwitchPreference
+import me.zhanghai.compose.preference.TextFieldPreference
 import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.vectorResource
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SIP003EditorScreen(
     pluginName: String,
@@ -92,14 +94,18 @@ fun SIP003EditorScreen(
     var showBackAlert by remember { mutableStateOf(false) }
 
     val saveAndExit: () -> Unit = {
-        resultBus.sendResult<String>(resultKey, viewModel.serialize())
+        resultBus.sendResult<String?>(resultKey, viewModel.serialize())
+        onBack()
+    }
+    val discardAndExit: () -> Unit = {
+        resultBus.sendResult<String?>(resultKey, null)
         onBack()
     }
     val confirmBack: () -> Unit = {
         if (isDirty) {
             showBackAlert = true
         } else {
-            onBack()
+            discardAndExit()
         }
     }
 
@@ -108,12 +114,10 @@ fun SIP003EditorScreen(
     }
 
     val windowInsets = WindowInsets.safeDrawing
-    val hazeState = rememberHazeState()
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
             CapsuleTopBar(
-                hazeState = hazeState,
                 navigationIcon = {
                     SimpleIconButton(
                         imageVector = vectorResource(Res.drawable.close),
@@ -136,11 +140,10 @@ fun SIP003EditorScreen(
         },
     ) { innerPadding ->
         ProvidePreferenceLocals {
-            val formModifier = Modifier.hazeSource(hazeState)
             when (pluginName) {
-                SIP003_OBFS_LOCAL -> ObfsLocalForm(uiState, viewModel, innerPadding, formModifier)
-                SIP003_V2RAY_PLUGIN -> V2RayPluginForm(uiState, viewModel, innerPadding, formModifier)
-                else -> EmptyForm(innerPadding, formModifier)
+                SIP003_OBFS_LOCAL -> ObfsLocalForm(uiState, viewModel, innerPadding)
+                SIP003_V2RAY_PLUGIN -> V2RayPluginForm(uiState, viewModel, innerPadding)
+                else -> EmptyForm(innerPadding)
             }
         }
     }
@@ -155,7 +158,7 @@ fun SIP003EditorScreen(
             },
             dismissButton = {
                 TextButton(stringResource(Res.string.no)) {
-                    onBack()
+                    discardAndExit()
                 }
             },
             icon = { Icon(vectorResource(Res.drawable.question_mark), null) },
@@ -169,11 +172,11 @@ private fun ObfsLocalForm(
     uiState: SIP003EditorUiState,
     viewModel: SIP003EditorViewModel,
     contentPadding: PaddingValues,
-    modifier: Modifier = Modifier,
 ) {
     LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = contentPadding,
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(contentPadding),
     ) {
         item("category", PreferenceType.CATEGORY) {
             PreferenceCategory(text = { Text(stringResource(Res.string.plugin)) })
@@ -194,6 +197,7 @@ private fun ObfsLocalForm(
                 type = ListPreferenceType.DROPDOWN_MENU,
                 valueToText = { AnnotatedString(it.value) },
             )
+            PreferenceDivider()
             TextFieldPreference(
                 value = uiState.obfsHost,
                 onValueChange = viewModel::setObfsHost,
@@ -220,11 +224,11 @@ private fun V2RayPluginForm(
     uiState: SIP003EditorUiState,
     viewModel: SIP003EditorViewModel,
     contentPadding: PaddingValues,
-    modifier: Modifier = Modifier,
 ) {
     LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = contentPadding,
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(contentPadding),
     ) {
         item("category", PreferenceType.CATEGORY) {
             PreferenceCategory(text = { Text(stringResource(Res.string.plugin)) })
@@ -241,6 +245,7 @@ private fun V2RayPluginForm(
                     )
                 },
             )
+            PreferenceDivider()
             ListPreference(
                 value = uiState.mode,
                 values = V2RayMode.entries,
@@ -256,6 +261,7 @@ private fun V2RayPluginForm(
                 type = ListPreferenceType.DROPDOWN_MENU,
                 valueToText = { AnnotatedString(it.value) },
             )
+            PreferenceDivider()
             TextFieldPreference(
                 value = uiState.host,
                 onValueChange = viewModel::setHost,
@@ -270,6 +276,7 @@ private fun V2RayPluginForm(
                 summary = { Text(contentOrUnset(uiState.host)) },
                 valueToText = { it },
             )
+            PreferenceDivider()
             TextFieldPreference(
                 value = uiState.path,
                 onValueChange = viewModel::setPath,
@@ -284,6 +291,7 @@ private fun V2RayPluginForm(
                 summary = { Text(contentOrUnset(uiState.path)) },
                 valueToText = { it },
             )
+            PreferenceDivider()
             TextFieldPreference(
                 value = uiState.mux,
                 onValueChange = viewModel::setMux,
@@ -298,10 +306,11 @@ private fun V2RayPluginForm(
                 },
                 summary = { Text(uiState.mux.toString()) },
                 valueToText = { it.toString() },
-                textField = { state, onOk ->
-                    UIntegerTextField(state, onOk)
+                textField = { value, onValueChange, onOk ->
+                    UIntegerTextField(value, onValueChange, onOk)
                 },
             )
+            PreferenceDivider()
             TextFieldPreference(
                 value = uiState.certRaw,
                 onValueChange = viewModel::setCertRaw,
@@ -316,8 +325,8 @@ private fun V2RayPluginForm(
                 },
                 summary = { Text(contentOrUnset(uiState.certRaw)) },
                 valueToText = { it },
-                textField = { state, onOk ->
-                    MultilineTextField(state, onOk)
+                textField = { value, onValueChange, onOk ->
+                    MultilineTextField(value, onValueChange, onOk)
                 },
             )
         }
@@ -328,12 +337,9 @@ private fun V2RayPluginForm(
 }
 
 @Composable
-private fun EmptyForm(
-    contentPadding: PaddingValues,
-    modifier: Modifier = Modifier,
-) {
+private fun EmptyForm(contentPadding: PaddingValues) {
     Box(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxSize()
             .padding(contentPadding),
         contentAlignment = Alignment.Center,

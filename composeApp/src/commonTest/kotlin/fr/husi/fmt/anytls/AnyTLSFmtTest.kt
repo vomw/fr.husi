@@ -9,7 +9,6 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import kotlinx.coroutines.test.runTest
 
 class AnyTLSFmtTest {
 
@@ -44,7 +43,7 @@ class AnyTLSFmtTest {
     }
 
     @Test
-    fun `buildSingBoxOutboundAnyTLSBean should map all supported AnyTLS and TLS fields`() = runTest {
+    fun `buildSingBoxOutboundAnyTLSBean should map all supported AnyTLS and TLS fields`() {
         val bean = AnyTLSBean().apply {
             serverAddress = "edge.example.com"
             serverPort = 10443
@@ -60,7 +59,6 @@ class AnyTLSFmtTest {
             certificates = "cert-a\ncert-b"
             clientCert = "client-cert"
             clientKey = "client-key-a\nclient-key-b"
-            certificateSha256 = "pin-a\npin-b"
             certPublicKeySha256 = "sha-a\nsha-b"
             utlsFingerprint = SingBoxOptions.FINGERPRINT_CHROME
             tlsFragment = true
@@ -84,36 +82,34 @@ class AnyTLSFmtTest {
         assertEquals(3, outbound.min_idle_session)
 
         val tls = assertNotNull(outbound.tls)
-        assertEquals(true, tls.enabled)
+        assertEquals(tls.enabled, true)
         assertEquals("sni.example.com", tls.server_name)
-        assertEquals(true, tls.insecure)
-        assertEquals(true, tls.disable_sni)
-        assertEquals(listOf("h2", "http/1.1"), tls.alpn?.toList())
-        assertEquals(listOf("cert-a", "cert-b"), tls.certificate?.toList())
-        assertEquals(listOf("client-cert"), tls.client_certificate?.toList())
-        assertEquals(listOf("client-key-a", "client-key-b"), tls.client_key?.toList())
-        assertEquals(listOf("pin-a", "pin-b"), tls.certificate_sha256?.toList())
-        assertEquals(listOf("sha-a", "sha-b"), tls.certificate_public_key_sha256?.toList())
-        assertEquals(bean.certificateSha256, bean.clone().certificateSha256)
+        assertEquals(tls.insecure, true)
+        assertEquals(tls.disable_sni, true)
+        assertTrue(tls.alpn == listOf("h2", "http/1.1"))
+        assertTrue(tls.certificate == listOf("cert-a", "cert-b"))
+        assertTrue(tls.client_certificate == listOf("client-cert"))
+        assertTrue(tls.client_key == listOf("client-key-a", "client-key-b"))
+        assertTrue(tls.certificate_public_key_sha256 == listOf("sha-a", "sha-b"))
 
         val utls = assertNotNull(tls.utls)
-        assertEquals(true, utls.enabled)
+        assertEquals(utls.enabled, true)
         assertEquals(SingBoxOptions.FINGERPRINT_CHROME, utls.fingerprint)
 
-        assertEquals(true, tls.fragment)
+        assertEquals(tls.fragment, true)
         assertEquals("200ms", tls.fragment_fallback_delay)
-        assertEquals(true, tls.record_fragment)
+        assertEquals(tls.record_fragment, true)
         assertEquals("spoof.example.com", tls.spoof)
         assertEquals("wrong-checksum", tls.spoof_method)
 
         val ech = assertNotNull(tls.ech)
-        assertEquals(true, ech.enabled)
-        assertEquals(listOf("cfg-1", "cfg-2"), ech.config?.toList())
+        assertEquals(ech.enabled, true)
+        assertTrue(ech.config == listOf("cfg-1", "cfg-2"))
         assertEquals("ech.example.com", ech.query_server_name)
     }
 
     @Test
-    fun `buildSingBoxOutboundAnyTLSBean should omit nullable fields for zero and blank values`() = runTest {
+    fun `buildSingBoxOutboundAnyTLSBean should omit nullable fields for zero and blank values`() {
         val bean = AnyTLSBean().apply {
             serverAddress = "simple.example.com"
             serverPort = 443
@@ -126,7 +122,6 @@ class AnyTLSFmtTest {
             certificates = ""
             clientCert = ""
             clientKey = ""
-            certificateSha256 = ""
             certPublicKeySha256 = ""
             utlsFingerprint = ""
             tlsFragment = false
@@ -154,7 +149,6 @@ class AnyTLSFmtTest {
         assertNull(tls.certificate)
         assertNull(tls.client_certificate)
         assertNull(tls.client_key)
-        assertNull(tls.certificate_sha256)
         assertNull(tls.certificate_public_key_sha256)
         assertNull(tls.utls)
         assertNotEquals(tls.fragment, true)
@@ -183,7 +177,6 @@ class AnyTLSFmtTest {
                 "certificate" to listOf("ca-1", "ca-2"),
                 "client_certificate" to "cc-1",
                 "client_key" to listOf("ck-1", "ck-2"),
-                "certificate_sha256" to listOf("pin-1", "pin-2"),
                 "certificate_public_key_sha256" to "sha-1",
                 "utls" to mutableMapOf(
                     "enabled" to true,
@@ -217,7 +210,6 @@ class AnyTLSFmtTest {
         assertEquals("ca-1\nca-2", bean.certificates)
         assertEquals("cc-1", bean.clientCert)
         assertEquals("ck-1\nck-2", bean.clientKey)
-        assertEquals("pin-1\npin-2", bean.certificateSha256)
         assertEquals("sha-1", bean.certPublicKeySha256)
         assertEquals(SingBoxOptions.FINGERPRINT_FIREFOX, bean.utlsFingerprint)
         assertTrue(bean.tlsFragment)

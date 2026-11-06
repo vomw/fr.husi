@@ -3,40 +3,37 @@ package fr.husi.fmt.trusttunnel
 import fr.husi.fmt.SingBoxOptions
 import fr.husi.ktx.blankAsNull
 import fr.husi.ktx.emptyAsNull
-import fr.husi.ktx.joinAddress
-import fr.husi.ktx.splitAddress
-import fr.husi.ktx.toPortOrNull
 import fr.husi.ktx.listByLineOrComma
-import okio.ByteString
+import fr.husi.libcore.Libcore
+import fr.husi.libcore.TrustTunnelURL
 
 fun parseTrustTunnel(link: String): TrustTunnelBean {
-    val url = TrustTunnelLink.parse(link)
-    val (host, port) = checkNotNull(splitAddress(url.addresses.first()))
+    val url = Libcore.parseTrustTunnelLink(link)
     return TrustTunnelBean().apply {
-        serverAddress = host
-        serverPort = checkNotNull(port.toPortOrNull())
-        serverName = url.customSni
+        serverAddress = url.host
+        serverPort = url.port
+        serverName = url.serverName
         username = url.username
         password = url.password
         allowInsecure = url.skipVerification
-        certificates = if (url.certificate.size > 0) certificateChainToPem(url.certificate) else ""
-        quic = url.http3
+        certificates = url.certificate
+        quic = url.quic
         name = url.name
     }
 }
 
 fun TrustTunnelBean.toUri(): String {
-    return TrustTunnelLink(
-        hostname = serverName.ifEmpty { serverAddress },
-        addresses = listOf(joinAddress(serverAddress, serverPort)),
-        customSni = serverName,
-        username = username,
-        password = password,
-        skipVerification = allowInsecure,
-        certificate = certificates.blankAsNull()?.let(::pemToCertificateChain) ?: ByteString.EMPTY,
-        http3 = quic,
-        name = name,
-    ).build()
+    return TrustTunnelURL().apply {
+        host = serverAddress
+        port = serverPort
+        serverName = serverName
+        username = username
+        password = password
+        skipVerification = allowInsecure
+        certificate = certificates
+        quic = quic
+        name = this@toUri.name
+    }.build()
 }
 
 fun buildSingBoxOutboundTrustTunnelBean(bean: TrustTunnelBean): SingBoxOptions.Outbound_TrustTunnelOptions {
@@ -58,10 +55,6 @@ fun buildSingBoxOutboundTrustTunnelBean(bean: TrustTunnelBean): SingBoxOptions.O
             if (bean.allowInsecure) insecure = true
             alpn = bean.alpn.blankAsNull()?.listByLineOrComma()?.toMutableList()
             certificate = bean.certificates.blankAsNull()?.lines()?.toMutableList()
-            certificate_sha256 = bean.certificateSha256
-                .blankAsNull()
-                ?.lines()
-                ?.toMutableList()
             certificate_public_key_sha256 = bean.certPublicKeySha256
                 .blankAsNull()
                 ?.lines()

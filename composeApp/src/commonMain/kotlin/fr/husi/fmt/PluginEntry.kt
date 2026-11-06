@@ -8,7 +8,6 @@ import fr.husi.resources.action_mieru
 import fr.husi.resources.action_naive
 import fr.husi.resources.action_shadowquic
 import org.jetbrains.compose.resources.StringResource
-import kotlin.enums.enumEntries
 
 enum class PluginEntry(
     val pluginId: String,
@@ -19,7 +18,7 @@ enum class PluginEntry(
         "mieru-plugin",
         Res.string.action_mieru,
         DownloadSource(
-            apk = "https://github.com/xchacha20-poly1305/husi/releases?q=plugin-mieru",
+            apk = "https://codeberg.org/xchacha20-poly1305/husi/releases?q=plugin-mieru",
             binary = "https://github.com/enfein/mieru/releases",
         ),
     ),
@@ -36,15 +35,15 @@ enum class PluginEntry(
         Res.string.action_hysteria,
         DownloadSource(
             apk = "https://github.com/dyhkwong/Exclave/releases?q=hysteria-plugin-1",
-            binary = "https://github.com/HyNetworks/hysteria/releases?q=v1",
+            binary = "https://github.com/apernet/hysteria/releases?q=v1",
         ),
     ),
     Hysteria2(
         "hysteria2-plugin",
         Res.string.action_hysteria2,
         DownloadSource(
-            apk = "https://github.com/xchacha20-poly1305/husi/releases?q=plugin-hysteria2",
-            binary = "https://github.com/HyNetworks/hysteria/releases",
+            apk = "https://codeberg.org/xchacha20-poly1305/husi/releases?q=plugin-hysteria2",
+            binary = "https://github.com/apernet/hysteria/releases",
         ),
     ),
     Juicity(
@@ -59,7 +58,7 @@ enum class PluginEntry(
         "shadowquic-plugin",
         Res.string.action_shadowquic,
         DownloadSource(
-            apk = "https://github.com/xchacha20-poly1305/husi/releases?q=plugin-shadowquic",
+            apk = "https://codeberg.org/xchacha20-poly1305/husi/releases?q=plugin-shadowquic",
             binary = "https://github.com/spongebob888/shadowquic/releases",
         ),
     )
@@ -92,7 +91,7 @@ enum class PluginEntry(
     companion object {
         fun find(name: String?): PluginEntry? {
             if (name.isNullOrBlank()) return null
-            for (pluginEntry in enumEntries<PluginEntry>()) {
+            for (pluginEntry in enumValues<PluginEntry>()) {
                 if (name == pluginEntry.pluginId) {
                     return pluginEntry
                 }

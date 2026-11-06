@@ -12,23 +12,17 @@ import fr.husi.utils.PackageCache
 class AppChangeReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         Logs.d("onReceive: ${intent.action}")
-        // Keep the process alive until the scan finishes, which a bare coroutine cannot do.
-        val pendingResult = goAsync()
         runOnIoDispatcher {
-            try {
-                checkUpdate(intent)
-            } finally {
-                pendingResult.finish()
-            }
+            checkUpdate(intent)
         }
     }
 
-    private suspend fun checkUpdate(intent: Intent) {
-        if (!DataStore.proxyApps.get()) {
+    private fun checkUpdate(intent: Intent) {
+        if (!DataStore.proxyApps) {
             Logs.d("should not check in bypass mode")
             return
         }
-        if (!DataStore.updateProxyAppsWhenInstall.get()) {
+        if (!DataStore.updateProxyAppsWhenInstall) {
             Logs.d("per app proxy disabled")
             return
         }
@@ -43,11 +37,10 @@ class AppChangeReceiver : BroadcastReceiver() {
         }
         val isChinaApp = AppScanner.isChinaApp(packageName, PackageCache.packageManager)
         Logs.d("scan china app result for $packageName: $isChinaApp")
-        val bypassMode = DataStore.bypassMode.get()
-        if (isChinaApp && bypassMode) {
-            DataStore.packages.update { it + packageName }
-        } else if (!isChinaApp && !bypassMode) {
-            DataStore.packages.update { it + packageName }
+        if (isChinaApp && DataStore.bypassMode) {
+            DataStore.packages += packageName
+        } else if (!isChinaApp && !DataStore.bypassMode) {
+            DataStore.packages += packageName
         }
     }
 

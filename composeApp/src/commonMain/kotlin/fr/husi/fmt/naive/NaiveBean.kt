@@ -1,11 +1,10 @@
 package fr.husi.fmt.naive
 
 import kotlinx.serialization.Serializable as KxsSerializable
+import com.esotericsoftware.kryo.io.ByteBufferInput
+import com.esotericsoftware.kryo.io.ByteBufferOutput
 import fr.husi.fmt.AbstractBean
-import fr.husi.fmt.BeanConverters
-import fr.husi.fmt.migrateDeletedCongestionControl
-import fr.husi.io.BinaryInput
-import fr.husi.io.BinaryOutput
+import fr.husi.fmt.KryoConverters
 
 @KxsSerializable
 class NaiveBean : AbstractBean() {
@@ -51,7 +50,7 @@ class NaiveBean : AbstractBean() {
         if (proto.isEmpty()) proto = PROTO_HTTPS
     }
 
-    override fun serialize(output: BinaryOutput) {
+    override fun serialize(output: ByteBufferOutput) {
         output.writeInt(4)
         super.serialize(output)
 
@@ -80,7 +79,7 @@ class NaiveBean : AbstractBean() {
         output.writeInt(idleTimeout)
     }
 
-    override fun deserialize(input: BinaryInput) {
+    override fun deserialize(input: ByteBufferInput) {
         val version = input.readInt()
         super.deserialize(input)
         proto = input.readString()
@@ -102,7 +101,7 @@ class NaiveBean : AbstractBean() {
         }
 
         if (version >= 3) {
-            quicCongestionControl = migrateDeletedCongestionControl(input.readString())
+            quicCongestionControl = input.readString()
         }
 
         if (version >= 4) {
@@ -112,7 +111,7 @@ class NaiveBean : AbstractBean() {
     }
 
     override fun clone(): NaiveBean {
-        return BeanConverters.deserialize(NaiveBean(), BeanConverters.serialize(this))
+        return KryoConverters.deserialize(NaiveBean(), KryoConverters.serialize(this))
     }
 
     override val defaultPort get() = 443

@@ -1,11 +1,10 @@
 package fr.husi.fmt.trusttunnel
 
 import kotlinx.serialization.Serializable as KxsSerializable
+import com.esotericsoftware.kryo.io.ByteBufferInput
+import com.esotericsoftware.kryo.io.ByteBufferOutput
 import fr.husi.fmt.AbstractBean
-import fr.husi.fmt.BeanConverters
-import fr.husi.fmt.migrateDeletedCongestionControl
-import fr.husi.io.BinaryInput
-import fr.husi.io.BinaryOutput
+import fr.husi.fmt.KryoConverters
 
 @KxsSerializable
 class TrustTunnelBean : AbstractBean() {
@@ -32,7 +31,6 @@ class TrustTunnelBean : AbstractBean() {
     var serverName: String = ""
     var alpn: String = ""
     var certificates: String = ""
-    var certificateSha256: String = ""
     var certPublicKeySha256: String = ""
     var utlsFingerprint: String = ""
     var allowInsecure: Boolean = false
@@ -47,8 +45,8 @@ class TrustTunnelBean : AbstractBean() {
     var tlsSpoof: String = ""
     var tlsSpoofMethod: String = ""
 
-    override fun serialize(output: BinaryOutput) {
-        output.writeInt(2)
+    override fun serialize(output: ByteBufferOutput) {
+        output.writeInt(1)
         super.serialize(output)
         output.writeString(username)
         output.writeString(password)
@@ -73,19 +71,16 @@ class TrustTunnelBean : AbstractBean() {
         // version 1
         output.writeString(tlsSpoof)
         output.writeString(tlsSpoofMethod)
-
-        // version 2
-        output.writeString(certificateSha256)
     }
 
-    override fun deserialize(input: BinaryInput) {
+    override fun deserialize(input: ByteBufferInput) {
         val version = input.readInt()
         super.deserialize(input)
         username = input.readString()
         password = input.readString()
         healthCheck = input.readBoolean()
         quic = input.readBoolean()
-        quicCongestionControl = migrateDeletedCongestionControl(input.readString())
+        quicCongestionControl = input.readString()
         serverName = input.readString()
         alpn = input.readString()
         certificates = input.readString()
@@ -105,14 +100,10 @@ class TrustTunnelBean : AbstractBean() {
             tlsSpoof = input.readString()
             tlsSpoofMethod = input.readString()
         }
-
-        if (version >= 2) {
-            certificateSha256 = input.readString()
-        }
     }
 
     override fun clone(): TrustTunnelBean {
-        return BeanConverters.deserialize(TrustTunnelBean(), BeanConverters.serialize(this))
+        return KryoConverters.deserialize(TrustTunnelBean(), KryoConverters.serialize(this))
     }
 
     override fun applyFeatureSettings(other: AbstractBean) {

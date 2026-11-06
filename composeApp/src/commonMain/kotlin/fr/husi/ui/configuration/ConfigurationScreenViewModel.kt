@@ -7,11 +7,12 @@ import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.ui.input.key.Key as ComposeKey
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import fr.husi.bg.buildPluginSpecs
+import fr.husi.Key
+import fr.husi.bg.GuardedProcessPool
 import fr.husi.bg.initPlugins
+import fr.husi.bg.launchPlugins
 import fr.husi.database.DataStore
 import fr.husi.database.GroupManager
 import fr.husi.database.ProfileManager
@@ -25,23 +26,30 @@ import fr.husi.group.RawUpdater
 import fr.husi.ktx.Logs
 import fr.husi.ktx.SubscriptionFoundException
 import fr.husi.ktx.isIpAddress
+import fr.husi.ktx.onDefaultDispatcher
+import fr.husi.ktx.onIoDispatcher
 import fr.husi.ktx.readableMessage
 import fr.husi.ktx.removeFirstMatched
 import fr.husi.ktx.runOnIoDispatcher
 import fr.husi.ktx.selectByNetworkStrategy
 import fr.husi.ktx.serverAddressDomainStrategy
-import fr.husi.core.CoreClient
-import fr.husi.core.urlTestOptions
+import fr.husi.libcore.Client
+import fr.husi.libcore.Libcore
 import fr.husi.plugin.PluginNotFoundException
-import fr.husi.proto.v1.PingProtocol
 import fr.husi.repository.resolveRepository
+import fr.husi.utils.closeQuietly
 import io.github.vinceglb.filekit.PlatformFile
-import org.koin.core.context.GlobalContext
 import io.github.vinceglb.filekit.name
 import io.github.vinceglb.filekit.readBytes
+import java.io.File
+import java.net.InetAddress
+import java.net.UnknownHostException
+import java.util.concurrent.ConcurrentHashMap
+import java.util.zip.ZipInputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asFlow
@@ -59,21 +67,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
-import java.io.File
-import java.net.InetAddress
-import java.net.UnknownHostException
-import java.util.concurrent.ConcurrentHashMap
-import java.util.zip.ZipInputStream
-
-@Immutable
-sealed interface KeyAction {
-    data object Consumed : KeyAction
-    data object Unhandled : KeyAction
-    data object ImportClipboard : KeyAction
-    data class SwitchTab(val delta: Int) : KeyAction
-    data object OpenSearch : KeyAction
-}
 
 @Immutable
 data class ConfigurationUiState(
@@ -121,9 +114,6 @@ sealed interface FailureReason {
     data class PluginNotFound(val plugin: String) : FailureReason
 }
 
-private const val ICMP_PING_TIMEOUT_MS = 5000
-private const val TCP_PING_TIMEOUT_MS = 3000
-
 @Stable
 enum class TestType {
     ICMPPing,
@@ -132,15 +122,13 @@ enum class TestType {
 }
 
 @Stable
-class ConfigurationScreenViewModel(
-    private val coreClient: CoreClient = GlobalContext.get().get(),
-) : ViewModel() {
+class ConfigurationScreenViewModel : ViewModel() {
 
 
     val uiState: StateFlow<ConfigurationUiState>
         field = MutableStateFlow(ConfigurationUiState())
 
-    val selectedGroup = DataStore.selectedGroup.flow()
+    val selectedGroup = DataStore.configurationStore.longFlow(Key.PROFILE_GROUP)
 
     internal val childViewModels = mutableMapOf<Long, GroupProfilesHolderViewModel>()
     private val testErrorMessages = ConcurrentHashMap<Long, String>()
@@ -154,105 +142,23 @@ class ConfigurationScreenViewModel(
         childViewModels.remove(groupId)
     }
 
-    fun handleKeyAction(
-        key: ComposeKey,
-        isCtrl: Boolean,
-        isShift: Boolean,
-        isSearchActive: Boolean,
-    ): KeyAction {
-        return when {
-            key == ComposeKey.Enter && !isCtrl -> {
-                if (!DataStore.serviceState.started) {
-                    resolveRepository().startService()
-                } else {
-                    val selected = DataStore.selectedProxy.getBlocking()
-                    val current = DataStore.currentProfile.getBlocking()
-                    if (selected != current) {
-                        resolveRepository().reloadService()
-                    }
-                }
-                KeyAction.Consumed
-            }
-
-            isCtrl && !isShift && key == ComposeKey.S -> {
-                if (DataStore.serviceState.canStop) {
-                    resolveRepository().stopService()
-                }
-                KeyAction.Consumed
-            }
-
-            key == ComposeKey.F5 -> {
-                if (DataStore.serviceState.started) {
-                    resolveRepository().reloadService()
-                }
-                KeyAction.Consumed
-            }
-
-            isCtrl && key == ComposeKey.P -> {
-                viewModelScope.launch {
-                    doTest(DataStore.currentGroupId(), TestType.ICMPPing)
-                }
-                KeyAction.Consumed
-            }
-
-            isCtrl && key == ComposeKey.T -> {
-                viewModelScope.launch {
-                    doTest(DataStore.currentGroupId(), TestType.TCPPing)
-                }
-                KeyAction.Consumed
-            }
-
-            isCtrl && key == ComposeKey.U -> {
-                viewModelScope.launch {
-                    doTest(DataStore.currentGroupId(), TestType.URLTest)
-                }
-                KeyAction.Consumed
-            }
-
-            key == ComposeKey.Escape -> {
-                if (uiState.value.testState != null) {
-                    cancelTest()
-                    KeyAction.Consumed
-                } else {
-                    KeyAction.Unhandled
-                }
-            }
-
-            isCtrl && key == ComposeKey.V -> KeyAction.ImportClipboard
-
-            !isSearchActive && !isCtrl && !isShift && key == ComposeKey.Slash -> {
-                KeyAction.OpenSearch
-            }
-
-            !isSearchActive && isCtrl && !isShift && key == ComposeKey.F -> {
-                KeyAction.OpenSearch
-            }
-
-            !isSearchActive && !isCtrl && key == ComposeKey.H -> {
-                KeyAction.SwitchTab(-1)
-            }
-
-            !isSearchActive && !isCtrl && key == ComposeKey.L -> {
-                KeyAction.SwitchTab(1)
-            }
-
-            else -> KeyAction.Unhandled
-        }
-    }
-
     fun scrollToProxy(groupId: Long, proxyId: Long, fallbackToTop: Boolean = false) {
         childViewModels[groupId]?.scrollToProxy(proxyId, fallbackToTop)
     }
 
-    suspend fun proxyGroupId(proxyId: Long): Long? = withContext(Dispatchers.IO) {
+    suspend fun proxyGroupId(proxyId: Long): Long? = onIoDispatcher {
         ProfileManager.getProfile(proxyId)?.groupId
     }
 
     fun scrollToProxy(proxyId: Long) = viewModelScope.launch {
-        val group = withContext(Dispatchers.IO) {
+        val group = onIoDispatcher {
             ProfileManager.getProfile(proxyId)?.groupId
         } ?: return@launch
         childViewModels[group]?.scrollToProxy(proxyId, true)
+    }
+
+    fun requestFocusIfNotHave(groupId: Long) {
+        childViewModels[groupId]?.requestFocusIfNotHave()
     }
 
     private var testJob: Job? = null
@@ -287,7 +193,7 @@ class ConfigurationScreenViewModel(
             val proxies = SagerDatabase.proxyDao.getByGroup(group).first()
             val totalCount = proxies.size
             var processedCount = 0
-            val concurrent = DataStore.connectionTestConcurrent.get()
+            val concurrent = DataStore.connectionTestConcurrent
 
             if (proxies.isEmpty()) {
                 uiState.update { state -> state.copy(testState = null) }
@@ -307,7 +213,7 @@ class ConfigurationScreenViewModel(
                 proxies.asFlow()
                     .flatMapMerge(concurrent) { profile ->
                         flow {
-                            val result = withContext(Dispatchers.IO) { performTest(profile) }
+                            val result = onIoDispatcher { performTest(profile) }
                             emit(ProfileTestResult(profile, result))
                         }
                     }
@@ -383,7 +289,7 @@ class ConfigurationScreenViewModel(
                 }
             }
 
-            withContext(Dispatchers.Default) {
+            onDefaultDispatcher {
                 uiState.update { state -> state.copy(testState = null) }
             }
             testErrorMessages.clear()
@@ -405,7 +311,7 @@ class ConfigurationScreenViewModel(
             ?: return TestResult.Failure(FailureReason.DomainNotFound)
 
         return try {
-            val result = coreClient.ping(PingProtocol.PING_PROTOCOL_ICMP, address, 0, ICMP_PING_TIMEOUT_MS)
+            val result = Libcore.icmpPing(address, 5000)
             TestResult.Success(result)
         } catch (e: Exception) {
             Logs.e(e)
@@ -421,7 +327,7 @@ class ConfigurationScreenViewModel(
             ?: return TestResult.Failure(FailureReason.DomainNotFound)
 
         return try {
-            val result = coreClient.ping(PingProtocol.PING_PROTOCOL_TCP, address, bean.serverPort, TCP_PING_TIMEOUT_MS)
+            val result = Libcore.tcpPing(address, bean.serverPort.toString(), 3000)
             TestResult.Success(result)
         } catch (e: Exception) {
             Logs.e(e)
@@ -444,7 +350,7 @@ class ConfigurationScreenViewModel(
         }
     }
 
-    private suspend fun resolvePingAddress(serverAddress: String): String? {
+    private fun resolvePingAddress(serverAddress: String): String? {
         if (serverAddress.isIpAddress()) return serverAddress
 
         return try {
@@ -458,40 +364,32 @@ class ConfigurationScreenViewModel(
     }
 
     private suspend fun urlTest(profile: ProxyEntity): TestResult {
-        val testURL = DataStore.connectionTestURL.get()
-        val testTimeout = DataStore.connectionTestTimeout.get()
-        val testOptions = urlTestOptions(
-            DataStore.connectionTestUnifiedDelay.get(),
-            DataStore.connectionTestIgnoreHandshakeTime.get(),
-        )
+        val testURL = DataStore.connectionTestURL
+        val testTimeout = DataStore.connectionTestTimeout
+        var client: Client? = null
+        var processes: GuardedProcessPool? = null
         val cacheFiles = ArrayList<File>()
 
         return try {
+            client = Libcore.newClient(null)
             val config = buildConfig(profile, forTest = true)
-            // A test build protects no plugin: the URL test has no protect service.
-            // Cert material still lands in cacheDir via hysteria/shadowquic
-            // builders and is cleaned up below.
-            val plugins = if (config.metadata.externalIndex.any { it.chain.isNotEmpty() }) {
-                val pluginConfigs = initPlugins(config.metadata, cacheFiles)
-                buildPluginSpecs(config.metadata, pluginConfigs)
-            } else {
-                emptyList()
+
+            if (config.externalIndex.any { it.chain.isNotEmpty() }) {
+                val pluginConfigs = initPlugins(config, false, cacheFiles)
+                processes = GuardedProcessPool { throw it }
+                launchPlugins(config, pluginConfigs, processes, cacheFiles, false)
+                delay(500L)
             }
 
-            val result = coreClient.standaloneUrlTest(
-                config.configJson,
-                "",
-                testURL,
-                testTimeout,
-                testOptions,
-                plugins,
-            )
+            val result = client.newInstanceURLTest(config.config, "", testURL, testTimeout)
             TestResult.Success(result)
         } catch (e: PluginNotFoundException) {
             TestResult.Failure(FailureReason.PluginNotFound(e.plugin))
         } catch (e: Exception) {
             TestResult.Failure(FailureReason.Generic(e.readableMessage))
         } finally {
+            client?.closeQuietly()
+            processes?.close(viewModelScope)
             cacheFiles.forEach { it.delete() }
         }
     }
@@ -503,9 +401,9 @@ class ConfigurationScreenViewModel(
         var lastSelected: Long
         var updated: Boolean
         profileAccess.withLock {
-            lastSelected = DataStore.selectedProxy.get()
+            lastSelected = DataStore.selectedProxy
             updated = new != lastSelected
-            DataStore.selectedProxy.set(new)
+            DataStore.selectedProxy = new
         }
         if (updated) {
             if (DataStore.serviceState.canStop && reloadAccess.tryLock()) {
@@ -519,7 +417,7 @@ class ConfigurationScreenViewModel(
                 resolveRepository().startService()
             }
         }
-        val groupId = DataStore.currentGroupId()
+        val groupId = DataStore.selectedGroup
         childViewModels[groupId]?.onProfileSelected(new)
     }
 
@@ -541,7 +439,7 @@ class ConfigurationScreenViewModel(
     }
 
     private suspend fun reloadGroups(all: List<ProxyGroup>?) {
-        val groups = (all ?: withContext(Dispatchers.IO) {
+        val groups = (all ?: onIoDispatcher {
             ProfileManager.getGroups().first()
         }).toMutableList()
         if (groups.size > 1) groups.removeFirstMatched {
@@ -552,7 +450,7 @@ class ConfigurationScreenViewModel(
             val selectedId = DataStore.currentGroupId()
             val selectIndex = groups.indexOfFirst { it.id == selectedId }
             if (selectIndex < 0) {
-                DataStore.selectedGroup.set(groups[0].id)
+                DataStore.selectedGroup = groups[0].id
             }
         }
         uiState.emit(
@@ -565,7 +463,7 @@ class ConfigurationScreenViewModel(
     fun updateOrder(groupId: Long, order: Int) = viewModelScope.launch {
         val group = uiState.value.groups.find { it.id == groupId } ?: return@launch
         if (group.order == order) return@launch
-        withContext(Dispatchers.IO) {
+        runOnIoDispatcher {
             GroupManager.updateGroup(
                 group.copy(
                     order = order,
@@ -575,7 +473,7 @@ class ConfigurationScreenViewModel(
     }
 
     fun clearTrafficStatistics(groupId: Long) = viewModelScope.launch {
-        val profiles = withContext(Dispatchers.IO) { SagerDatabase.proxyDao.getByGroup(groupId).first() }
+        val profiles = onIoDispatcher { SagerDatabase.proxyDao.getByGroup(groupId).first() }
         val toClear = profiles.mapNotNull {
             if (it.tx != 0L || it.rx != 0L) {
                 it.tx = 0L
@@ -585,13 +483,13 @@ class ConfigurationScreenViewModel(
                 null
             }
         }
-        if (toClear.isNotEmpty()) withContext(Dispatchers.IO) {
+        if (toClear.isNotEmpty()) onIoDispatcher {
             SagerDatabase.proxyDao.updateProxy(toClear)
         }
     }
 
     fun clearResults(groupId: Long) = viewModelScope.launch {
-        val profiles = withContext(Dispatchers.IO) { SagerDatabase.proxyDao.getByGroup(groupId).first() }
+        val profiles = onIoDispatcher { SagerDatabase.proxyDao.getByGroup(groupId).first() }
         val toClear = profiles.mapNotNull {
             if (it.status != ProxyEntity.STATUS_INITIAL) {
                 it.status = ProxyEntity.STATUS_INITIAL
@@ -602,13 +500,13 @@ class ConfigurationScreenViewModel(
                 null
             }
         }
-        if (toClear.isNotEmpty()) withContext(Dispatchers.IO) {
+        if (toClear.isNotEmpty()) onIoDispatcher {
             SagerDatabase.proxyDao.updateProxy(toClear)
         }
     }
 
     fun deleteUnavailable(groupId: Long) = viewModelScope.launch {
-        val toDelete = withContext(Dispatchers.IO) {
+        val toDelete = onIoDispatcher {
             SagerDatabase.proxyDao.getByGroup(groupId).first().mapNotNull {
                 when (it.status) {
                     ProxyEntity.STATUS_INITIAL, ProxyEntity.STATUS_AVAILABLE -> null
@@ -636,7 +534,7 @@ class ConfigurationScreenViewModel(
     }
 
     fun removeDuplicate(groupId: Long) = viewModelScope.launch {
-        val profiles = withContext(Dispatchers.IO) {
+        val profiles = onIoDispatcher {
             SagerDatabase.proxyDao.getByGroup(groupId).first()
         }
         val uniqueProxies = LinkedHashSet<Deduplication>()

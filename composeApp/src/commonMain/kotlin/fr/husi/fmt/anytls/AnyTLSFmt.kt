@@ -6,35 +6,38 @@ import fr.husi.fmt.parseBoxTLS
 import fr.husi.ktx.JSONMap
 import fr.husi.ktx.blankAsNull
 import fr.husi.ktx.listByLineOrComma
-import io.github.xchacha20_poly1305.kpuri.Url
-import io.github.xchacha20_poly1305.kpuri.buildUrl
+import fr.husi.libcore.Libcore
 
 /** https://github.com/anytls/anytls-go/blob/main/docs/uri_scheme.md */
 fun parseAnyTLS(link: String): AnyTLSBean = AnyTLSBean().apply {
-    val url = Url.parse(link)
+    val url = Libcore.parseURL(link)
 
-    name = url.fragment.orEmpty()
-    serverAddress = url.host.orEmpty()
-    serverPort = url.port?.toIntOrNull() ?: 443
-    password = url.username.orEmpty()
-    serverName = url.queryParameter("sni").orEmpty()
+    name = url.fragment
+    serverAddress = url.host
+    serverPort = url.ports.toIntOrNull() ?: 443
+    password = url.username
+    serverName = url.queryParameter("sni")
     allowInsecure = url.queryParameter("insecure") == "1"
 }
 
-fun AnyTLSBean.toUri(): String = buildUrl("anytls") {
-    host = serverAddress
+fun AnyTLSBean.toUri(): String {
+    val url = Libcore.newURL("anytls").apply {
+        host = serverAddress
+    }
+
     if (serverPort in 1..65535) {
-        port = serverPort.toString()
+        url.ports = serverPort.toString()
     }
 
-    this@toUri.password.blankAsNull()?.let { username = it }
-    serverName.blankAsNull()?.let { addQueryParameter("sni", it) }
+    password.blankAsNull()?.let { url.username = it }
+    serverName.blankAsNull()?.let { url.addQueryParameter("sni", it) }
     if (allowInsecure) {
-        addQueryParameter("insecure", "1")
+        url.addQueryParameter("insecure", "1")
     }
 
-    name.blankAsNull()?.let { fragment = it }
-}.toString()
+    name.blankAsNull()?.let { url.fragment = it }
+    return url.string
+}
 
 fun buildSingBoxOutboundAnyTLSBean(bean: AnyTLSBean): SingBoxOptions.Outbound_AnyTLSOptions {
     return SingBoxOptions.Outbound_AnyTLSOptions().apply {
@@ -45,10 +48,6 @@ fun buildSingBoxOutboundAnyTLSBean(bean: AnyTLSBean): SingBoxOptions.Outbound_An
         idle_session_check_interval = bean.idleSessionCheckInterval.blankAsNull()
         idle_session_timeout = bean.idleSessionTimeout.blankAsNull()
         min_idle_session = bean.minIdleSession.takeIf { it > 0 }
-        /*if (bean.disableReuse) {
-            disable_reuse = true
-        }*/
-        client_metadata = bean.clientMetadata.blankAsNull()
 
         tls = SingBoxOptions.OutboundTLSOptions().apply {
             enabled = true
@@ -59,8 +58,6 @@ fun buildSingBoxOutboundAnyTLSBean(bean: AnyTLSBean): SingBoxOptions.Outbound_An
             certificate = bean.certificates.blankAsNull()?.lines()?.toMutableList()
             client_certificate = bean.clientCert.blankAsNull()?.lines()?.toMutableList()
             client_key = bean.clientKey.blankAsNull()?.lines()?.toMutableList()
-            certificate_sha256 =
-                bean.certificateSha256.blankAsNull()?.lines()?.toMutableList()
             certificate_public_key_sha256 =
                 bean.certPublicKeySha256.blankAsNull()?.lines()?.toMutableList()
             bean.utlsFingerprint.blankAsNull()?.let {
@@ -100,9 +97,6 @@ fun parseAnyTLSOutbound(json: JSONMap): AnyTLSBean = AnyTLSBean().apply {
                 minIdleSession = it
             }
 
-            "disable_reuse" -> value.toString().toBoolean() // XXX
-            "client_metadata" -> clientMetadata = value.toString()
-
             "tls" -> {
                 val tlsField = value as? JSONMap ?: return@parseBoxOutbound
                 val tls = parseBoxTLS(tlsField)
@@ -113,7 +107,6 @@ fun parseAnyTLSOutbound(json: JSONMap): AnyTLSBean = AnyTLSBean().apply {
                 certificates = tls.certificate?.joinToString("\n").orEmpty()
                 clientCert = tls.client_certificate?.joinToString("\n").orEmpty()
                 clientKey = tls.client_key?.joinToString("\n").orEmpty()
-                certificateSha256 = tls.certificate_sha256?.joinToString("\n").orEmpty()
                 certPublicKeySha256 =
                     tls.certificate_public_key_sha256?.joinToString("\n").orEmpty()
                 utlsFingerprint = tls.utls?.fingerprint.orEmpty()

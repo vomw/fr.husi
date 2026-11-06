@@ -19,7 +19,6 @@ internal data class TuicUiState(
     val token: String = "",
     val alpn: String = "",
     val certificates: String = "",
-    val certificateSha256: String = "",
     val certPublicKeySha256: String = "",
     val udpRelayMode: String = "native",
     val congestionController: String = "cubic",
@@ -60,7 +59,6 @@ internal class TuicSettingsViewModel : ProfileEditorViewModel<TuicBean>() {
                 token = token,
                 alpn = alpn,
                 certificates = certificates,
-                certificateSha256 = certificateSha256,
                 certPublicKeySha256 = certPublicKeySha256,
                 udpRelayMode = udpRelayMode,
                 congestionController = congestionController,
@@ -96,7 +94,6 @@ internal class TuicSettingsViewModel : ProfileEditorViewModel<TuicBean>() {
         token = state.token
         alpn = state.alpn
         certificates = state.certificates
-        certificateSha256 = state.certificateSha256
         certPublicKeySha256 = state.certPublicKeySha256
         udpRelayMode = state.udpRelayMode
         congestionController = state.congestionController
@@ -152,10 +149,6 @@ internal class TuicSettingsViewModel : ProfileEditorViewModel<TuicBean>() {
 
     fun setCertificates(certs: String) {
         uiState.update { it.copy(certificates = certs) }
-    }
-
-    fun setCertificateSha256(sha256: String) {
-        uiState.update { it.copy(certificateSha256 = sha256) }
     }
 
     fun setCertPublicKeySha256(sha: String) {

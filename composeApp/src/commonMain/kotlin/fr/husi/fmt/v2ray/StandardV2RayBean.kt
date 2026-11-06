@@ -1,9 +1,9 @@
 package fr.husi.fmt.v2ray
 
+import com.esotericsoftware.kryo.io.ByteBufferInput
+import com.esotericsoftware.kryo.io.ByteBufferOutput
 import fr.husi.fmt.AbstractBean
 import fr.husi.fmt.ValidateResult
-import fr.husi.io.BinaryInput
-import fr.husi.io.BinaryOutput
 import fr.husi.resources.Res
 import fr.husi.resources.warn_insecure
 import fr.husi.resources.warn_not_encrypted
@@ -38,7 +38,6 @@ abstract class StandardV2RayBean : AbstractBean() {
     var tlsSpoof: String = ""
     var tlsSpoofMethod: String = ""
     var certificates: String = ""
-    var certificateSha256: String = ""
     var certPublicKeySha256: String = ""
     var clientCert: String = ""
     var clientKey: String = ""
@@ -61,8 +60,8 @@ abstract class StandardV2RayBean : AbstractBean() {
         if (fragmentFallbackDelay.isEmpty()) fragmentFallbackDelay = "500ms"
     }
 
-    override fun serialize(output: BinaryOutput) {
-        output.writeInt(13)
+    override fun serialize(output: ByteBufferOutput) {
+        output.writeInt(12)
         super.serialize(output)
 
         output.writeString(uuid)
@@ -126,7 +125,6 @@ abstract class StandardV2RayBean : AbstractBean() {
             output.writeString(echQueryServerName)
             output.writeString(tlsSpoof)
             output.writeString(tlsSpoofMethod)
-            output.writeString(certificateSha256)
         }
 
         output.writeInt(packetEncoding)
@@ -136,7 +134,7 @@ abstract class StandardV2RayBean : AbstractBean() {
         }
     }
 
-    override fun deserialize(input: BinaryInput) {
+    override fun deserialize(input: ByteBufferInput) {
         val version = input.readInt()
         super.deserialize(input)
         uuid = input.readString()
@@ -224,10 +222,6 @@ abstract class StandardV2RayBean : AbstractBean() {
             if (version >= 12) {
                 tlsSpoof = input.readString()
                 tlsSpoofMethod = input.readString()
-            }
-
-            if (version >= 13) {
-                certificateSha256 = input.readString()
             }
         }
 

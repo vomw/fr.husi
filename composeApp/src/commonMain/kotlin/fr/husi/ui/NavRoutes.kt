@@ -2,7 +2,6 @@ package fr.husi.ui
 
 import androidx.navigation3.runtime.NavKey
 import androidx.savedstate.serialization.SavedStateConfiguration
-import fr.husi.ui.jsoneditor.ConfigSchema
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.modules.polymorphic
@@ -19,21 +18,19 @@ sealed class NavRoutes : NavKey {
                         subclass(Groups::class, Groups.serializer())
                         subclass(Route::class, Route.serializer())
                         subclass(Settings::class, Settings.serializer())
-                        subclass(SettingsPage::class, SettingsPage.serializer())
                         subclass(Plugin::class, Plugin.serializer())
                         subclass(Log::class, Log.serializer())
                         subclass(Dashboard::class, Dashboard.serializer())
-                        subclass(ToolsPage.Network::class, ToolsPage.Network.serializer())
-                        subclass(ToolsPage.Backup::class, ToolsPage.Backup.serializer())
-                        subclass(ToolsPage.Debug::class, ToolsPage.Debug.serializer())
+                        subclass(Tools::class, Tools.serializer())
                         subclass(ToolsPage.Stun::class, ToolsPage.Stun.serializer())
                         subclass(ToolsPage.GetCert::class, ToolsPage.GetCert.serializer())
                         subclass(ToolsPage.VPNScanner::class, ToolsPage.VPNScanner.serializer())
-                        subclass(ToolsPage.NetworkQuality::class, ToolsPage.NetworkQuality.serializer())
+                        subclass(ToolsPage.SpeedTest::class, ToolsPage.SpeedTest.serializer())
                         subclass(ToolsPage.RuleSetMatch::class, ToolsPage.RuleSetMatch.serializer())
                         subclass(About::class, About.serializer())
                         subclass(Libraries::class, Libraries.serializer())
                         subclass(ProfileEditor::class, ProfileEditor.serializer())
+                        subclass(ConnectionsDetail::class, ConnectionsDetail.serializer())
                         subclass(AppManager::class, AppManager.serializer())
                         subclass(Assets::class, Assets.serializer())
                         subclass(AppList::class, AppList.serializer())
@@ -42,12 +39,6 @@ sealed class NavRoutes : NavKey {
                         subclass(AssetEdit::class, AssetEdit.serializer())
                         subclass(GroupSettings::class, GroupSettings.serializer())
                         subclass(RouteSettings::class, RouteSettings.serializer())
-                        subclass(RemoteControl::class, RemoteControl.serializer())
-                        subclass(RemoteServerEdit::class, RemoteServerEdit.serializer())
-                        subclass(Tailscale.Endpoint::class, Tailscale.Endpoint.serializer())
-                        subclass(Tailscale.Peer::class, Tailscale.Peer.serializer())
-                        subclass(Tailscale.ExitNodePicker::class, Tailscale.ExitNodePicker.serializer())
-                        subclass(Tailscale.TaildropInbox::class, Tailscale.TaildropInbox.serializer())
                     }
                 }
             }
@@ -66,22 +57,6 @@ sealed class NavRoutes : NavKey {
     data object Settings : NavRoutes()
 
     @Serializable
-    data class SettingsPage(val kind: Kind) : NavRoutes() {
-        @Serializable
-        enum class Kind {
-            General,
-            Daemon,
-            Route,
-            Protocol,
-            Dns,
-            Inbound,
-            Misc,
-            Ntp,
-            AppUpdate,
-        }
-    }
-
-    @Serializable
     data object Plugin : NavRoutes()
 
     @Serializable
@@ -91,16 +66,10 @@ sealed class NavRoutes : NavKey {
     data object Dashboard : NavRoutes()
 
     @Serializable
+    data object Tools : NavRoutes()
+
+    @Serializable
     sealed class ToolsPage : NavRoutes() {
-        @Serializable
-        data object Network : ToolsPage()
-
-        @Serializable
-        data object Backup : ToolsPage()
-
-        @Serializable
-        data object Debug : ToolsPage()
-
         @Serializable
         data object Stun : ToolsPage()
 
@@ -111,7 +80,7 @@ sealed class NavRoutes : NavKey {
         data object VPNScanner : ToolsPage()
 
         @Serializable
-        data object NetworkQuality : ToolsPage()
+        data object SpeedTest : ToolsPage()
 
         @Serializable
         data object RuleSetMatch : ToolsPage()
@@ -129,6 +98,12 @@ sealed class NavRoutes : NavKey {
         val type: Int,
         val id: Long = -1L,
         val subscription: Boolean = false,
+        val resultKey: String = "${type}-${id}-${subscription}",
+    ) : NavRoutes()
+
+    @Serializable
+    data class ConnectionsDetail(
+        val uuid: String,
     ) : NavRoutes()
 
     @Serializable
@@ -147,7 +122,6 @@ sealed class NavRoutes : NavKey {
     data class ConfigEditor(
         val initialText: String = "",
         val resultKey: String,
-        val schema: ConfigSchema = ConfigSchema.CONFIG,
     ) : NavRoutes()
 
     @Serializable
@@ -174,31 +148,5 @@ sealed class NavRoutes : NavKey {
         val useDraft: Boolean = false,
         val initialState: RouteSettingsUiState? = null,
     ) : NavRoutes()
-
-    @Serializable
-    data object RemoteControl : NavRoutes()
-
-    @Serializable
-    data class RemoteServerEdit(
-        val id: Long = 0L,
-    ) : NavRoutes()
-
-    @Serializable
-    sealed class Tailscale : NavRoutes() {
-        @Serializable
-        data class Endpoint(val endpointTag: String) : Tailscale()
-
-        @Serializable
-        data class Peer(
-            val endpointTag: String,
-            val peerId: String,
-        ) : Tailscale()
-
-        @Serializable
-        data class ExitNodePicker(val endpointTag: String) : Tailscale()
-
-        @Serializable
-        data class TaildropInbox(val endpointTag: String) : Tailscale()
-    }
 
 }

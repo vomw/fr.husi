@@ -9,9 +9,9 @@ import fr.husi.database.DataStore
 import fr.husi.database.ProfileManager
 import fr.husi.database.RuleEntity
 import fr.husi.database.SagerDatabase
+import fr.husi.ktx.onIoDispatcher
 import fr.husi.ktx.runOnDefaultDispatcher
 import fr.husi.ktx.runOnIoDispatcher
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,8 +23,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
-import kotlin.time.Duration.Companion.milliseconds
 
 @Immutable
 data class RouteFragmentUiState(
@@ -40,17 +38,17 @@ class RouteScreenViewModel : ViewModel() {
 
     private var deleteTimer: Job? = null
 
-    private val hiddenRulesAccess = Mutex()
-    private val hiddenRules = mutableSetOf<Long>()
-
     init {
         viewModelScope.launch {
             ProfileManager.getRules().distinctUntilChanged().collectLatest(::reloadRules)
         }
     }
 
+    private val hiddenRulesAccess = Mutex()
+    private val hiddenRules = mutableSetOf<Long>()
+
     private suspend fun reloadRules(_rules: List<RuleEntity>?) {
-        val rules = _rules ?: withContext(Dispatchers.IO) {
+        val rules = _rules ?: onIoDispatcher {
             ProfileManager.getRules().first()
         }
         hiddenRulesAccess.withLock {
@@ -64,13 +62,8 @@ class RouteScreenViewModel : ViewModel() {
     }
 
     fun reset() = runOnIoDispatcher {
-        deleteTimer?.cancel()
-        deleteTimer = null
-        hiddenRulesAccess.withLock {
-            hiddenRules.clear()
-        }
         SagerDatabase.rulesDao.reset()
-        DataStore.rulesFirstCreate.set(false)
+        DataStore.rulesFirstCreate = false
         reloadRules(null)
     }
 
@@ -83,25 +76,17 @@ class RouteScreenViewModel : ViewModel() {
     }
 
     fun submitReorder(changes: List<OrderedItem<RuleEntity>>) = runOnDefaultDispatcher {
-        if (changes.isEmpty()) return@runOnDefaultDispatcher
-
-        val reordered = uiState.value.rules.toMutableList()
-        for (change in changes) {
-            if (change.newIndex !in reordered.indices) {
-                return@runOnDefaultDispatcher
-            }
-            reordered[change.newIndex] = change.value
-        }
-
-        val toUpdate = reordered.mapIndexedNotNull { index, rule ->
-            val newUserOrder = (index + 1).toLong()
-            if (rule.userOrder != newUserOrder) {
-                rule.copy(userOrder = newUserOrder)
+        val toUpdate = changes.mapNotNull { orderedItem ->
+            val newUserOrder = orderedItem.newIndex.toLong()
+            if (orderedItem.value.userOrder != newUserOrder) {
+                orderedItem.value.copy(
+                    userOrder = newUserOrder,
+                )
             } else {
                 null
             }
         }
-        if (toUpdate.isNotEmpty()) withContext(Dispatchers.IO) {
+        if (toUpdate.isNotEmpty()) onIoDispatcher {
             SagerDatabase.rulesDao.updateRules(toUpdate)
         }
     }
@@ -127,7 +112,7 @@ class RouteScreenViewModel : ViewModel() {
     private fun startDeleteTimer() {
         deleteTimer?.cancel()
         deleteTimer = viewModelScope.launch {
-            delay(5000.milliseconds)
+            delay(5000)
             commit()
         }
     }
@@ -149,7 +134,7 @@ class RouteScreenViewModel : ViewModel() {
             hiddenRules.clear()
             toDelete
         }
-        withContext(Dispatchers.IO) {
+        onIoDispatcher {
             ProfileManager.deleteRulesByIds(toDelete)
         }
     }

@@ -1,18 +1,17 @@
 package fr.husi.fmt.snell
 
-import fr.husi.fmt.BeanConverters
+import fr.husi.fmt.KryoConverters
 import fr.husi.fmt.SingBoxOptions
 import fr.husi.ktx.JSONMap
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
-import kotlinx.coroutines.test.runTest
 
 class SnellFmtTest {
 
     @Test
-    fun `buildSingBoxOutboundSnellBean should map v4 fields`() = runTest {
+    fun `buildSingBoxOutboundSnellBean should map v4 fields`() {
         val bean = SnellBean().apply {
             serverAddress = "snell.example.com"
             serverPort = 8443
@@ -39,7 +38,7 @@ class SnellFmtTest {
     }
 
     @Test
-    fun `buildSingBoxOutboundSnellBean should map v6 mode and omit false reuse`() = runTest {
+    fun `buildSingBoxOutboundSnellBean should map v6 mode and omit false reuse`() {
         val bean = SnellBean().apply {
             serverAddress = "snell.example.com"
             serverPort = 443
@@ -86,7 +85,7 @@ class SnellFmtTest {
     }
 
     @Test
-    fun `SnellBean should survive binary serialization`() {
+    fun `SnellBean should survive Kryo serialization`() {
         val source = SnellBean().apply {
             serverAddress = "server.example.com"
             serverPort = 9443
@@ -99,7 +98,7 @@ class SnellFmtTest {
             mode = "tls"
         }
 
-        val parsed = BeanConverters.deserialize(SnellBean(), BeanConverters.serialize(source))
+        val parsed = KryoConverters.deserialize(SnellBean(), KryoConverters.serialize(source))
 
         assertEquals(source.serverAddress, parsed.serverAddress)
         assertEquals(source.serverPort, parsed.serverPort)
@@ -122,7 +121,7 @@ class SnellFmtTest {
             mode = "tls"
         }
 
-        val parsed = BeanConverters.deserialize(SnellBean(), BeanConverters.serialize(source))
+        val parsed = KryoConverters.deserialize(SnellBean(), KryoConverters.serialize(source))
 
         assertEquals(SnellBean.VERSION_4, parsed.version)
         assertEquals("http", parsed.obfsMode)
@@ -140,7 +139,7 @@ class SnellFmtTest {
             mode = "tls"
         }
 
-        val parsed = BeanConverters.deserialize(SnellBean(), BeanConverters.serialize(source))
+        val parsed = KryoConverters.deserialize(SnellBean(), KryoConverters.serialize(source))
 
         assertEquals(SnellBean.VERSION_6, parsed.version)
         assertEquals("", parsed.obfsMode)

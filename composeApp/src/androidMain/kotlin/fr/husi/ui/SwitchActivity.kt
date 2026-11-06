@@ -44,7 +44,7 @@ class SwitchActivity : ComposeActivity() {
                 AppTheme {
                     val dismissInteractionSource = remember { MutableInteractionSource() }
                     val pickerState = rememberProfilePickerState(
-                        preSelected = DataStore.selectedProxy.getBlocking(),
+                        preSelected = DataStore.selectedProxy,
                     )
                     val bottomPadding = WindowInsets.navigationBarsIgnoringVisibility
                         .asPaddingValues()
@@ -87,7 +87,7 @@ class SwitchActivity : ComposeActivity() {
     }
 
     private fun returnProfile(profileId: Long) {
-        DataStore.selectedProxy.setBlocking(profileId)
+        DataStore.selectedProxy = profileId
         resolveRepository().reloadService()
         finish()
     }

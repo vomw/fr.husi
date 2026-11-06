@@ -60,21 +60,20 @@ object DefaultNetworkMonitor {
         val listener = listener ?: return
         val repo = resolveAndroidRepository()
         if (newNetwork != null) {
-            repeat(10) {
+            for (times in 0 until 10) {
                 val linkProperties = repo.connectivity.getLinkProperties(newNetwork)
                 if (linkProperties == null) {
                     Thread.sleep(100)
-                    return@repeat
+                    continue
                 }
                 var interfaceIndex: Int
                 try {
                     interfaceIndex = NetworkInterface.getByName(linkProperties.interfaceName).index
                 } catch (_: Exception) {
                     Thread.sleep(100)
-                    return@repeat
+                    continue
                 }
                 listener.updateDefaultInterface(linkProperties.interfaceName, interfaceIndex)
-                return
             }
         } else {
             listener.updateDefaultInterface("", -1)

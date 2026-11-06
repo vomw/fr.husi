@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenuGroup
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenuPopup
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
@@ -43,18 +44,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.chrisbanes.haze.hazeSource
-import dev.chrisbanes.haze.rememberHazeState
 import fr.husi.GroupType
 import fr.husi.compose.BackHandler
 import fr.husi.compose.BoxedVerticalScrollbar
+import fr.husi.compose.CapsuleActionButton
 import fr.husi.compose.CapsuleTopBar
 import fr.husi.compose.DropdownMenuSectionHeader
-import fr.husi.compose.ProvidePreferenceLocals
 import fr.husi.compose.SimpleIconButton
 import fr.husi.compose.TextButton
 import fr.husi.compose.fadingEdge
-import fr.husi.compose.material3.ScrollableDropdownMenuPopup
 import fr.husi.compose.material3.Icon
 import fr.husi.compose.material3.Text
 import fr.husi.compose.withNavigation
@@ -81,7 +79,6 @@ import fr.husi.resources.question_mark
 import fr.husi.resources.unsaved_changes_prompt
 import fr.husi.resources.warning
 import fr.husi.results.ResultEffect
-import fr.husi.ui.jsoneditor.ConfigSchema
 import fr.husi.ui.NavRoutes
 import fr.husi.ui.OpenProfilePicker
 import fr.husi.ui.stringOrRes
@@ -89,15 +86,11 @@ import io.github.oikvpqya.compose.fastscroller.material3.defaultMaterialScrollba
 import io.github.oikvpqya.compose.fastscroller.rememberScrollbarAdapter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import me.zhanghai.compose.preference.ProvidePreferenceLocals
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.vectorResource
 import kotlin.random.Random
-
-data class ProfileEditorResult(
-    val profileId: Long,
-    val updated: Boolean,
-)
 
 @Composable
 fun ProfileEditorScreen(
@@ -218,41 +211,6 @@ fun ProfileEditorScreen(
             onOpenConfigEditor = onOpenConfigEditor,
         )
 
-        ProxyEntity.TYPE_OPENCONNECT -> OpenConnectSettingsScreen(
-            profileId = profileId,
-            isSubscription = isSubscription,
-            onResult = onResult,
-            onOpenConfigEditor = onOpenConfigEditor,
-        )
-
-        ProxyEntity.TYPE_OPENVPN -> OpenVPNSettingsScreen(
-            profileId = profileId,
-            isSubscription = isSubscription,
-            onResult = onResult,
-            onOpenConfigEditor = onOpenConfigEditor,
-        )
-
-        ProxyEntity.TYPE_MASQUE -> MASQUESettingsScreen(
-            profileId = profileId,
-            isSubscription = isSubscription,
-            onResult = onResult,
-            onOpenConfigEditor = onOpenConfigEditor,
-        )
-
-        ProxyEntity.TYPE_TAILSCALE -> TailscaleSettingsScreen(
-            profileId = profileId,
-            isSubscription = isSubscription,
-            onResult = onResult,
-            onOpenConfigEditor = onOpenConfigEditor,
-        )
-
-        ProxyEntity.TYPE_TAILCAT -> TailcatSettingsScreen(
-            profileId = profileId,
-            isSubscription = isSubscription,
-            onResult = onResult,
-            onOpenConfigEditor = onOpenConfigEditor,
-        )
-
         ProxyEntity.TYPE_TUIC -> TuicSettingsScreen(
             profileId = profileId,
             isSubscription = isSubscription,
@@ -343,21 +301,21 @@ internal fun <T : AbstractBean> ProfileSettingsScreenScaffold(
         rememberSaveable { viewModel.editingId.takeIf { it >= 0 } ?: Random.nextLong() }
     val configResultKey = remember { "config-edit-${resultNumber}" }
     val outboundConfigResultKey = remember { "outbound-config-edit-${resultNumber}" }
-    ResultEffect<String>(resultKey = configResultKey) { result ->
+    ResultEffect<String?>(resultKey = configResultKey) { result ->
+        if (result == null) return@ResultEffect
         viewModel.setCustomConfig(result)
     }
-    ResultEffect<String>(resultKey = outboundConfigResultKey) { result ->
+    ResultEffect<String?>(resultKey = outboundConfigResultKey) { result ->
+        if (result == null) return@ResultEffect
         viewModel.setCustomOutbound(result)
     }
 
-    val hazeState = rememberHazeState()
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             CapsuleTopBar(
-                hazeState = hazeState,
                 navigationIcon = {
                     SimpleIconButton(
                         imageVector = vectorResource(Res.drawable.close),
@@ -392,83 +350,82 @@ internal fun <T : AbstractBean> ProfileSettingsScreenScaffold(
                         )
                     }
 
-                    CapsuleActionButton {
-                        Box {
+                    Box {
+                        CapsuleActionButton {
                             SimpleIconButton(
                                 imageVector = vectorResource(Res.drawable.more_vert),
                                 contentDescription = stringResource(Res.string.more),
                             ) {
                                 showExtendMenu = true
                             }
-                            ScrollableDropdownMenuPopup(
-                                expanded = showExtendMenu,
-                                onDismissRequest = { showExtendMenu = false },
-                            ) {
-                                val showCreateShortCut =
-                                    platformSupportShortcut()
-                                            && !viewModel.isNew
-                                            && !viewModel.isSubscription
-                                val showMove = !viewModel.isNew && runBlocking {
-                                    SagerDatabase.groupDao.allGroups().first().filter {
-                                        it.type == GroupType.BASIC
-                                    }.size > 1
-                                }
-                                val hasFirstGroup = showCreateShortCut || showMove
-                                if (hasFirstGroup) {
-                                    DropdownMenuGroup(
-                                        shapes = MenuDefaults.groupShape(0, 2),
-                                    ) {
-                                        if (showCreateShortCut) {
-                                            ShortcutMenuItem(viewModel.proxyEntity) {
-                                                showExtendMenu = false
-                                            }
-                                        }
-                                        if (showMove) {
-                                            DropdownMenuItem(
-                                                text = { Text(stringResource(Res.string.move)) },
-                                                onClick = { showMoveDialog = true },
-                                            )
+                        }
+                        DropdownMenuPopup(
+                            expanded = showExtendMenu,
+                            onDismissRequest = { showExtendMenu = false },
+                        ) {
+                            val showCreateShortCut =
+                                platformSupportShortcut()
+                                        && !viewModel.isNew
+                                        && !viewModel.isSubscription
+                            val showMove = !viewModel.isNew && runBlocking {
+                                SagerDatabase.groupDao.allGroups().first().filter {
+                                    it.type == GroupType.BASIC
+                                }.size > 1
+                            }
+                            val hasFirstGroup = showCreateShortCut || showMove
+                            if (hasFirstGroup) {
+                                DropdownMenuGroup(
+                                    shapes = MenuDefaults.groupShape(0, 2),
+                                ) {
+                                    if (showCreateShortCut) {
+                                        ShortcutMenuItem(viewModel.proxyEntity) {
+                                            showExtendMenu = false
                                         }
                                     }
-                                    Spacer(modifier = Modifier.height(MenuDefaults.GroupSpacing))
+                                    if (showMove) {
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(Res.string.move)) },
+                                            onClick = { showMoveDialog = true },
+                                        )
+                                    }
                                 }
+                                Spacer(modifier = Modifier.height(MenuDefaults.GroupSpacing))
+                            }
 
-                                DropdownMenuGroup(
-                                    shapes = if (hasFirstGroup) {
-                                        MenuDefaults.groupShape(1, 2)
-                                    } else {
-                                        MenuDefaults.groupShapes()
+                            DropdownMenuGroup(
+                                shapes = if (hasFirstGroup) {
+                                    MenuDefaults.groupShape(1, 2)
+                                } else {
+                                    MenuDefaults.groupShapes()
+                                },
+                            ) {
+                                DropdownMenuSectionHeader(stringResource(Res.string.custom_config))
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(Res.string.outbound)) },
+                                    onClick = {
+                                        showExtendMenu = false
+                                        onOpenConfigEditor(
+                                            NavRoutes.ConfigEditor(
+                                                initialText = viewModel.uiState.value.customOutbound,
+                                                resultKey = outboundConfigResultKey,
+                                            ),
+                                        )
                                     },
-                                ) {
-                                    DropdownMenuSectionHeader(stringResource(Res.string.custom_config))
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(Res.string.outbound)) },
-                                        onClick = {
-                                            showExtendMenu = false
-                                            onOpenConfigEditor(
-                                                NavRoutes.ConfigEditor(
-                                                    initialText = viewModel.uiState.value.customOutbound,
-                                                    resultKey = outboundConfigResultKey,
-                                                    schema = ConfigSchema.OUTBOUND,
-                                                ),
-                                            )
-                                        },
-                                        shape = MenuDefaults.itemShape(0, 2).shape,
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(Res.string.full)) },
-                                        onClick = {
-                                            showExtendMenu = false
-                                            onOpenConfigEditor(
-                                                NavRoutes.ConfigEditor(
-                                                    initialText = viewModel.uiState.value.customConfig,
-                                                    resultKey = configResultKey,
-                                                ),
-                                            )
-                                        },
-                                        shape = MenuDefaults.itemShape(1, 2).shape,
-                                    )
-                                }
+                                    shape = MenuDefaults.itemShape(0, 2).shape,
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(Res.string.full)) },
+                                    onClick = {
+                                        showExtendMenu = false
+                                        onOpenConfigEditor(
+                                            NavRoutes.ConfigEditor(
+                                                initialText = viewModel.uiState.value.customConfig,
+                                                resultKey = configResultKey,
+                                            ),
+                                        )
+                                    },
+                                    shape = MenuDefaults.itemShape(1, 2).shape,
+                                )
                             }
                         }
                     }
@@ -479,7 +436,6 @@ internal fun <T : AbstractBean> ProfileSettingsScreenScaffold(
         },
     ) { innerPadding ->
         ProfileSettingsMainColumn(
-            modifier = Modifier.hazeSource(hazeState),
             contentPadding = innerPadding.withNavigation(),
             viewModel = viewModel,
             settings = settings,
@@ -551,7 +507,6 @@ internal fun <T : AbstractBean> ProfileSettingsScreenScaffold(
 private fun <T : AbstractBean> ProfileSettingsMainColumn(
     contentPadding: PaddingValues,
     viewModel: ProfileEditorViewModel<T>,
-    modifier: Modifier = Modifier,
     settings: (
         scope: LazyListScope,
         uiState: ProfileEditorUiState,
@@ -572,7 +527,7 @@ private fun <T : AbstractBean> ProfileSettingsMainColumn(
                 }
         }
 
-        Row(modifier = modifier.fillMaxSize()) {
+        Row(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
                 modifier = Modifier
                     .weight(1f)
@@ -591,9 +546,7 @@ private fun <T : AbstractBean> ProfileSettingsMainColumn(
             }
 
             BoxedVerticalScrollbar(
-                modifier = Modifier
-                    .padding(contentPadding)
-                    .fillMaxHeight(),
+                modifier = Modifier.fillMaxHeight(),
                 adapter = rememberScrollbarAdapter(scrollState = listState),
                 style = defaultMaterialScrollbarStyle().copy(
                     thickness = 12.dp,

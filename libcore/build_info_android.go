@@ -11,8 +11,6 @@ import (
 	"strings"
 
 	"github.com/sagernet/sing/common"
-
-	"github.com/xchacha20-poly1305/husi/libcore/v2/pb/husi/v1"
 )
 
 const (
@@ -25,9 +23,16 @@ const (
 	androidVPNCoreTypeUnknown     = "Unknown"
 )
 
-func readAndroidVPNTypes(apkPaths []string) (*husiv1.AndroidVPNType, error) {
+type AndroidVPNType struct {
+	CoreType  string
+	CorePath  string
+	GoVersion string
+}
+
+func ReadAndroidVPNType(publicSourceDirList StringIterator) (*AndroidVPNType, error) {
 	var lastError error
-	for _, apkPath := range apkPaths {
+	for publicSourceDirList.HasNext() {
+		apkPath := publicSourceDirList.Next()
 		androidVPNType, err := readAndroidVPNType(apkPath)
 		if androidVPNType == nil {
 			if err != nil {
@@ -40,7 +45,7 @@ func readAndroidVPNTypes(apkPaths []string) (*husiv1.AndroidVPNType, error) {
 	return nil, lastError
 }
 
-func readAndroidVPNType(publicSourceDir string) (*husiv1.AndroidVPNType, error) {
+func readAndroidVPNType(publicSourceDir string) (*AndroidVPNType, error) {
 	reader, err := zip.OpenReader(publicSourceDir)
 	if err != nil {
 		return nil, err
@@ -63,16 +68,16 @@ func readAndroidVPNType(publicSourceDir string) (*husiv1.AndroidVPNType, error) 
 			continue
 		}
 		if strings.Contains(file.Name, androidVPNCoreTypeOpenVPN) || strings.Contains(file.Name, "ovpn") {
-			return &husiv1.AndroidVPNType{CoreType: androidVPNCoreTypeOpenVPN}, nil
+			return &AndroidVPNType{CoreType: androidVPNCoreTypeOpenVPN}, nil
 		}
 		if strings.Contains(file.Name, androidVPNCoreTypeShadowsocks) {
-			return &husiv1.AndroidVPNType{CoreType: androidVPNCoreTypeShadowsocks}, nil
+			return &AndroidVPNType{CoreType: androidVPNCoreTypeShadowsocks}, nil
 		}
 	}
 	return nil, lastError
 }
 
-func readAndroidVPNTypeEntry(zipFile *zip.File) (*husiv1.AndroidVPNType, error) {
+func readAndroidVPNTypeEntry(zipFile *zip.File) (*AndroidVPNType, error) {
 	readCloser, err := zipFile.Open()
 	if err != nil {
 		return nil, err
@@ -87,7 +92,7 @@ func readAndroidVPNTypeEntry(zipFile *zip.File) (*husiv1.AndroidVPNType, error) 
 	if err != nil {
 		return nil, err
 	}
-	vpnType := &husiv1.AndroidVPNType{
+	vpnType := AndroidVPNType{
 		GoVersion: buildInfo.GoVersion,
 		CoreType:  androidVPNCoreTypeUnknown,
 	}
@@ -98,7 +103,7 @@ func readAndroidVPNTypeEntry(zipFile *zip.File) (*husiv1.AndroidVPNType, error) 
 	}
 	if len(buildInfo.Deps) == 0 {
 		vpnType.CoreType = "obfuscated"
-		return vpnType, nil
+		return &vpnType, nil
 	}
 
 	dependencies := make(map[string]bool)
@@ -120,19 +125,20 @@ func readAndroidVPNTypeEntry(zipFile *zip.File) (*husiv1.AndroidVPNType, error) 
 			pkgType, loaded := determinePkgTypeSecondary(dependency)
 			if loaded {
 				vpnType.CoreType = pkgType
-				return vpnType, nil
+				return &vpnType, nil
 			}
 		}
 	}
 	if vpnType.CoreType != androidVPNCoreTypeUnknown {
 		vpnType.CorePath, _ = determineCorePath(buildInfo, vpnType.CoreType)
-		return vpnType, nil
+		return &vpnType, nil
 	}
+	// *ray love protobuf
 	if dependencies["github.com/golang/protobuf"] && dependencies["github.com/v2fly/ss-bloomring"] {
 		vpnType.CoreType = androidVPNCoreTypeV2Ray
-		return vpnType, nil
+		return &vpnType, nil
 	}
-	return vpnType, nil
+	return &vpnType, nil
 }
 
 func determinePkgType(pkgName string) (string, bool) {
@@ -142,7 +148,7 @@ func determinePkgType(pkgName string) (string, bool) {
 		return androidVPNCoreTypeSingBox, true
 	}
 	// SagerNet use clash, too. So determines V2Ray prior to Clash.
-	if strings.Contains(pkgNameLower, "v2ray") || strings.Contains(pkgNameLower, "xray") || strings.Contains(pkgNameLower, "exclave-core") {
+	if strings.Contains(pkgNameLower, "v2ray") || strings.Contains(pkgNameLower, "xray") {
 		return androidVPNCoreTypeV2Ray, true
 	}
 	if strings.Contains(pkgNameLower, "clash") || strings.Contains(pkgNameLower, "mihomo") {

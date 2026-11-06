@@ -26,7 +26,7 @@ data class SpeedStats(
     val rxRateDirect: Long = 0L,
 
     // Bytes for the current session
-    // Outbound "direct" usage is not counted
+    // Outbound "bypass" usage is not counted
     val txTotal: Long = 0L,
     val rxTotal: Long = 0L,
 )
@@ -37,6 +37,11 @@ data class ServiceStatus(
     val speed: SpeedStats? = null,
 )
 
+data class Alert(
+    val type: Int,
+    val message: String,
+)
+
 object BackendState {
     val status: StateFlow<ServiceStatus>
         field = MutableStateFlow(ServiceStatus())
@@ -44,15 +49,9 @@ object BackendState {
     val connected: StateFlow<Boolean>
         field = MutableStateFlow(false)
 
-    val alerts: SharedFlow<ServiceAlert>
-        field = MutableSharedFlow<ServiceAlert>(
+    val alerts: SharedFlow<Alert>
+        field = MutableSharedFlow<Alert>(
             extraBufferCapacity = 1,
-            onBufferOverflow = BufferOverflow.DROP_OLDEST,
-        )
-
-    val speedUpdates: SharedFlow<SpeedStats?>
-        field = MutableSharedFlow(
-            extraBufferCapacity = 16,
             onBufferOverflow = BufferOverflow.DROP_OLDEST,
         )
 
@@ -62,11 +61,10 @@ object BackendState {
 
     fun updateSpeed(speed: SpeedStats?) {
         status.value = status.value.copy(speed = speed)
-        speedUpdates.tryEmit(speed)
     }
 
-    fun emitAlert(alert: ServiceAlert) {
-        alerts.tryEmit(alert)
+    fun emitAlert(type: Int, message: String) {
+        alerts.tryEmit(Alert(type, message))
     }
 
     fun setConnected(value: Boolean) {
@@ -76,6 +74,5 @@ object BackendState {
     fun reset() {
         connected.value = false
         status.value = ServiceStatus()
-        speedUpdates.tryEmit(null)
     }
 }

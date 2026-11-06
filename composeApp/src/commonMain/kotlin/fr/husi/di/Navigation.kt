@@ -2,6 +2,7 @@
 
 package fr.husi.di
 
+import androidx.navigation3.runtime.NavKey
 import fr.husi.results.LocalResultEventBus
 import fr.husi.ui.AboutScreen
 import fr.husi.ui.AssetEditScreen
@@ -9,68 +10,67 @@ import fr.husi.ui.AssetsScreen
 import fr.husi.ui.GroupScreen
 import fr.husi.ui.GroupSettingsScreen
 import fr.husi.ui.LibrariesScreen
-import fr.husi.ui.LocalNavigator
-import fr.husi.ui.log.LogcatScreen
+import fr.husi.ui.DrawerController
+import fr.husi.ui.LogcatScreen
+import fr.husi.ui.Navigator
 import fr.husi.ui.MainScreenScope
 import fr.husi.ui.MainViewModel
-import fr.husi.ui.SnackbarEmitter
 import fr.husi.ui.NavRoutes
 import fr.husi.ui.PluginScreen
 import fr.husi.ui.ProfilePickerController
 import fr.husi.ui.RouteScreen
 import fr.husi.ui.RouteSettingsScreen
+import fr.husi.ui.SettingsScreen
 import fr.husi.ui.configuration.ConfigurationScreen
+import fr.husi.ui.dashboard.ConnectionDetailScreen
 import fr.husi.ui.dashboard.DashboardScreen
-import fr.husi.ui.jsoneditor.ConfigEditScreen
-import fr.husi.ui.profile.ProfileEditorResult
+import fr.husi.ui.profile.ConfigEditScreen
 import fr.husi.ui.profile.ProfileEditorScreen
 import fr.husi.ui.profile.SIP003EditorScreen
-import fr.husi.ui.remote.RemoteControlScreen
-import fr.husi.ui.remote.RemoteServerEditScreen
-import fr.husi.ui.settings.SettingsPageScreen
-import fr.husi.ui.settings.SettingsScreen
-import fr.husi.ui.tailscale.TaildropInboxScreen
-import fr.husi.ui.tailscale.TailscaleEndpointScreen
-import fr.husi.ui.tailscale.TailscaleExitNodeScreen
-import fr.husi.ui.tailscale.TailscalePeerScreen
-import fr.husi.ui.tools.BackupScreen
-import fr.husi.ui.tools.DebugScreen
 import fr.husi.ui.tools.GetCertScreen
-import fr.husi.ui.tools.NetworkQualityScreen
-import fr.husi.ui.tools.NetworkScreen
 import fr.husi.ui.tools.RuleSetMatchScreen
+import fr.husi.ui.tools.SpeedtestScreen
+import fr.husi.ui.tools.SpeedTestScreenViewModel
 import fr.husi.ui.tools.StunScreen
+import fr.husi.ui.tools.ToolsScreen
+import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.annotation.KoinExperimentalAPI
 import org.koin.core.module.dsl.scopedOf
+import org.koin.core.module.dsl.viewModel
+import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.module
 import org.koin.dsl.navigation3.navigation
-import org.koin.dsl.onClose
 
 internal val commonNavigationModule = module {
     scope<MainScreenScope> {
-        scopedOf(::MainViewModel) onClose { it?.close() }
+        viewModelOf(::MainViewModel)
+        viewModel { SpeedTestScreenViewModel(httpClientFactory = get()) }
+        scoped { (backStack: MutableList<NavKey>) ->
+            Navigator(backStack)
+        }
+        scoped { (onDrawerClick: () -> Unit) ->
+            DrawerController(onDrawerClick)
+        }
         scopedOf(::ProfilePickerController)
-        scopedOf(::SnackbarEmitter)
 
         navigation<NavRoutes.Configuration> { _ ->
-            val viewModel = get<MainViewModel>()
-            val navigator = LocalNavigator.current
+            val drawerController = get<DrawerController>()
+            val viewModel = koinViewModel<MainViewModel>()
+            val navigator = get<Navigator>()
             ConfigurationScreen(
                 mainViewModel = viewModel,
-                onOpenGroups = { navigator.navigateTo(NavRoutes.Groups) },
-                onOpenGroupSettings = { groupId ->
-                    navigator.navigateTo(NavRoutes.GroupSettings(groupId = groupId))
-                },
+                onNavigationClick = drawerController::toggle,
                 onOpenProfileEditor = navigator::navigateTo,
             )
         }
 
         navigation<NavRoutes.Groups> { _ ->
-            val viewModel = get<MainViewModel>()
-            val navigator = LocalNavigator.current
+            val drawerController = get<DrawerController>()
+            val viewModel = koinViewModel<MainViewModel>()
+            val navigator = get<Navigator>()
             GroupScreen(
                 mainViewModel = viewModel,
-                onBackPress = { navigator.popBackStack() },
+                onDrawerClick = drawerController::toggle,
                 openGroupSettings = { groupId ->
                     navigator.navigateTo(NavRoutes.GroupSettings(groupId = groupId))
                 },
@@ -78,8 +78,12 @@ internal val commonNavigationModule = module {
         }
 
         navigation<NavRoutes.Route> { _ ->
-            val navigator = LocalNavigator.current
+            val drawerController = get<DrawerController>()
+            val viewModel = koinViewModel<MainViewModel>()
+            val navigator = get<Navigator>()
             RouteScreen(
+                mainViewModel = viewModel,
+                onDrawerClick = drawerController::toggle,
                 openRouteSettings = { routeId ->
                     navigator.navigateTo(NavRoutes.RouteSettings(routeId = routeId))
                 },
@@ -90,64 +94,54 @@ internal val commonNavigationModule = module {
         }
 
         navigation<NavRoutes.Settings> { _ ->
-            val navigator = LocalNavigator.current
+            val drawerController = get<DrawerController>()
+            val viewModel = koinViewModel<MainViewModel>()
+            val navigator = get<Navigator>()
             SettingsScreen(
-                openSettingsPage = { kind ->
-                    navigator.navigateTo(NavRoutes.SettingsPage(kind))
+                mainViewModel = viewModel,
+                onDrawerClick = drawerController::toggle,
+                openAppManager = {
+                    navigator.navigateTo(NavRoutes.AppManager)
                 },
-                openTool = navigator::navigateTo,
-                openPlugin = { navigator.navigateTo(NavRoutes.Plugin) },
-                openAbout = { navigator.navigateTo(NavRoutes.About) },
-                openRemoteControl = { navigator.navigateTo(NavRoutes.RemoteControl) },
-            )
-        }
-
-        navigation<NavRoutes.RemoteControl> { _ ->
-            val navigator = LocalNavigator.current
-            RemoteControlScreen(
-                onBackPress = { navigator.popBackStack() },
-                onEditServer = { id ->
-                    navigator.navigateTo(NavRoutes.RemoteServerEdit(id = id))
-                },
-            )
-        }
-
-        navigation<NavRoutes.RemoteServerEdit> { route ->
-            val navigator = LocalNavigator.current
-            RemoteServerEditScreen(
-                serverId = route.id,
-                onBackPress = { navigator.popBackStack() },
-            )
-        }
-
-        navigation<NavRoutes.SettingsPage> { route ->
-            val navigator = LocalNavigator.current
-            SettingsPageScreen(
-                kind = route.kind,
-                onBackPress = { navigator.popBackStack() },
-                openAppManager = { navigator.navigateTo(NavRoutes.AppManager) },
             )
         }
 
         navigation<NavRoutes.Plugin> { _ ->
-            val navigator = LocalNavigator.current
+            val drawerController = get<DrawerController>()
+            val viewModel = koinViewModel<MainViewModel>()
             PluginScreen(
-                onBackPress = { navigator.popBackStack() },
+                mainViewModel = viewModel,
+                onDrawerClick = drawerController::toggle,
             )
         }
 
         navigation<NavRoutes.Log> { _ ->
-            val navigator = LocalNavigator.current
+            val drawerController = get<DrawerController>()
+            val viewModel = koinViewModel<MainViewModel>()
             LogcatScreen(
-                onOpenRemoteControl = { navigator.navigateTo(NavRoutes.RemoteControl) },
+                mainViewModel = viewModel,
+                onDrawerClick = drawerController::toggle,
             )
         }
 
         navigation<NavRoutes.Dashboard> { _ ->
-            val navigator = LocalNavigator.current
+            val drawerController = get<DrawerController>()
+            val viewModel = koinViewModel<MainViewModel>()
+            val navigator = get<Navigator>()
             DashboardScreen(
-                openConnectController = get(),
-                openVPNController = get(),
+                mainViewModel = viewModel,
+                onDrawerClick = drawerController::toggle,
+                openConnectionDetail = { uuid ->
+                    navigator.navigateTo(NavRoutes.ConnectionsDetail(uuid = uuid))
+                },
+            )
+        }
+
+        navigation<NavRoutes.ConnectionsDetail> { route ->
+            val navigator = get<Navigator>()
+            ConnectionDetailScreen(
+                uuid = route.uuid,
+                popup = { navigator.popBackStack() },
                 openRouteSettings = { initialState ->
                     navigator.navigateTo(
                         NavRoutes.RouteSettings(
@@ -157,57 +151,11 @@ internal val commonNavigationModule = module {
                         ),
                     )
                 },
-                onOpenRemoteControl = { navigator.navigateTo(NavRoutes.RemoteControl) },
-                onOpenTailscaleEndpoint = { tag ->
-                    navigator.navigateTo(NavRoutes.Tailscale.Endpoint(tag))
-                },
-            )
-        }
-
-        navigation<NavRoutes.Tailscale.Endpoint> { route ->
-            val navigator = LocalNavigator.current
-            TailscaleEndpointScreen(
-                endpointTag = route.endpointTag,
-                onBackPress = navigator::popBackStack,
-                onOpenPeer = { peerId ->
-                    navigator.navigateTo(NavRoutes.Tailscale.Peer(route.endpointTag, peerId))
-                },
-                onOpenExitNode = {
-                    navigator.navigateTo(NavRoutes.Tailscale.ExitNodePicker(route.endpointTag))
-                },
-                onOpenInbox = {
-                    navigator.navigateTo(NavRoutes.Tailscale.TaildropInbox(route.endpointTag))
-                },
-            )
-        }
-
-        navigation<NavRoutes.Tailscale.Peer> { route ->
-            val navigator = LocalNavigator.current
-            TailscalePeerScreen(
-                endpointTag = route.endpointTag,
-                peerId = route.peerId,
-                onBackPress = navigator::popBackStack,
-            )
-        }
-
-        navigation<NavRoutes.Tailscale.ExitNodePicker> { route ->
-            val navigator = LocalNavigator.current
-            TailscaleExitNodeScreen(
-                endpointTag = route.endpointTag,
-                onBackPress = navigator::popBackStack,
-            )
-        }
-
-        navigation<NavRoutes.Tailscale.TaildropInbox> { route ->
-            val navigator = LocalNavigator.current
-            TaildropInboxScreen(
-                endpointTag = route.endpointTag,
-                onBackPress = navigator::popBackStack,
             )
         }
 
         navigation<NavRoutes.ProfileEditor> { route ->
-            val navigator = LocalNavigator.current
+            val navigator = get<Navigator>()
             val profilePickerController = get<ProfilePickerController>()
             val resultBus = LocalResultEventBus.current
             ProfileEditorScreen(
@@ -218,22 +166,24 @@ internal val commonNavigationModule = module {
                 onOpenConfigEditor = navigator::navigateTo,
                 onOpenSIP003Editor = navigator::navigateTo,
                 onResult = { updated ->
-                    resultBus.sendResult(result = ProfileEditorResult(profileId = route.id, updated = updated))
+                    resultBus.sendResult(route.resultKey, updated)
                     navigator.popBackStack()
                 },
             )
         }
 
         navigation<NavRoutes.GroupSettings> { route ->
-            val navigator = LocalNavigator.current
+            val navigator = get<Navigator>()
+            val profilePickerController = get<ProfilePickerController>()
             GroupSettingsScreen(
                 groupId = route.groupId,
                 onBackPress = { navigator.popBackStack() },
+                onOpenProfileSelect = profilePickerController::open,
             )
         }
 
         navigation<NavRoutes.RouteSettings> { route ->
-            val navigator = LocalNavigator.current
+            val navigator = get<Navigator>()
             val profilePickerController = get<ProfilePickerController>()
             RouteSettingsScreen(
                 routeId = route.routeId,
@@ -247,17 +197,16 @@ internal val commonNavigationModule = module {
         }
 
         navigation<NavRoutes.ConfigEditor> { route ->
-            val navigator = LocalNavigator.current
+            val navigator = get<Navigator>()
             ConfigEditScreen(
                 initialText = route.initialText,
                 resultKey = route.resultKey,
-                schema = route.schema,
                 onBack = { navigator.popBackStack() },
             )
         }
 
         navigation<NavRoutes.SIP003Editor> { route ->
-            val navigator = LocalNavigator.current
+            val navigator = get<Navigator>()
             SIP003EditorScreen(
                 pluginName = route.pluginName,
                 initialOpts = route.initialOpts,
@@ -267,7 +216,7 @@ internal val commonNavigationModule = module {
         }
 
         navigation<NavRoutes.Assets> { _ ->
-            val navigator = LocalNavigator.current
+            val navigator = get<Navigator>()
             AssetsScreen(
                 onBackPress = { navigator.popBackStack() },
                 onOpenAssetEditor = navigator::navigateTo,
@@ -275,7 +224,7 @@ internal val commonNavigationModule = module {
         }
 
         navigation<NavRoutes.AssetEdit> { route ->
-            val navigator = LocalNavigator.current
+            val navigator = get<Navigator>()
             AssetEditScreen(
                 assetName = route.assetName,
                 resultKey = route.resultKey,
@@ -283,62 +232,52 @@ internal val commonNavigationModule = module {
             )
         }
 
-        navigation<NavRoutes.ToolsPage.Network> { _ ->
-            val navigator = LocalNavigator.current
-            NetworkScreen(
-                onBackPress = { navigator.popBackStack() },
+        navigation<NavRoutes.Tools> { _ ->
+            val drawerController = get<DrawerController>()
+            val viewModel = koinViewModel<MainViewModel>()
+            val navigator = get<Navigator>()
+            ToolsScreen(
+                mainViewModel = viewModel,
+                onDrawerClick = drawerController::toggle,
                 onOpenTool = navigator::navigateTo,
             )
         }
 
-        navigation<NavRoutes.ToolsPage.Backup> { _ ->
-            val navigator = LocalNavigator.current
-            BackupScreen(
-                onBackPress = { navigator.popBackStack() },
-            )
-        }
-
-        navigation<NavRoutes.ToolsPage.Debug> { _ ->
-            val navigator = LocalNavigator.current
-            DebugScreen(
-                onBackPress = { navigator.popBackStack() },
-            )
-        }
-
         navigation<NavRoutes.ToolsPage.Stun> { _ ->
-            val navigator = LocalNavigator.current
+            val navigator = get<Navigator>()
             StunScreen(
                 onBackPress = { navigator.popBackStack() },
-                onOpenRemoteControl = { navigator.navigateTo(NavRoutes.RemoteControl) },
             )
         }
 
         navigation<NavRoutes.ToolsPage.GetCert> { _ ->
-            val navigator = LocalNavigator.current
+            val navigator = get<Navigator>()
             GetCertScreen(
                 onBack = { navigator.popBackStack() },
             )
         }
 
-        navigation<NavRoutes.ToolsPage.NetworkQuality> { _ ->
-            val navigator = LocalNavigator.current
-            NetworkQualityScreen(
+        navigation<NavRoutes.ToolsPage.SpeedTest> { _ ->
+            val navigator = get<Navigator>()
+            SpeedtestScreen(
                 onBackPress = { navigator.popBackStack() },
-                onOpenRemoteControl = { navigator.navigateTo(NavRoutes.RemoteControl) },
             )
         }
 
         navigation<NavRoutes.ToolsPage.RuleSetMatch> { _ ->
-            val navigator = LocalNavigator.current
+            val navigator = get<Navigator>()
             RuleSetMatchScreen(
                 onBackPress = { navigator.popBackStack() },
             )
         }
 
         navigation<NavRoutes.About> { _ ->
-            val navigator = LocalNavigator.current
+            val drawerController = get<DrawerController>()
+            val viewModel = koinViewModel<MainViewModel>()
+            val navigator = get<Navigator>()
             AboutScreen(
-                onBackPress = { navigator.popBackStack() },
+                mainViewModel = viewModel,
+                onDrawerClick = drawerController::toggle,
                 onNavigateToLibraries = {
                     navigator.navigateTo(NavRoutes.Libraries)
                 },
@@ -346,7 +285,7 @@ internal val commonNavigationModule = module {
         }
 
         navigation<NavRoutes.Libraries> { _ ->
-            val navigator = LocalNavigator.current
+            val navigator = get<Navigator>()
             LibrariesScreen(
                 onBackPress = { navigator.popBackStack() },
             )

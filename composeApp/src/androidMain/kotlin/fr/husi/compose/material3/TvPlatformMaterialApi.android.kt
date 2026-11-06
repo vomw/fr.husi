@@ -3,13 +3,10 @@ package fr.husi.compose.material3
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -17,12 +14,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.material3.PrimaryScrollableTabRow as MaterialPrimaryScrollableTabRow
 import androidx.compose.material3.PrimaryTabRow as MaterialPrimaryTabRow
+import androidx.compose.material3.Tab as MaterialTab
 import androidx.compose.material3.Icon as MaterialIcon
 import androidx.compose.material3.LocalContentColor as MaterialLocalContentColor
 import androidx.compose.material3.LocalTextStyle as MaterialLocalTextStyle
 import androidx.compose.material3.Text as MaterialText
-import kotlinx.collections.immutable.ImmutableList
-import org.jetbrains.compose.resources.stringResource
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -32,9 +28,6 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
@@ -48,6 +41,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.NavigationDrawerItemDefaults
+import androidx.tv.material3.LocalContentColor as TvLocalContentColor
+import androidx.tv.material3.LocalTextStyle as TvLocalTextStyle
+import androidx.tv.material3.DrawerState as TvDrawerState
 import androidx.tv.material3.DrawerValue as TvDrawerValue
 import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
@@ -57,6 +53,7 @@ import androidx.tv.material3.Button as TvButton
 import androidx.tv.material3.ButtonDefaults as TvButtonDefaults
 import androidx.tv.material3.Checkbox as TvCheckbox
 import androidx.tv.material3.contentColorFor as tvContentColorFor
+import androidx.tv.material3.Icon as TvIcon
 import androidx.tv.material3.IconButton as TvIconButton
 import androidx.tv.material3.IconButtonDefaults as TvIconButtonDefaults
 import androidx.tv.material3.MaterialTheme as TvMaterialTheme
@@ -67,10 +64,27 @@ import androidx.tv.material3.NavigationDrawerScope
 import androidx.tv.material3.Surface as TvSurface
 import androidx.tv.material3.SurfaceDefaults as TvSurfaceDefaults
 import androidx.tv.material3.Switch as TvSwitch
+import androidx.tv.material3.Text as TvText
 import androidx.tv.material3.rememberDrawerState as rememberTvDrawerState
 
 internal val LocalTvNavigationDrawerScope =
     staticCompositionLocalOf<NavigationDrawerScope?> { null }
+
+private class TVDrawerStateHolder(
+    val state: TvDrawerState,
+) : DrawerStateHolder {
+    override val canCollapse: Boolean = false
+    override val isOpen: Boolean
+        get() = state.currentValue == TvDrawerValue.Open
+
+    override suspend fun open() {
+        state.setValue(TvDrawerValue.Open)
+    }
+
+    override suspend fun close() {
+        state.setValue(TvDrawerValue.Closed)
+    }
+}
 
 internal object TvPlatformMaterialApi : PlatformMaterialApi {
     @Composable
@@ -132,71 +146,77 @@ internal object TvPlatformMaterialApi : PlatformMaterialApi {
     }
 
     @Composable
-    override fun NavigationSuite(
-        items: ImmutableList<NavigationSuiteItem>,
-        showNavigation: Boolean,
-        snackbarHost: @Composable () -> Unit,
-        floatingActionButton: @Composable () -> Unit,
-        content: @Composable () -> Unit,
-    ) {
-        Scaffold(
-            containerColor = Color.Transparent,
-            contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            snackbarHost = snackbarHost,
-            floatingActionButton = floatingActionButton,
-        ) { innerPadding ->
-            val drawerState = rememberTvDrawerState(TvDrawerValue.Open)
-            TvNavigationDrawer(
-                modifier = Modifier.padding(innerPadding),
-                drawerState = drawerState,
-                drawerContent = { drawerValue ->
-                    CompositionLocalProvider(LocalTvNavigationDrawerScope provides this) {
-                        val drawerWidth = when (drawerValue) {
-                            TvDrawerValue.Closed -> NavigationDrawerItemDefaults.CollapsedDrawerItemWidth
-                            TvDrawerValue.Open -> NavigationDrawerItemDefaults.ExpandedDrawerItemWidth
-                        }
-                        TvSurface(
-                            modifier = Modifier
-                                .width(drawerWidth)
-                                .fillMaxHeight(),
-                        ) {
-                            Column {
-                                items.forEach { item ->
-                                    TvNavigationSuiteItem(item)
-                                }
-                            }
-                        }
-                    }
-                },
-                content = content,
-            )
+    override fun rememberDrawerStateHolder(): DrawerStateHolder {
+        val drawerState = rememberTvDrawerState(TvDrawerValue.Open)
+        return remember(drawerState) {
+            TVDrawerStateHolder(drawerState)
         }
     }
 
     @Composable
-    private fun TvNavigationSuiteItem(item: NavigationSuiteItem) {
+    override fun NavigationDrawer(
+        drawerStateHolder: DrawerStateHolder,
+        drawerContent: @Composable () -> Unit,
+        content: @Composable () -> Unit,
+    ) {
+        val tvDrawerStateHolder = drawerStateHolder as TVDrawerStateHolder
+        TvNavigationDrawer(
+            drawerState = tvDrawerStateHolder.state,
+            drawerContent = { drawerValue ->
+                CompositionLocalProvider(LocalTvNavigationDrawerScope provides this) {
+                    val drawerWidth = when (drawerValue) {
+                        TvDrawerValue.Closed -> NavigationDrawerItemDefaults.CollapsedDrawerItemWidth
+                        TvDrawerValue.Open -> NavigationDrawerItemDefaults.ExpandedDrawerItemWidth
+                    }
+                    TvSurface(
+                        modifier = Modifier
+                            .width(drawerWidth)
+                            .fillMaxHeight(),
+                    ) {
+                        Column {
+                            drawerContent()
+                        }
+                    }
+                }
+            },
+            content = content,
+        )
+    }
+
+    @Composable
+    override fun DrawerItem(
+        label: @Composable () -> Unit,
+        selected: Boolean,
+        onClick: () -> Unit,
+        modifier: Modifier,
+        icon: @Composable (() -> Unit)?,
+    ) {
         val tvScope = LocalTvNavigationDrawerScope.current
         if (tvScope != null) with(tvScope) {
             val focusRequester = remember { FocusRequester() }
-            LaunchedEffect(item.selected, hasFocus) {
-                if (item.selected && hasFocus) {
+            LaunchedEffect(selected, hasFocus) {
+                if (selected && hasFocus) {
                     focusRequester.requestFocus()
                 }
             }
             TvNavigationDrawerItem(
-                selected = item.selected,
-                onClick = item.onClick,
+                selected = selected,
+                onClick = onClick,
                 leadingContent = {
-                    ProvideTvMaterialBridge {
-                        NavigationSuiteItemIcon(item)
-                    }
+                    ProvideTvMaterialBridge { icon?.invoke() }
                 },
-                modifier = Modifier.focusRequester(focusRequester),
+                modifier = modifier.focusRequester(focusRequester),
             ) {
-                ProvideTvMaterialBridge {
-                    MaterialText(stringResource(item.label))
-                }
+                ProvideTvMaterialBridge { label() }
             }
+        } else {
+            standardPlatformMaterialApi().DrawerItem(
+                label = label,
+                selected = selected,
+                onClick = onClick,
+                modifier = modifier,
+                icon = icon,
+            )
         }
     }
 
@@ -623,24 +643,22 @@ internal object TvPlatformMaterialApi : PlatformMaterialApi {
         override fun Tab(
             selected: Boolean,
             onClick: () -> Unit,
-            text: @Composable () -> Unit,
             modifier: Modifier,
             enabled: Boolean,
-            onLongClick: (() -> Unit)?,
+            text: (@Composable () -> Unit)?,
+            icon: (@Composable () -> Unit)?,
         ) {
-            LongClickTab(
+            MaterialTab(
                 selected = selected,
                 onClick = onClick,
-                text = text,
-                modifier = modifier
-                    .dpadLongPress(enabled = enabled, onLongPress = onLongClick)
-                    .onFocusChanged {
-                        if (it.isFocused) {
-                            onClick()
-                        }
-                    },
+                modifier = modifier.onFocusChanged {
+                    if (it.isFocused) {
+                        onClick()
+                    }
+                },
                 enabled = enabled,
-                onLongClick = onLongClick,
+                text = text,
+                icon = icon,
             )
         }
     }
@@ -651,20 +669,5 @@ internal object TvPlatformMaterialApi : PlatformMaterialApi {
         } else {
             Border(border = this, shape = shape)
         }
-    }
-}
-
-private fun Modifier.dpadLongPress(
-    enabled: Boolean,
-    onLongPress: (() -> Unit)?,
-): Modifier {
-    if (!enabled || onLongPress == null) return this
-    return onKeyEvent { keyEvent ->
-        val isCenterKey = keyEvent.key == Key.DirectionCenter || keyEvent.key == Key.Enter
-        if (!isCenterKey || !keyEvent.nativeKeyEvent.isLongPress) {
-            return@onKeyEvent false
-        }
-        onLongPress()
-        true
     }
 }

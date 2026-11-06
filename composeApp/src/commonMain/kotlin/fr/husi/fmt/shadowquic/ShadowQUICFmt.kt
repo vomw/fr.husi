@@ -2,21 +2,12 @@ package fr.husi.fmt.shadowquic
 
 import fr.husi.database.DataStore
 import fr.husi.fmt.LOCALHOST4
-import fr.husi.fmt.protectPath
 import fr.husi.ktx.blankAsNull
 import fr.husi.ktx.listByLineOrComma
 import fr.husi.ktx.queryParameterNotBlank
 import fr.husi.ktx.toJsonStringKxs
+import fr.husi.libcore.Libcore
 import fr.husi.logLevelString
-import io.github.xchacha20_poly1305.kpuri.Url
-import io.github.xchacha20_poly1305.kpuri.buildUrl
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.add
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
-import kotlinx.serialization.json.putJsonObject
 import java.io.File
 
 private const val BITS_PER_MEGABIT = 1_000_000L
@@ -65,14 +56,14 @@ is desired, be aware of these differences:
 - We: fragment -> `tag`
  */
 fun parseShadowQUIC(link: String): ShadowQUICBean {
-    val url = Url.parse(link)
+    val url = Libcore.parseURL(link)
     return ShadowQUICBean().apply {
         subProtocol = ShadowQUICBean.SUB_PROTOCOL_SHADOW_QUIC
-        name = url.fragment.blankAsNull() ?: url.queryParameter("tag").orEmpty()
-        username = url.username.orEmpty()
-        password = url.password.orEmpty()
-        serverAddress = url.host.orEmpty()
-        serverPort = url.port?.toIntOrNull() ?: 443
+        name = url.fragment ?: url.queryParameter("tag")
+        username = url.username
+        password = url.password
+        serverAddress = url.host
+        serverPort = url.ports.toIntOrNull() ?: 443
         sni = url.queryParameterNotBlank("sni") ?: error("shadowquic sni is empty")
         val udpMode = url.queryParameterNotBlank("udp_mode")
             ?: url.queryParameterNotBlank("udp_mod")
@@ -81,15 +72,12 @@ fun parseShadowQUIC(link: String): ShadowQUICBean {
             "datagram" -> false
             else -> true // ?
         }
-        url.queryParameterNotBlank("congestion")?.takeIf { it != "copa" }?.let {
-            congestionControl = it
-        }
         // "不填为 false（不开启），填任意内容就为 true（开启）"
         zeroRTT = url.queryParameterNotBlank("zero_rtt") != null
         val mtu = url.queryParameterNotBlank("mtu")?.toIntOrNull() ?: DEFAULT_SHARE_MTU
         initialMTU = mtu
         minimumMTU = mtu
-        alpn = url.queryParameter("alpn").orEmpty()
+        alpn = url.queryParameter("alpn")
 
         require(username.isNotBlank()) { "shadowquic username is empty" }
         require(password.isNotBlank()) { "shadowquic password is empty" }
@@ -102,11 +90,11 @@ fun ShadowQUICBean.toUri(): String {
         error("SunnyQUIC does not support standard share links")
     }
     // "推荐优先使用 sq"
-    return buildUrl("sq") {
+    return Libcore.newURL("sq").apply {
         username = this@toUri.username
         password = this@toUri.password
         host = serverAddress
-        port = serverPort.toString()
+        ports = serverPort.toString()
         addQueryParameter("sni", sni)
         addQueryParameter(
             "udp_mode",
@@ -119,9 +107,6 @@ fun ShadowQUICBean.toUri(): String {
         if (zeroRTT) {
             addQueryParameter("zero_rtt", "true")
         }
-        congestionControl.takeIf { it.isNotEmpty() && it != "brutal" }?.let {
-            addQueryParameter("congestion", it)
-        }
         if (initialMTU > 0 && initialMTU == minimumMTU) {
             addQueryParameter("mtu", initialMTU.toString())
         }
@@ -129,7 +114,7 @@ fun ShadowQUICBean.toUri(): String {
             addQueryParameter("alpn", alpns.joinToString(",") { it.trim() })
         }
         fragment = name.blankAsNull()
-    }.toString()
+    }.string
 }
 
 fun ShadowQUICBean.buildShadowQUICConfig(port: Int, shouldProtect: Boolean, logLevel: Int): String {
@@ -158,60 +143,45 @@ fun ShadowQUICBean.buildShadowQUICConfig(
     } else {
         null
     }
-    // v0.4.0 added tag, which not adapt with old versions. Keep no tag until breaking change.
-    return buildJsonObject {
-        putJsonObject("inbound") {
-            put("type", "socks")
-            put("bind-addr", "$LOCALHOST4:$port")
-        }
-        putJsonObject("outbound") {
-            put(
-                "type",
-                if (subProtocol == ShadowQUICBean.SUB_PROTOCOL_SHADOW_QUIC) {
-                    "shadowquic"
-                } else {
-                    "sunnyquic"
-                },
-            )
-            put("addr", pluginDialAddress())
-            put("username", username)
-            put("password", password)
-            put("server-name", pluginServerName(sni))
-            alpn.blankAsNull()?.listByLineOrComma()?.let { alpns ->
-                putJsonArray("alpn") {
-                    for (item in alpns) add(item)
+    val config = buildMap<String, Any?> {
+        put(
+            "inbound",
+            buildMap<String, Any?> {
+                put("type", "socks")
+                put("bind-addr", "$LOCALHOST4:$port")
+            },
+        )
+        put(
+            "outbound",
+            buildMap {
+                put(
+                    "type",
+                    if (subProtocol == ShadowQUICBean.SUB_PROTOCOL_SHADOW_QUIC) "shadowquic" else "sunnyquic",
+                )
+                put("addr", displayAddress())
+                put("username", username)
+                put("password", password)
+                put("server-name", sni.blankAsNull())
+                put("alpn", alpn.blankAsNull()?.listByLineOrComma())
+                put("initial-mtu", initialMTU.takeIf { it > 0 })
+                put("min-mtu", minimumMTU.takeIf { it > 0 })
+                put("congestion-control", buildCongestionControl())
+                put("keep-alive-interval", keepAliveInterval.takeIf { it > 0 })
+                put("extra-paths", paths)
+                put("max-path-num", paths?.let { maxPaths.coerceIn(0, it.size).takeIf { it > 0 } })
+                put("cert-path", certPath)
+                put("zero-rtt", zeroRTT.takeIf { it })
+                put("over-stream", udpOverStream.takeIf { it })
+                if (mtuDiscovery) {
+                    put("mtu-discovery", true)
+                    if (subProtocol == ShadowQUICBean.SUB_PROTOCOL_SHADOW_QUIC) {
+                        put("blackhole-detection", blackholeDetection.takeIf { it })
+                    }
                 }
-            }
-            initialMTU.takeIf { it > 0 }?.let { put("initial-mtu", it) }
-            minimumMTU.takeIf { it > 0 }?.let { put("min-mtu", it) }
-            buildCongestionControl()?.let { put("congestion-control", it) }
-            keepAliveInterval.takeIf { it > 0 }?.let { put("keep-alive-interval", it) }
-            paths?.let { extraPaths ->
-                putJsonArray("extra-paths") {
-                    for (path in extraPaths) add(path)
-                }
-                maxPaths.coerceIn(0, extraPaths.size).takeIf { it > 0 }?.let {
-                    put("max-path-num", it)
-                }
-            }
-            certPath?.let { put("cert-path", it) }
-            if (zeroRTT) {
-                put("zero-rtt", true)
-            }
-            if (udpOverStream) {
-                put("over-stream", true)
-            }
-            if (mtuDiscovery) {
-                put("mtu-discovery", true)
-                if (subProtocol == ShadowQUICBean.SUB_PROTOCOL_SHADOW_QUIC && blackholeDetection) {
-                    put("blackhole-detection", true)
-                }
-            }
-            put("gso", gso)
-            if (shouldProtect) {
-                put("protect-path", protectPath)
-            }
-        }
+                put("gso", gso)
+                put("protect-path", if (shouldProtect) Libcore.ProtectPath else null)
+            },
+        )
         put(
             "log-level",
             when (logLevel) {
@@ -219,19 +189,23 @@ fun ShadowQUICBean.buildShadowQUICConfig(
                 else -> logLevelString(logLevel)
             },
         )
-    }.toJsonStringKxs()
+    }
+    return config.toJsonStringKxs()
 }
 
-private fun ShadowQUICBean.buildCongestionControl(): JsonElement? {
+private fun ShadowQUICBean.buildCongestionControl(): Any? {
     if (congestionControl != ShadowQUICBean.CONGESTION_CONTROL_BRUTAL) {
-        return congestionControl.blankAsNull()?.let { JsonPrimitive(it) }
+        return congestionControl.blankAsNull()
     }
-    return buildJsonObject {
-        putJsonObject(ShadowQUICBean.CONGESTION_CONTROL_BRUTAL) {
-            unifyBrutalBandwidthBps(DataStore.uploadSpeed.getBlocking())?.let {
-                put("bandwidth", it)
-            }
-        }
+    return buildMap<String, Any?> {
+        put(
+            ShadowQUICBean.CONGESTION_CONTROL_BRUTAL,
+            buildMap<String, Any?> {
+                unifyBrutalBandwidthBps(DataStore.uploadSpeed)?.let {
+                    put("bandwidth", it)
+                }
+            },
+        )
     }
 }
 

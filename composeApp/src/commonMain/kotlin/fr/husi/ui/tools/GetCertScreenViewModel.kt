@@ -4,19 +4,14 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import fr.husi.core.CoreClient
 import fr.husi.ktx.Logs
 import fr.husi.ktx.currentSocks5
-import fr.husi.ktx.pemToHysteriaCertSha256Hex
-import fr.husi.ktx.pemToSingPublicKeySha256
-import fr.husi.ktx.pemToV2RayCertChainHash
-import fr.husi.proto.v1.GetCertMode
+import fr.husi.libcore.Libcore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import org.koin.core.context.GlobalContext
 
 @Immutable
 internal data class GetCertUiState(
@@ -44,9 +39,7 @@ internal enum class Format(val display: String) {
 }
 
 @Stable
-internal class GetCertScreenViewModel(
-    private val coreClient: CoreClient = GlobalContext.get().get(),
-) : ViewModel() {
+internal class GetCertScreenViewModel() : ViewModel() {
 
     val uiState: StateFlow<GetCertUiState>
         field = MutableStateFlow(GetCertUiState())
@@ -55,10 +48,8 @@ internal class GetCertScreenViewModel(
         initialize()
     }
 
-    private fun initialize() = viewModelScope.launch {
-        uiState.update { state ->
-            state.copy(proxy = currentSocks5()?.toString().orEmpty())
-        }
+    fun initialize() {
+        uiState.update { it.copy(proxy = currentSocks5()?.string ?: "") }
     }
 
     fun launch() = viewModelScope.launch(Dispatchers.IO) {
@@ -77,11 +68,7 @@ internal class GetCertScreenViewModel(
             it.copy(isDoing = true, cert = "", formatted = "")
         }
         try {
-            val mode = when (protocol) {
-                "quic" -> GetCertMode.GET_CERT_MODE_QUIC
-                else -> GetCertMode.GET_CERT_MODE_HTTPS
-            }
-            val cert = coreClient.getCert(server, serverName, mode, proxy)
+            val cert = Libcore.getCert(server, serverName, protocol, proxy)
             uiState.update {
                 it.copy(
                     cert = cert,
@@ -127,9 +114,9 @@ internal class GetCertScreenViewModel(
         if (cert.isBlank()) return ""
         return when (format) {
             Format.Raw -> ""
-            Format.V2RayPem -> pemToV2RayCertChainHash(cert)
-            Format.HysteriaHex -> pemToHysteriaCertSha256Hex(cert)
-            Format.SingPublicKeyBase64 -> pemToSingPublicKeySha256(cert)
+            Format.V2RayPem -> Libcore.toV2RayPemHash(cert)
+            Format.HysteriaHex -> Libcore.toHysteriaHexSha256(cert)
+            Format.SingPublicKeyBase64 -> Libcore.toSingPublicKeySha256(cert)
         }
     }
 }

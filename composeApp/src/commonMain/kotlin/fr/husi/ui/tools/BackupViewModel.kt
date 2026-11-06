@@ -10,31 +10,26 @@ import fr.husi.database.ProxyEntity
 import fr.husi.database.ProxyGroup
 import fr.husi.database.RuleEntity
 import fr.husi.database.SagerDatabase
-import fr.husi.fmt.BeanConverters
+import fr.husi.fmt.KryoConverters
 import fr.husi.ktx.Logs
 import fr.husi.ktx.b64Decode
 import fr.husi.ktx.b64EncodeUrlSafe
-import fr.husi.ktx.fileNameTimestamp
+import fr.husi.ktx.currentBackupFileTimestamp
 import fr.husi.ktx.kxs
+import fr.husi.ktx.onDefaultDispatcher
+import fr.husi.ktx.onIoDispatcher
 import fr.husi.ktx.readableMessage
 import fr.husi.ktx.runOnDefaultDispatcher
-import fr.husi.net.WebDAVClient
-import fr.husi.net.WebDAVEntry
-import fr.husi.net.WebDAVServer
-import fr.husi.net.localSocks5Proxy
-import fr.husi.net.resolveWebDAVClient
-import fr.husi.repository.resolveRepository
 import java.io.File
-import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -50,36 +45,11 @@ internal data class BackupPayload(
 )
 
 @Immutable
-internal data class WebDAVConfig(
-    val url: String = "",
-    val username: String = "",
-    val password: String = "",
-) {
-    val isConfigured get() = url.isNotBlank()
-}
-
-internal enum class WebDAVBackupsPurpose {
-    RESTORE,
-    DELETE,
-}
-
-/** The backups found on the WebDAV server while the user picks from them. */
-@Immutable
-internal data class WebDAVBackups(
-    val purpose: WebDAVBackupsPurpose,
-    /** Newest first. */
-    val entries: List<WebDAVEntry>,
-)
-
-@Immutable
 internal data class BackupUiState(
     val options: Int = OPTIONS_GROUPS_AND_CONFIGURATION or OPTIONS_RULES or OPTIONS_SETTINGS,
     val exported: String? = null,
     val inputResult: BackupPayload? = null,
     val isImporting: Boolean = false,
-    val webdav: WebDAVConfig = WebDAVConfig(),
-    val webdavBackups: WebDAVBackups? = null,
-    val isWebDAVBusy: Boolean = false,
 ) {
     companion object {
         const val OPTIONS_GROUPS_AND_CONFIGURATION = 1 shl 0
@@ -93,40 +63,14 @@ internal data class BackupUiState(
 }
 
 @Stable
-internal class BackupViewModel(
-    private val webdavClient: WebDAVClient = resolveWebDAVClient(),
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-) : ViewModel() {
+internal class BackupViewModel : ViewModel() {
 
     companion object {
         const val BACKUP_VERSION = 3
-        const val BACKUP_FILE_EXTENSION = "json"
-        private const val BACKUP_FILE_PREFIX = "husi_backup_"
-
-        /** File name of a new backup, without [BACKUP_FILE_EXTENSION]. */
-        fun backupFileBaseName(): String = BACKUP_FILE_PREFIX + fileNameTimestamp()
-
-        private fun backupFileName(): String = "${backupFileBaseName()}.$BACKUP_FILE_EXTENSION"
-
-        fun isBackupFileName(name: String): Boolean =
-            name.startsWith(BACKUP_FILE_PREFIX) && name.endsWith(".$BACKUP_FILE_EXTENSION")
     }
 
     val uiState: StateFlow<BackupUiState>
         field = MutableStateFlow(BackupUiState())
-
-    init {
-        viewModelScope.launch {
-            combine(
-                DataStore.webdavURL.flow(),
-                DataStore.webdavUsername.flow(),
-                DataStore.webdavPassword.flow(),
-                ::WebDAVConfig,
-            ).collect { config ->
-                uiState.update { state -> state.copy(webdav = config) }
-            }
-        }
-    }
 
     fun setBackupGroupsAndConfig(enable: Boolean) = viewModelScope.launch {
         uiState.update { state ->
@@ -162,8 +106,9 @@ internal class BackupViewModel(
     }
 
     fun export() = viewModelScope.launch {
-        val content = withContext(ioDispatcher) {
-            createBackup()
+        val state = uiState.value
+        val content = onIoDispatcher {
+            createBackup(state.backupGroupsAndConfig, state.backupRules, state.backupSettings)
         }
         uiState.update { state ->
             state.copy(exported = content)
@@ -171,114 +116,54 @@ internal class BackupViewModel(
     }
 
     fun share(
+        createFile: (name: String) -> File,
         launch: (File) -> Unit,
         onFailed: (message: String) -> Unit,
-    ) = viewModelScope.launch(ioDispatcher) {
+    ) = viewModelScope.launch(Dispatchers.IO) {
+        val state = uiState.value
+        val content =
+            createBackup(state.backupGroupsAndConfig, state.backupRules, state.backupSettings)
+
+        val time = currentBackupFileTimestamp()
+        val fileName = "husi_backup_${time}.json"
         try {
-            launch(writeBackupFile())
+            val file = createFile(fileName)
+            file.writeText(content)
+            launch(file)
         } catch (e: Exception) {
             Logs.e(e)
             onFailed(e.readableMessage)
         }
-    }
-
-    fun saveWebDAVConfig(config: WebDAVConfig) = viewModelScope.launch {
-        DataStore.webdavURL.set(config.url.trim())
-        DataStore.webdavUsername.set(config.username)
-        DataStore.webdavPassword.set(config.password)
-    }
-
-    fun uploadToWebDAV(
-        onSuccess: () -> Unit,
-        onFailed: (message: String) -> Unit,
-    ) = runWebDAV(onFailed) {
-        webdavClient.upload(
-            webdavServer(),
-            backupFileName(),
-            createBackup().encodeToByteArray(),
-        )
-        onSuccess()
-    }
-
-    fun loadWebDAVBackups(
-        purpose: WebDAVBackupsPurpose,
-        onFailed: (message: String) -> Unit,
-    ) = runWebDAV(onFailed) {
-        val entries = webdavClient.list(webdavServer())
-            .filter { isBackupFileName(it.name) }
-            .sortedWith(compareByDescending<WebDAVEntry> { it.modified }.thenByDescending { it.name })
-        uiState.update { state -> state.copy(webdavBackups = WebDAVBackups(purpose, entries)) }
-    }
-
-    fun dismissWebDAVBackups() {
-        uiState.update { state -> state.copy(webdavBackups = null) }
-    }
-
-    fun restoreFromWebDAV(
-        entry: WebDAVEntry,
-        onFailed: (message: String) -> Unit,
-    ) = runWebDAV(onFailed) {
-        dismissWebDAVBackups()
-        val content = webdavClient.download(webdavServer(), entry.name)
-        input(content.decodeToString())
-    }
-
-    /** Stops at the first failure; the backups before it stay deleted. */
-    fun deleteFromWebDAV(
-        entries: List<WebDAVEntry>,
-        onSuccess: () -> Unit,
-        onFailed: (message: String) -> Unit,
-    ) = runWebDAV(onFailed) {
-        dismissWebDAVBackups()
-        val server = webdavServer()
-        for (entry in entries) {
-            webdavClient.delete(server, entry.name)
-        }
-        onSuccess()
     }
 
     fun inputFromBytes(
         bytes: ByteArray,
         onError: (message: String) -> Unit,
-    ) = viewModelScope.launch(ioDispatcher) {
+    ) = inputFromString(
+        content = bytes.decodeToString(),
+        onError = onError,
+    )
+
+    private fun inputFromString(
+        content: String,
+        onError: (message: String) -> Unit,
+    ) = viewModelScope.launch(Dispatchers.IO) {
         try {
-            input(bytes.decodeToString())
+            val backup = kxs.decodeFromString<BackupPayload>(content)
+            val version = backup.version
+            if (version != BACKUP_VERSION) error("Unsupported backup version $version (expected $BACKUP_VERSION)")
+            onDefaultDispatcher {
+                uiState.update { state ->
+                    state.copy(
+                        inputResult = backup,
+                    )
+                }
+            }
         } catch (e: Exception) {
             Logs.e(e)
             onError(e.readableMessage)
         }
     }
-
-    private fun input(content: String) {
-        val backup = kxs.decodeFromString<BackupPayload>(content)
-        val version = backup.version
-        if (version != BACKUP_VERSION) error("Unsupported backup version $version (expected $BACKUP_VERSION)")
-        uiState.update { state ->
-            state.copy(inputResult = backup)
-        }
-    }
-
-    private fun runWebDAV(
-        onFailed: (message: String) -> Unit,
-        block: suspend () -> Unit,
-    ) = viewModelScope.launch(ioDispatcher) {
-        uiState.update { state -> state.copy(isWebDAVBusy = true) }
-        try {
-            block()
-        } catch (e: Exception) {
-            Logs.e(e)
-            onFailed(e.readableMessage)
-        } finally {
-            uiState.update { state -> state.copy(isWebDAVBusy = false) }
-        }
-    }
-
-    private suspend fun webdavServer() = WebDAVServer(
-        url = DataStore.webdavURL.get(),
-        username = DataStore.webdavUsername.get(),
-        password = DataStore.webdavPassword.get(),
-        socks5 = localSocks5Proxy(),
-    )
 
     fun clearInputResult() = viewModelScope.launch {
         uiState.update { state ->
@@ -302,9 +187,9 @@ internal class BackupViewModel(
             val profiles = mutableListOf<ProxyEntity>()
             for (entry in content.profiles) {
                 val data = entry.b64Decode()
-                profiles.add(BeanConverters.deserialize(ProxyEntity(), data))
+                profiles.add(KryoConverters.deserialize(ProxyEntity(), data))
             }
-            withContext(ioDispatcher) {
+            onIoDispatcher {
                 SagerDatabase.proxyDao.reset()
                 SagerDatabase.proxyDao.insert(profiles)
             }
@@ -312,28 +197,28 @@ internal class BackupViewModel(
             val groups = mutableListOf<ProxyGroup>()
             for (entry in content.groups.orEmpty()) {
                 val data = entry.b64Decode()
-                groups.add(BeanConverters.deserialize(ProxyGroup(), data))
+                groups.add(KryoConverters.deserialize(ProxyGroup(), data))
             }
-            withContext(ioDispatcher) {
+            onIoDispatcher {
                 SagerDatabase.groupDao.reset()
                 SagerDatabase.groupDao.insert(groups)
             }
         }
         if (rule && content.rules != null) {
             val rules = content.rules
-            withContext(ioDispatcher) {
+            onIoDispatcher {
                 SagerDatabase.rulesDao.reset()
                 SagerDatabase.rulesDao.insert(rules)
             }
 
             val assets = content.assets.orEmpty()
-            withContext(ioDispatcher) {
+            onIoDispatcher {
                 SagerDatabase.assetDao.reset()
                 SagerDatabase.assetDao.insert(assets)
             }
         }
         if (setting && content.settings != null) {
-            withContext(ioDispatcher) {
+            onIoDispatcher {
                 when (val rawSettings = content.settings) {
                     is JsonArray -> {
                         importLegacySettingPairs(rawSettings)
@@ -360,17 +245,7 @@ internal class BackupViewModel(
         }
     }
 
-    private suspend fun writeBackupFile(): File {
-        val file = File(resolveRepository().cacheDir, backupFileName())
-        file.writeText(createBackup())
-        return file
-    }
-
-    private suspend fun createBackup(): String {
-        val state = uiState.value
-        val profile = state.backupGroupsAndConfig
-        val rule = state.backupRules
-        val setting = state.backupSettings
+    private suspend fun createBackup(profile: Boolean, rule: Boolean, setting: Boolean): String {
         val profiles = if (profile) SagerDatabase.proxyDao.getAll().map { it.toBase64Str() } else null
         val groups = if (profile) SagerDatabase.groupDao.allGroups().first().map { it.toBase64Str() } else null
         val rules = if (rule) SagerDatabase.rulesDao.allRules().first() else null
@@ -388,6 +263,6 @@ internal class BackupViewModel(
     }
 
     private fun fr.husi.fmt.Serializable.toBase64Str(): String {
-        return BeanConverters.serialize(this).b64EncodeUrlSafe()
+        return KryoConverters.serialize(this).b64EncodeUrlSafe()
     }
 }

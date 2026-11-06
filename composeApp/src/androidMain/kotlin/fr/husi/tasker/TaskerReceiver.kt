@@ -24,32 +24,21 @@ import android.content.Intent
 import fr.husi.database.DataStore
 import fr.husi.database.ProfileManager
 import fr.husi.repository.resolveRepository
-import kotlinx.coroutines.runBlocking
 
 class TaskerReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != TaskerBundle.ACTION_FIRE_SETTING) return
-        if (!DataStore.enableTasker.getBlocking()) return
-
         val settings = TaskerBundle.fromIntent(intent)
         when (settings.action) {
             TaskerBundle.ACTION_START -> {
                 var reload = false
-                if (settings.profileId > 0 && DataStore.selectedProxy.getBlocking() != settings.profileId) {
-                    val profileExists = runBlocking {
-                        ProfileManager.getProfile(settings.profileId) != null
-                    }
-                    if (profileExists) {
-                        DataStore.selectedProxy.setBlocking(settings.profileId)
-                        reload = DataStore.currentProfile.getBlocking() != 0L
+                if (settings.profileId > 0 && DataStore.selectedProxy != settings.profileId) {
+                    if (ProfileManager.getProfile(settings.profileId) != null) {
+                        DataStore.selectedProxy = settings.profileId
+                        reload = DataStore.currentProfile != 0L
                     }
                 }
-                if (reload) {
-                    resolveRepository().reloadService()
-                } else {
-                    resolveRepository().startService()
-                }
+                if (reload) resolveRepository().reloadService() else resolveRepository().startService()
             }
 
             TaskerBundle.ACTION_STOP -> {

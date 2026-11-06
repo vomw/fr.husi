@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestParseAgeIdentities(t *testing.T) {
+func TestValidateAgeIdentities(t *testing.T) {
 	x25519Identity, err := age.GenerateX25519Identity()
 	require.NoError(t, err)
 	hybridIdentity, err := age.GenerateHybridIdentity()
@@ -54,7 +54,7 @@ func TestParseAgeIdentities(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := parseAgeIdentities(tt.text)
+			err := ValidateAgeIdentities(tt.text)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {

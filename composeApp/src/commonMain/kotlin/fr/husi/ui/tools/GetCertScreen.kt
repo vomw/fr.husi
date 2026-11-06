@@ -24,6 +24,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LoadingIndicator
@@ -31,6 +32,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import fr.husi.compose.SwipeableSnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -50,8 +54,6 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import dev.chrisbanes.haze.hazeSource
-import dev.chrisbanes.haze.rememberHazeState
 import fr.husi.compose.BoxedVerticalScrollbar
 import fr.husi.compose.CapsuleTopBar
 import fr.husi.compose.DropDownSelector
@@ -64,6 +66,7 @@ import fr.husi.compose.material3.Text
 import fr.husi.compose.setPlainText
 import fr.husi.compose.withNavigation
 import fr.husi.ktx.readableMessage
+import fr.husi.repository.resolveRepository
 import fr.husi.resources.Res
 import fr.husi.resources.action_copy
 import fr.husi.resources.arrow_back
@@ -77,29 +80,27 @@ import fr.husi.resources.get_cert
 import fr.husi.resources.get_cert_server_hint
 import fr.husi.resources.ok
 import fr.husi.resources.protocol
-import fr.husi.resources.proxy
+import fr.husi.resources.route_proxy
 import fr.husi.resources.sni
 import fr.husi.resources.start
-import fr.husi.ui.LocalSnackbarEmitter
-import fr.husi.ui.StringOrRes
-import fr.husi.ui.PreviewContainer
+import fr.husi.ui.ensurePreviewRepository
 import io.github.oikvpqya.compose.fastscroller.material3.defaultMaterialScrollbarStyle
 import io.github.oikvpqya.compose.fastscroller.rememberScrollbarAdapter
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.vectorResource
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun GetCertScreen(
     modifier: Modifier = Modifier,
     viewModel: GetCertScreenViewModel = viewModel { GetCertScreenViewModel() },
     onBack: () -> Unit,
 ) {
-    val snackbar = LocalSnackbarEmitter.current
+    val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val windowInsets = WindowInsets.safeDrawing
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
-    val hazeState = rememberHazeState()
 
     val clipboard = LocalClipboard.current
 
@@ -109,7 +110,6 @@ internal fun GetCertScreen(
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             CapsuleTopBar(
-                hazeState = hazeState,
                 navigationIcon = {
                     SimpleIconButton(
                         imageVector = vectorResource(Res.drawable.arrow_back),
@@ -122,15 +122,18 @@ internal fun GetCertScreen(
                 scrollBehavior = scrollBehavior,
             )
         },
+        snackbarHost = { SwipeableSnackbarHost(snackbarHostState) },
     ) { innerPadding ->
         GetCertContent(
-            modifier = Modifier.hazeSource(hazeState),
             contentPadding = innerPadding.withNavigation(),
             viewModel = viewModel,
             copyToClipboard = {
                 scope.launch {
                     clipboard.setPlainText(it)
-                    snackbar.show(StringOrRes.Res(Res.string.copy_success))
+                    snackbarHostState.showSnackbar(
+                        message = resolveRepository().getString(Res.string.copy_success),
+                        duration = SnackbarDuration.Short,
+                    )
                 }
             },
         )
@@ -143,7 +146,6 @@ private fun GetCertContent(
     contentPadding: PaddingValues,
     viewModel: GetCertScreenViewModel,
     copyToClipboard: (String) -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var alert by remember { mutableStateOf<String?>(null) }
@@ -153,7 +155,7 @@ private fun GetCertContent(
     }
 
     val layoutDirection = LocalLayoutDirection.current
-    Row(modifier = modifier.fillMaxSize()) {
+    Row(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -217,7 +219,7 @@ private fun GetCertContent(
                     OutlinedTextField(
                         value = uiState.proxy,
                         onValueChange = { viewModel.setProxy(it) },
-                        label = { Text(stringResource(Res.string.proxy)) },
+                        label = { Text(stringResource(Res.string.route_proxy)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -307,9 +309,7 @@ private fun GetCertContent(
         }
 
         BoxedVerticalScrollbar(
-            modifier = Modifier
-                .padding(contentPadding)
-                .fillMaxHeight(),
+            modifier = Modifier.fillMaxHeight(),
             adapter = rememberScrollbarAdapter(scrollState = scrollState),
             style = defaultMaterialScrollbarStyle().copy(
                 thickness = 12.dp,
@@ -351,12 +351,11 @@ private fun CopyButton(modifier: Modifier = Modifier, copy: () -> Unit) {
 @Preview
 @Composable
 private fun PreviewGetCert() {
-    PreviewContainer {
-        val viewModel = viewModel { GetCertScreenViewModel() }
+    ensurePreviewRepository()
+    val viewModel = viewModel { GetCertScreenViewModel() }
 
-        GetCertScreen(
-            viewModel = viewModel,
-            onBack = {},
-        )
-    }
+    GetCertScreen(
+        viewModel = viewModel,
+        onBack = {},
+    )
 }

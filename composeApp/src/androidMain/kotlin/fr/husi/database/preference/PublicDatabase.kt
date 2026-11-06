@@ -4,9 +4,8 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import fr.husi.Key
+import fr.husi.ktx.runOnDefaultDispatcher
 import fr.husi.repository.resolveAndroidRepository
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.asExecutor
 
 @Database(entities = [KeyValuePair::class], version = 1)
 abstract class PublicDatabase : RoomDatabase() {
@@ -41,9 +40,7 @@ abstract class PublicDatabase : RoomDatabase() {
                 .enableMultiInstanceInvalidation()
                 .fallbackToDestructiveMigration(true)
                 .fallbackToDestructiveMigrationOnDowngrade(true)
-                // Room queries block, so they belong on the IO pool rather than the
-                // core-count limited default one.
-                .setQueryExecutor(Dispatchers.IO.asExecutor())
+                .setQueryExecutor { runOnDefaultDispatcher { it.run() } }
                 .build()
         }
     }

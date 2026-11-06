@@ -1,11 +1,13 @@
 package fr.husi.ui
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -14,6 +16,7 @@ import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -21,41 +24,34 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import dev.chrisbanes.haze.hazeSource
-import dev.chrisbanes.haze.rememberHazeState
 import fr.husi.compose.BackHandler
 import fr.husi.compose.BoxedVerticalScrollbar
+import fr.husi.compose.CapsuleActionButton
 import fr.husi.compose.CapsuleTopBar
-import fr.husi.compose.IconMaskColors
 import fr.husi.compose.LinkOrContentTextField
+import fr.husi.compose.PreferenceDivider
+import fr.husi.compose.IconMaskColors
 import fr.husi.compose.MaskedIcon
-import fr.husi.compose.ProvidePreferenceLocals
 import fr.husi.compose.SimpleIconButton
 import fr.husi.compose.TextButton
-import fr.husi.compose.TextFieldPreference
 import fr.husi.compose.UIntegerTextField
-import fr.husi.compose.ValidatedTextField
 import fr.husi.compose.fadingEdge
 import fr.husi.compose.material3.Icon
 import fr.husi.compose.material3.Text
-import fr.husi.compose.preferenceGroup
 import fr.husi.compose.withNavigation
 import fr.husi.ktx.contentOrUnset
 import fr.husi.resources.Res
 import fr.husi.resources.apply
 import fr.husi.resources.assets_settings
-import fr.husi.resources.auto_update_off
-import fr.husi.resources.auto_update_on
 import fr.husi.resources.cancel
 import fr.husi.resources.close
 import fr.husi.resources.delete
-import fr.husi.resources.delete_asset_prompt
+import fr.husi.resources.delete_confirm_prompt
 import fr.husi.resources.done
 import fr.husi.resources.emoji_symbols
 import fr.husi.resources.error_title
@@ -73,8 +69,10 @@ import fr.husi.resources.warning_amber
 import fr.husi.results.LocalResultEventBus
 import io.github.oikvpqya.compose.fastscroller.material3.defaultMaterialScrollbarStyle
 import io.github.oikvpqya.compose.fastscroller.rememberScrollbarAdapter
-import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
+import me.zhanghai.compose.preference.ProvidePreferenceLocals
+import me.zhanghai.compose.preference.TextFieldPreference
+import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.vectorResource
 
@@ -99,6 +97,9 @@ sealed interface AssetEditResult {
         val assetName: String,
     ) : AssetEditResult
 
+    @Serializable
+    data object Canceled : AssetEditResult
+
 }
 
 @Composable
@@ -113,8 +114,13 @@ internal fun AssetEditScreen(
 
     val isDirty by viewModel.isDirty.collectAsState()
     var showBackAlert by remember { mutableStateOf(false) }
-    BackHandler(enabled = isDirty) {
-        showBackAlert = true
+    BackHandler(enabled = true) {
+        if (isDirty) {
+            showBackAlert = true
+        } else {
+            resultBus.sendResult<AssetEditResult>(resultKey, AssetEditResult.Canceled)
+            onBack()
+        }
     }
 
     val uiState by viewModel.uiState.collectAsState()
@@ -123,8 +129,7 @@ internal fun AssetEditScreen(
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
     var showDeleteConfirm by remember { mutableStateOf(false) }
-    var illegalNameMessage by remember { mutableStateOf<StringOrRes?>(null) }
-    val coroutineScope = rememberCoroutineScope()
+    var illegalNameMessage by remember { mutableStateOf<StringResource?>(null) }
 
     fun saveAndExit() {
         viewModel.save()
@@ -138,14 +143,12 @@ internal fun AssetEditScreen(
         onBack()
     }
 
-    val hazeState = rememberHazeState()
     Scaffold(
         modifier = modifier
             .fillMaxSize()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             CapsuleTopBar(
-                hazeState = hazeState,
                 navigationIcon = {
                     SimpleIconButton(
                         imageVector = vectorResource(Res.drawable.close),
@@ -154,6 +157,10 @@ internal fun AssetEditScreen(
                         if (isDirty) {
                             showBackAlert = true
                         } else {
+                            resultBus.sendResult<AssetEditResult>(
+                                resultKey,
+                                AssetEditResult.Canceled,
+                            )
                             onBack()
                         }
                     }
@@ -167,6 +174,10 @@ internal fun AssetEditScreen(
                         ) {
                             val editingAssetName = viewModel.editingName
                             if (editingAssetName.isEmpty()) {
+                                resultBus.sendResult<AssetEditResult>(
+                                    resultKey,
+                                    AssetEditResult.Canceled,
+                                )
                                 onBack()
                             } else {
                                 showDeleteConfirm = true
@@ -190,11 +201,7 @@ internal fun AssetEditScreen(
         val listState = rememberLazyListState()
         ProvidePreferenceLocals {
             val contentPadding = innerPadding.withNavigation()
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .hazeSource(hazeState),
-            ) {
+            Row(modifier = Modifier.fillMaxSize()) {
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
@@ -207,74 +214,67 @@ internal fun AssetEditScreen(
                         ),
                     contentPadding = contentPadding,
                 ) {
-                    preferenceGroup(key = "settings") {
-                        TextFieldPreference(
-                            value = uiState.name,
-                            onValueChange = { viewModel.setName(it) },
-                            title = { Text(stringResource(Res.string.route_asset_name)) },
-                            textToValue = { it },
-                            icon = {
-                                MaskedIcon(
-                                    Res.drawable.emoji_symbols,
-                                    color = IconMaskColors.IconCyan,
+                    item("settings") {
+                        ElevatedCard(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                        ) {
+                            Column {
+                                TextFieldPreference(
+                                    value = uiState.name,
+                                    onValueChange = { viewModel.setName(it) },
+                                    title = { Text(stringResource(Res.string.route_asset_name)) },
+                                    textToValue = { it },
+                                    icon = {
+                                        MaskedIcon(
+                                            Res.drawable.emoji_symbols,
+                                            color = IconMaskColors.IconCyan,
+                                        )
+                                    },
+                                    summary = { Text(contentOrUnset(uiState.name)) },
+                                    valueToText = { it },
                                 )
-                            },
-                            summary = { Text(contentOrUnset(uiState.name)) },
-                            valueToText = { it },
-                            textField = { state, onOk ->
-                                ValidatedTextField(
-                                    state = state,
-                                    onOk = onOk,
-                                    validator = { name ->
-                                        viewModel.validate(name)?.let { getStringOrRes(it) }
+                                PreferenceDivider()
+                                TextFieldPreference(
+                                    value = uiState.link,
+                                    onValueChange = { viewModel.setLink(it) },
+                                    title = { Text(stringResource(Res.string.url)) },
+                                    textToValue = { it },
+                                    icon = {
+                                        MaskedIcon(
+                                            Res.drawable.link,
+                                            color = IconMaskColors.IconLightBlue,
+                                        )
+                                    },
+                                    summary = { Text(contentOrUnset(uiState.link)) },
+                                    valueToText = { it },
+                                    textField = { value, onValueChange, onOk ->
+                                        LinkOrContentTextField(value, onValueChange, onOk)
                                     },
                                 )
-                            },
-                        )
-                        TextFieldPreference(
-                            value = uiState.link,
-                            onValueChange = { viewModel.setLink(it) },
-                            title = { Text(stringResource(Res.string.url)) },
-                            textToValue = { it },
-                            icon = {
-                                MaskedIcon(
-                                    Res.drawable.link,
-                                    color = IconMaskColors.IconLightBlue,
-                                )
-                            },
-                            summary = { Text(contentOrUnset(uiState.link)) },
-                            valueToText = { it },
-                            textField = { state, onOk ->
-                                LinkOrContentTextField(state, onOk)
-                            },
-                        )
-                        TextFieldPreference(
-                            value = uiState.autoUpdateDelay,
-                            onValueChange = { viewModel.setAutoUpdateDelay(it) },
-                            title = {
-                                Text(stringResource(Res.string.route_asset_auto_update_delay))
-                            },
-                            textToValue = { it.toIntOrNull() ?: 0 },
-                            icon = {
-                                MaskedIcon(
-                                    Res.drawable.timer,
-                                    color = IconMaskColors.IconLightOrange,
-                                )
-                            },
-                            summary = {
-                                Text(
-                                    if (uiState.autoUpdateDelay > 0) {
-                                        stringResource(Res.string.auto_update_on, uiState.autoUpdateDelay)
-                                    } else {
-                                        stringResource(Res.string.auto_update_off)
+                                PreferenceDivider()
+                                TextFieldPreference(
+                                    value = uiState.autoUpdateDelay,
+                                    onValueChange = { viewModel.setAutoUpdateDelay(it) },
+                                    title = {
+                                        Text(stringResource(Res.string.route_asset_auto_update_delay))
+                                    },
+                                    textToValue = { it.toIntOrNull() ?: 0 },
+                                    icon = {
+                                        MaskedIcon(
+                                            Res.drawable.timer,
+                                            color = IconMaskColors.IconLightOrange,
+                                        )
+                                    },
+                                    summary = { Text(uiState.autoUpdateDelay.toString()) },
+                                    valueToText = { it.toString() },
+                                    textField = { value, onValueChange, onOk ->
+                                        UIntegerTextField(value, onValueChange, onOk)
                                     },
                                 )
-                            },
-                            valueToText = { it.toString() },
-                            textField = { state, onOk ->
-                                UIntegerTextField(state, onOk)
-                            },
-                        )
+                            }
+                        }
                     }
 
                     item("bottom_padding") {
@@ -300,18 +300,17 @@ internal fun AssetEditScreen(
             onDismissRequest = { showBackAlert = false },
             confirmButton = {
                 TextButton(stringResource(Res.string.ok)) {
-                    coroutineScope.launch {
-                        viewModel.validate(viewModel.uiState.value.name)?.let {
-                            illegalNameMessage = it
-                            showBackAlert = false
-                            return@launch
-                        }
-                        saveAndExit()
+                    viewModel.validate(viewModel.uiState.value.name)?.let {
+                        illegalNameMessage = it
+                        showBackAlert = false
+                        return@TextButton
                     }
+                    saveAndExit()
                 }
             },
             dismissButton = {
                 TextButton(stringResource(Res.string.no)) {
+                    resultBus.sendResult<AssetEditResult>(resultKey, AssetEditResult.Canceled)
                     onBack()
                 }
             },
@@ -334,15 +333,16 @@ internal fun AssetEditScreen(
             },
             dismissButton = {
                 TextButton(stringResource(Res.string.cancel)) {
+                    resultBus.sendResult<AssetEditResult>(resultKey, AssetEditResult.Canceled)
                     onBack()
                 }
             },
             icon = { Icon(vectorResource(Res.drawable.warning), null) },
-            title = { Text(stringResource(Res.string.delete_asset_prompt)) },
+            title = { Text(stringResource(Res.string.delete_confirm_prompt)) },
         )
     }
 
-    illegalNameMessage?.let { message ->
+    illegalNameMessage?.let { id ->
         AlertDialog(
             onDismissRequest = { illegalNameMessage = null },
             confirmButton = {
@@ -352,7 +352,7 @@ internal fun AssetEditScreen(
             },
             icon = { Icon(vectorResource(Res.drawable.warning_amber), null) },
             title = { Text(stringResource(Res.string.error_title)) },
-            text = { Text(stringOrRes(message)) },
+            text = { Text(stringResource(id)) },
         )
     }
 }

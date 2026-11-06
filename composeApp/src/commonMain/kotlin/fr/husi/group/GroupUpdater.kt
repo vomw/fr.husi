@@ -15,6 +15,7 @@ import fr.husi.fmt.hysteria.HysteriaBean
 import fr.husi.fmt.v2ray.StandardV2RayBean
 import fr.husi.ktx.Logs
 import fr.husi.ktx.isIpAddress
+import fr.husi.ktx.onIoDispatcher
 import fr.husi.ktx.readableMessage
 import fr.husi.ktx.selectByNetworkStrategy
 import fr.husi.ktx.serverAddressDomainStrategy
@@ -31,7 +32,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 data class GroupUpdateWarning(
     val group: String,
@@ -84,9 +84,9 @@ abstract class GroupUpdater {
 
     private suspend fun forceResolve(profiles: List<AbstractBean>) = coroutineScope {
         val networkStrategy = serverAddressDomainStrategy().orEmpty()
-        val shouldResolveByDefaultNetwork = DataStore.enableFakeDns.get()
+        val shouldResolveByDefaultNetwork = DataStore.enableFakeDns
                 && DataStore.serviceState.started
-                && DataStore.serviceMode.get() == Key.MODE_VPN
+                && DataStore.serviceMode == Key.MODE_VPN
         val lookupDispatcher = Dispatchers.IO.limitedParallelism(5)
 
         for (profile in profiles) {
@@ -179,7 +179,7 @@ abstract class GroupUpdater {
             }
         }
 
-        val exists = withContext(Dispatchers.IO) {
+        val exists = onIoDispatcher {
             SagerDatabase.proxyDao.getByGroup(proxyGroup.id).first()
         }
         val duplicate = ArrayList<String>()

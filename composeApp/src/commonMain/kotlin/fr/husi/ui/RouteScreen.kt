@@ -1,10 +1,12 @@
-@file:OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@file:OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3ExpressiveApi::class)
 
 package fr.husi.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -19,54 +21,65 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuDefaults
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import fr.husi.compose.SwipeableSnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.ernestoyaquello.dragdropswipelazycolumn.AllowedSwipeDirections
 import com.ernestoyaquello.dragdropswipelazycolumn.DragDropSwipeLazyColumn
 import com.ernestoyaquello.dragdropswipelazycolumn.DraggableSwipeableItem
 import com.ernestoyaquello.dragdropswipelazycolumn.DraggableSwipeableItemScope
-import com.ernestoyaquello.dragdropswipelazycolumn.OrderedItem
 import com.ernestoyaquello.dragdropswipelazycolumn.config.DraggableSwipeableItemColors
 import com.ernestoyaquello.dragdropswipelazycolumn.state.rememberDragDropSwipeLazyColumnState
-import dev.chrisbanes.haze.hazeSource
-import dev.chrisbanes.haze.rememberHazeState
+import fr.husi.bg.BackendState
+import fr.husi.bg.ServiceState
 import fr.husi.compose.BoxedVerticalScrollbar
+import fr.husi.compose.CapsuleActionButton
 import fr.husi.compose.CapsuleTopBar
-import fr.husi.compose.SagerFabClearance
+import fr.husi.compose.PlatformMenuIcon
+import fr.husi.compose.SagerFab
 import fr.husi.compose.SimpleIconButton
+import fr.husi.compose.StatsBar
 import fr.husi.compose.TextButton
 import fr.husi.compose.fadingEdge
 import fr.husi.compose.material3.Icon
 import fr.husi.compose.material3.IconButton
 import fr.husi.compose.material3.Switch
 import fr.husi.compose.material3.Text
-import fr.husi.compose.theme.LocalAppDarkMode
+import fr.husi.compose.rememberScrollHideState
 import fr.husi.compose.withNavigation
 import fr.husi.database.DataStore
 import fr.husi.database.ProfileManager
@@ -76,6 +89,7 @@ import fr.husi.database.RuleEntity.Companion.OUTBOUND_BRIDGE
 import fr.husi.database.RuleEntity.Companion.OUTBOUND_DIRECT
 import fr.husi.database.RuleEntity.Companion.OUTBOUND_PROXY
 import fr.husi.fmt.SingBoxOptions
+import fr.husi.ktx.showAndDismissOld
 import fr.husi.platform.PlatformInfo
 import fr.husi.repository.resolveRepository
 import fr.husi.resources.Res
@@ -86,32 +100,34 @@ import fr.husi.resources.cag_dns
 import fr.husi.resources.cancel
 import fr.husi.resources.clear_profiles_message
 import fr.husi.resources.confirm
-import fr.husi.resources.direct
+import fr.husi.resources.delete
 import fr.husi.resources.dns_only
 import fr.husi.resources.drag_indicator
 import fr.husi.resources.edit
 import fr.husi.resources.error_title
 import fr.husi.resources.layers
+import fr.husi.resources.menu
 import fr.husi.resources.menu_route
 import fr.husi.resources.more
 import fr.husi.resources.more_vert
 import fr.husi.resources.need_reload
 import fr.husi.resources.ok
 import fr.husi.resources.process
-import fr.husi.resources.proxy
 import fr.husi.resources.removed
 import fr.husi.resources.replay
-import fr.husi.resources.reset
 import fr.husi.resources.route_add
 import fr.husi.resources.route_block
 import fr.husi.resources.route_bridge
+import fr.husi.resources.route_bypass
 import fr.husi.resources.route_manage_assets
+import fr.husi.resources.route_proxy
+import fr.husi.resources.route_reset
 import fr.husi.resources.route_warn
 import fr.husi.resources.undo
 import io.github.oikvpqya.compose.fastscroller.material3.defaultMaterialScrollbarStyle
 import io.github.oikvpqya.compose.fastscroller.rememberScrollbarAdapter
 import kotlinx.collections.immutable.toImmutableList
-import org.jetbrains.compose.resources.StringResource
+import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.vectorResource
@@ -119,11 +135,14 @@ import org.jetbrains.compose.resources.vectorResource
 @Composable
 fun RouteScreen(
     modifier: Modifier = Modifier,
+    mainViewModel: MainViewModel,
     viewModel: RouteScreenViewModel = viewModel { RouteScreenViewModel() },
+    onDrawerClick: () -> Unit,
     openRouteSettings: (Long) -> Unit,
     openAssets: () -> Unit,
 ) {
-    val snackbar = LocalSnackbarEmitter.current
+    val scope = rememberCoroutineScope()
+    val snackbarState = remember { SnackbarHostState() }
     DisposableEffect(Unit) {
         onDispose {
             viewModel.commit()
@@ -131,42 +150,46 @@ fun RouteScreen(
     }
 
     val dragDropListState = rememberDragDropSwipeLazyColumnState()
+    val scrollHideVisible by rememberScrollHideState(dragDropListState.lazyListState)
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var showMoreAction by remember { mutableStateOf(false) }
     var showResetAlert by remember { mutableStateOf(false) }
-    fun needReload() {
-        if (!DataStore.serviceState.started) return
-        snackbar.show(
-            StringOrRes.Res(Res.string.need_reload),
-            StringOrRes.Res(Res.string.apply),
-        ) { result ->
-            if (result == SnackbarResult.ActionPerformed) {
-                resolveRepository().reloadService()
-            }
+    var showAlertDialog by remember { mutableStateOf<MainViewModelUiEvent.AlertDialog?>(null) }
+
+    fun needReload() = scope.launch {
+        if (!DataStore.serviceState.started) return@launch
+        val result = snackbarState.showSnackbar(
+            message = resolveRepository().getString(Res.string.need_reload),
+            actionLabel = resolveRepository().getString(Res.string.apply),
+            duration = SnackbarDuration.Short,
+        )
+        if (result == SnackbarResult.ActionPerformed) {
+            resolveRepository().reloadService()
         }
     }
 
     LaunchedEffect(uiState.pendingDeleteCount) {
         if (uiState.pendingDeleteCount > 0) {
-            snackbar.show(
-                StringOrRes.PluralsRes(
+            val result = snackbarState.showAndDismissOld(
+                message = resolveRepository().getPluralString(
                     Res.plurals.removed,
                     uiState.pendingDeleteCount,
                     uiState.pendingDeleteCount,
                 ),
-                StringOrRes.Res(Res.string.undo),
-            ) { result ->
-                if (result == SnackbarResult.ActionPerformed) {
-                    viewModel.undo()
-                }
+                actionLabel = resolveRepository().getString(Res.string.undo),
+                duration = SnackbarDuration.Short,
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                viewModel.undo()
             }
         }
     }
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val windowInsets = WindowInsets.safeDrawing
-    val hazeState = rememberHazeState()
+
+    val serviceStatus by BackendState.status.collectAsStateWithLifecycle()
 
     Scaffold(
         modifier = modifier
@@ -174,9 +197,12 @@ fun RouteScreen(
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             CapsuleTopBar(
-                hazeState = hazeState,
-                title = null,
-                navigationIcon = null,
+                title = { Text(stringResource(Res.string.menu_route)) },
+                navigationIcon = PlatformMenuIcon(
+                    imageVector = vectorResource(Res.drawable.menu),
+                    contentDescription = stringResource(Res.string.menu),
+                    onClick = onDrawerClick,
+                ),
                 actions = {
                     CapsuleActionButton {
                         SimpleIconButton(
@@ -189,9 +215,9 @@ fun RouteScreen(
                     }
                     CapsuleActionButton {
                         SimpleIconButton(
-                            imageVector = vectorResource(Res.drawable.layers),
-                            contentDescription = stringResource(Res.string.route_manage_assets),
-                            onClick = openAssets,
+                            imageVector = vectorResource(Res.drawable.replay),
+                            contentDescription = stringResource(Res.string.route_reset),
+                            onClick = { showResetAlert = true },
                         )
                     }
                     CapsuleActionButton {
@@ -208,14 +234,14 @@ fun RouteScreen(
                                 containerColor = MenuDefaults.groupStandardContainerColor,
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text(stringResource(Res.string.reset)) },
+                                    text = { Text(stringResource(Res.string.route_manage_assets)) },
                                     onClick = {
                                         showMoreAction = false
-                                        showResetAlert = true
+                                        openAssets()
                                     },
                                     leadingIcon = {
                                         Icon(
-                                            imageVector = vectorResource(Res.drawable.replay),
+                                            imageVector = vectorResource(Res.drawable.layers),
                                             contentDescription = null,
                                         )
                                     },
@@ -228,77 +254,99 @@ fun RouteScreen(
                 scrollBehavior = scrollBehavior,
             )
         },
+        snackbarHost = { SwipeableSnackbarHost(snackbarState) },
+        floatingActionButton = {
+            SagerFab(
+                visible = scrollHideVisible,
+                state = serviceStatus.state,
+                showSnackbar = { message ->
+                    scope.launch {
+                        snackbarState.showSnackbar(
+                            message = getStringOrRes(message),
+                            actionLabel = resolveRepository().getString(Res.string.ok),
+                            duration = SnackbarDuration.Short,
+                        )
+                    }
+                },
+            )
+        },
+        bottomBar = {
+            if (serviceStatus.state == ServiceState.Connected) {
+                StatsBar(
+                    status = serviceStatus,
+                    visible = scrollHideVisible,
+                    mainViewModel = mainViewModel,
+                )
+            }
+        },
     ) { innerPadding ->
         val listContentPadding = innerPadding.withNavigation()
-        val layoutDirection = LocalLayoutDirection.current
-        val listItems = remember(uiState.rules) {
-            buildList(uiState.rules.size + 1) {
-                add(RouteListItem.Notification)
-                uiState.rules.forEach { add(RouteListItem.Rule(it)) }
-            }.toImmutableList()
-        }
+        val density = LocalDensity.current
+        var introHeightPx by remember { mutableIntStateOf(0) }
+        val introHeightDp = with(density) { introHeightPx.toDp() }
         Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .hazeSource(hazeState),
+            modifier = Modifier.fillMaxSize(),
         ) {
-            DragDropSwipeLazyColumn(
+            Box(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxHeight()
-                    .fadingEdge(dragDropListState.lazyListState),
-                state = dragDropListState,
-                items = listItems,
-                key = { it.key },
-                contentType = { it::class },
-                contentPadding = PaddingValues(
-                    start = listContentPadding.calculateStartPadding(layoutDirection),
-                    top = listContentPadding.calculateTopPadding(),
-                    end = listContentPadding.calculateEndPadding(layoutDirection),
-                    bottom = listContentPadding.calculateBottomPadding() + SagerFabClearance,
-                ),
-                userScrollEnabled = true,
-                fixedTopItemCount = RouteListItem.ROUTE_LIST_HEADER_COUNT,
-                onIndicesChangedViaDragAndDrop = { ordered ->
-                    viewModel.submitReorder(
-                        ordered.mapNotNull { item ->
-                            val rule = (item.value as? RouteListItem.Rule)?.entity
-                                ?: return@mapNotNull null
-                            OrderedItem(
-                                value = rule,
-                                initialIndex = item.initialIndex - RouteListItem.ROUTE_LIST_HEADER_COUNT,
-                                newIndex = item.newIndex - RouteListItem.ROUTE_LIST_HEADER_COUNT,
-                            )
-                        },
-                    )
-                    needReload()
-                },
-            ) { _, item ->
-                when (item) {
-                    is RouteListItem.Notification -> {
-                        DraggableSwipeableItem(
-                            modifier = Modifier.animateDraggableSwipeableItem(),
-                            colors = DraggableSwipeableItemColors.createRemembered(
-                                containerBackgroundColor = Color.Transparent,
-                                containerBackgroundColorWhileDragged = Color.Transparent,
-                            ),
-                            dragDropEnabled = false,
-                            allowedSwipeDirections = AllowedSwipeDirections.None,
-                        ) {
-                            RouteNotificationCard()
+                    .fillMaxHeight(),
+            ) {
+                DragDropSwipeLazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .fadingEdge(dragDropListState.lazyListState),
+                    state = dragDropListState,
+                    items = uiState.rules.toImmutableList(),
+                    key = { it.id },
+                    contentType = { 0 },
+                    contentPadding = PaddingValues(
+                        start = listContentPadding.calculateStartPadding(LocalLayoutDirection.current),
+                        top = introHeightDp,
+                        end = listContentPadding.calculateEndPadding(LocalLayoutDirection.current),
+                        bottom = listContentPadding.calculateBottomPadding(),
+                    ),
+                    userScrollEnabled = true,
+                    onIndicesChangedViaDragAndDrop = {
+                        viewModel.submitReorder(it)
+                        needReload()
+                    },
+                ) { _, rule ->
+                    val swipeState = rememberSwipeToDismissBoxState()
+
+                    // Monitor swipe state changes and perform deletion when user completes swipe gesture.
+                    // After deletion, immediately reset state to Settled to prevent re-triggering
+                    // when item is restored via undo. Without this, the preserved swipeState
+                    // (due to stable key) would cause onDismiss to fire again on recomposition.
+                    LaunchedEffect(swipeState.currentValue) {
+                        if (swipeState.currentValue != SwipeToDismissBoxValue.Settled) {
+                            viewModel.undoableRemove(rule.id)
+                            swipeState.snapTo(SwipeToDismissBoxValue.Settled)
                         }
                     }
 
-                    is RouteListItem.Rule -> {
-                        val rule = item.entity
-
-                        DraggableSwipeableItem(
-                            modifier = Modifier.animateDraggableSwipeableItem(),
-                            colors = DraggableSwipeableItemColors.createRemembered(
-                                containerBackgroundColor = Color.Transparent,
-                                containerBackgroundColorWhileDragged = Color.Transparent,
-                            ),
-                            onSwipeDismiss = { viewModel.undoableRemove(rule.id) },
+                    DraggableSwipeableItem(
+                        modifier = Modifier.animateDraggableSwipeableItem(),
+                        colors = DraggableSwipeableItemColors.createRemembered(
+                            containerBackgroundColor = Color.Transparent,
+                            containerBackgroundColorWhileDragged = Color.Transparent,
+                        ),
+                    ) {
+                        SwipeToDismissBox(
+                            state = swipeState,
+                            enableDismissFromStartToEnd = true,
+                            enableDismissFromEndToStart = true,
+                            backgroundContent = {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(horizontal = 16.dp),
+                                    contentAlignment = Alignment.CenterEnd,
+                                ) {
+                                    Icon(vectorResource(Res.drawable.delete), null)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
                             RuleCard(
                                 rule = rule,
@@ -309,12 +357,51 @@ fun RouteScreen(
                         }
                     }
                 }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onSizeChanged { introHeightPx = it.height },
+                ) {
+                    OutlinedCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                start = 4.dp,
+                                top = innerPadding.calculateTopPadding() + 4.dp,
+                                end = 4.dp,
+                                bottom = 4.dp,
+                            ),
+                        colors = CardDefaults.outlinedCardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.75f),
+                        ),
+                        elevation = CardDefaults.elevatedCardElevation(),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(8.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            val uriHandler = LocalUriHandler.current
+                            Text(
+                                text = stringResource(Res.string.route_warn),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        uriHandler.openUri("https://codeberg.org/xchacha20-poly1305/husi/wiki/Route")
+                                    },
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                }
             }
 
             BoxedVerticalScrollbar(
-                modifier = Modifier
-                    .padding(listContentPadding)
-                    .fillMaxHeight(),
+                modifier = Modifier.fillMaxHeight(),
                 adapter = rememberScrollbarAdapter(scrollState = dragDropListState.lazyListState),
                 style = defaultMaterialScrollbarStyle().copy(
                     thickness = 12.dp,
@@ -340,53 +427,40 @@ fun RouteScreen(
         },
     )
 
-}
+    LaunchedEffect(Unit) {
+        mainViewModel.uiEvent.collect { event ->
+            when (event) {
+                is MainViewModelUiEvent.Snackbar -> scope.launch {
+                    snackbarState.showSnackbar(
+                        message = getStringOrRes(event.message),
+                        actionLabel = resolveRepository().getString(Res.string.ok),
+                        duration = SnackbarDuration.Short,
+                    )
+                }
 
-private sealed interface RouteListItem {
+                is MainViewModelUiEvent.SnackbarWithAction -> scope.launch {
+                    val result = snackbarState.showSnackbar(
+                        message = getStringOrRes(event.message),
+                        actionLabel = getStringOrRes(event.actionLabel),
+                        duration = SnackbarDuration.Short,
+                    )
+                    event.callback(result)
+                }
 
-    companion object {
-        const val ROUTE_LIST_HEADER_COUNT = 1
+                is MainViewModelUiEvent.AlertDialog -> showAlertDialog = event
+            }
+        }
     }
 
-    val key: Any
-
-    data object Notification : RouteListItem {
-        override val key: Any get() = "route_notification"
-    }
-
-    data class Rule(val entity: RuleEntity) : RouteListItem {
-        override val key: Any get() = entity.id
-    }
-
-}
-
-@Composable
-private fun RouteNotificationCard(
-    modifier: Modifier = Modifier,
-) {
-    val uriHandler = LocalUriHandler.current
-    ElevatedCard(
-        onClick = {
-            uriHandler.openUri("https://github.com/xchacha20-poly1305/husi/wiki/Route")
-        },
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(4.dp),
-    ) {
-        Text(
-            text = stringResource(Res.string.route_warn),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(8.dp),
-            color = MaterialTheme.colorScheme.onSurface,
-            fontWeight = FontWeight.Bold,
-            style = MaterialTheme.typography.bodyMedium.copy(background = Color.Transparent),
-        )
+    showAlertDialog?.let { dialog ->
+        MainViewModelAlertDialog(dialog) {
+            showAlertDialog = null
+        }
     }
 }
 
 @Composable
-private fun DraggableSwipeableItemScope<RouteListItem>.RuleCard(
+private fun DraggableSwipeableItemScope<RuleEntity>.RuleCard(
     modifier: Modifier = Modifier,
     rule: RuleEntity,
     viewModel: RouteScreenViewModel,
@@ -468,8 +542,13 @@ private fun DraggableSwipeableItemScope<RouteListItem>.RuleCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    RuleBehaviorLabel(
-                        rule = rule,
+                    Text(
+                        text = when (rule.action) {
+                            "", SingBoxOptions.ACTION_ROUTE -> rule.displayOutbound()
+                            else -> "action: ${rule.action}"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f),
                     )
 
@@ -487,144 +566,75 @@ private fun DraggableSwipeableItemScope<RouteListItem>.RuleCard(
 }
 
 @Composable
-private fun RuleBehaviorLabel(
-    rule: RuleEntity,
-    modifier: Modifier = Modifier,
-) {
-    Text(
-        text = when (rule.action) {
-            "", SingBoxOptions.ACTION_ROUTE -> rule.displayOutbound()
-            else -> "action: ${rule.action}"
-        },
-        style = MaterialTheme.typography.bodyMedium,
-        fontWeight = FontWeight.Bold,
-        color = rule.behaviorColor(LocalAppDarkMode.current),
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        modifier = modifier,
-    )
-}
-
-/** Vivid text colors that tell what a rule does; rules with the same effect share one. */
-private object RuleBehaviorColors {
-    val ProxyLight = Color(0xFF1E88E5)
-    val ProxyDark = Color(0xFF64B5F6)
-    val DirectLight = Color(0xFF43A047)
-    val DirectDark = Color(0xFF81C784)
-    val BlockLight = Color(0xFFE53935)
-    val BlockDark = Color(0xFFEF5350)
-    val BridgeLight = Color(0xFF8E24AA)
-    val BridgeDark = Color(0xFFBA68C8)
-    val ProfileLight = Color(0xFF00897B)
-    val ProfileDark = Color(0xFF4DB6AC)
-    val HijackDnsLight = Color(0xFFF4511E)
-    val HijackDnsDark = Color(0xFFFF8A65)
-    val SniffLight = Color(0xFFF9A825)
-    val SniffDark = Color(0xFFFFD54F)
-    val ResolveLight = Color(0xFFD81B60)
-    val ResolveDark = Color(0xFFF06292)
-    val OtherLight = Color(0xFF757575)
-    val OtherDark = Color(0xFFBDBDBD)
-}
-
-internal fun RuleEntity.behaviorColor(darkMode: Boolean): Color {
-    fun pick(light: Color, dark: Color) = if (darkMode) dark else light
-    return with(RuleBehaviorColors) {
-        when (action) {
-            "", SingBoxOptions.ACTION_ROUTE -> when (outbound) {
-                OUTBOUND_PROXY -> pick(ProxyLight, ProxyDark)
-                OUTBOUND_DIRECT -> pick(DirectLight, DirectDark)
-                OUTBOUND_BLOCK -> pick(BlockLight, BlockDark)
-                OUTBOUND_BRIDGE -> pick(BridgeLight, BridgeDark)
-                else -> pick(ProfileLight, ProfileDark)
-            }
-
-            SingBoxOptions.ACTION_BYPASS -> pick(DirectLight, DirectDark)
-            SingBoxOptions.ACTION_REJECT -> pick(BlockLight, BlockDark)
-            SingBoxOptions.ACTION_HIJACK_DNS -> pick(HijackDnsLight, HijackDnsDark)
-            SingBoxOptions.ACTION_SNIFF -> pick(SniffLight, SniffDark)
-            SingBoxOptions.ACTION_RESOLVE -> pick(ResolveLight, ResolveDark)
-            else -> pick(OtherLight, OtherDark)
-        }
-    }
-}
-
-/** [TextOverflow.Ellipsis] does not show ellipsis on skia background */
-@Composable
 private fun RuleEntity.summary(): String {
     if (dnsOnly) return stringResource(Res.string.dns_only)
 
-    val summary = mutableListOf<String>()
-    if (domains.isNotBlank()) summary += domains
-    if (ip.isNotBlank()) summary += ip
-    if (source.isNotBlank()) summary += "source: $source"
-    if (sourcePort.isNotBlank()) summary += "sourcePort: $sourcePort"
-    if (port.isNotBlank()) summary += "port: $port"
-    if (network.isNotEmpty()) summary += "network: $network"
-    if (protocol.isNotEmpty()) summary += "protocol: $protocol"
-    if (clientType.isNotEmpty()) summary += "client: $clientType"
+    var summary = ""
+    if (domains.isNotBlank()) summary += "$domains\n"
+    if (ip.isNotBlank()) summary += "$ip\n"
+    if (source.isNotBlank()) summary += "source: $source\n"
+    if (sourcePort.isNotBlank()) summary += "sourcePort: $sourcePort\n"
+    if (port.isNotBlank()) summary += "port: $port\n"
+    if (network.isNotEmpty()) summary += "network: $network\n"
+    if (protocol.isNotEmpty()) summary += "protocol: $protocol\n"
+    if (clientType.isNotEmpty()) summary += "client: $clientType\n"
     if (packages.isNotEmpty()) {
         summary += if (PlatformInfo.isAndroid) {
             pluralStringResource(Res.plurals.apps_message, packages.size, packages.size)
         } else {
             "${stringResource(Res.string.process)}: ${packages.joinToString(", ")}"
-        }
+        } + "\n"
     }
-    if (packageNameRegex.isNotBlank()) summary += "packageNameRegex: $packageNameRegex"
-    if (ssid.isNotBlank()) summary += "ssid: $ssid"
-    if (bssid.isNotBlank()) summary += "bssid: $bssid"
-    if (clashMode.isNotBlank()) summary += "clashMode: $clashMode"
-    if (networkType.isNotEmpty()) summary += "networkType: $networkType"
-    if (networkIsExpensive) summary += "networkIsExpensive"
-    if (networkInterfaceAddress.isNotEmpty()) summary += "networkInterfaceAddress: $networkInterfaceAddress"
+    if (packageNameRegex.isNotBlank()) summary += "packageNameRegex: $packageNameRegex\n"
+    if (ssid.isNotBlank()) summary += "ssid: $ssid\n"
+    if (bssid.isNotBlank()) summary += "bssid: $bssid\n"
+    if (clashMode.isNotBlank()) summary += "clashMode: $clashMode\n"
+    if (networkType.isNotEmpty()) summary += "networkType: $networkType\n"
+    if (networkIsExpensive) summary += "networkIsExpensive\n"
+    if (networkInterfaceAddress.isNotEmpty()) summary += "networkInterfaceAddress: $networkInterfaceAddress\n"
 
-    if (overrideAddress.isNotBlank()) summary += "overrideAddress: $overrideAddress"
-    if (overridePort > 0) summary += "overridePort: $overridePort"
+    if (overrideAddress.isNotBlank()) summary += "overrideAddress: $overrideAddress\n"
+    if (overridePort > 0) summary += "overridePort: $overridePort\n"
     if (tlsFragment) {
-        summary += "TLS fragment"
+        summary += "TLS fragment\n"
         if (tlsFragmentFallbackDelay.isNotBlank()) {
-            summary += "tlsFragmentFallbackDelay: $tlsFragmentFallbackDelay"
+            summary += "tlsFragmentFallbackDelay: $tlsFragmentFallbackDelay\n"
         }
     }
     if (tlsRecordFragment) {
-        summary += "TLS record fragment"
+        summary += "TLS record fragment\n"
     }
-    if (tlsSpoof.isNotBlank()) summary += "tlsSpoof: $tlsSpoof"
-    if (tlsSpoofMethod.isNotBlank()) summary += "tlsSpoofMethod: $tlsSpoofMethod"
+    if (tlsSpoof.isNotBlank()) summary += "tlsSpoof: $tlsSpoof\n"
+    if (tlsSpoofMethod.isNotBlank()) summary += "tlsSpoofMethod: $tlsSpoofMethod\n"
 
-    if (resolveStrategy.isNotBlank()) summary += "resolveStrategy: $resolveStrategy"
+    if (resolveStrategy.isNotBlank()) summary += "resolveStrategy: $resolveStrategy\n"
     if (resolveDisableCache) summary += "resolveDisableCache\n"
-    if (resolveRewriteTTL >= 0) summary += "resolveRewriteTTL: $resolveRewriteTTL"
-    if (resolveClientSubnet.isNotBlank()) summary += "resolveClientSubnet: $resolveClientSubnet"
+    if (resolveRewriteTTL >= 0) summary += "resolveRewriteTTL: $resolveRewriteTTL\n"
+    if (resolveClientSubnet.isNotBlank()) summary += "resolveClientSubnet: $resolveClientSubnet\n"
 
-    if (sniffTimeout.isNotBlank()) summary += "sniffTimeout: $sniffTimeout"
-    if (sniffers.isNotEmpty()) summary += "sniffers: $sniffers"
+    if (sniffTimeout.isNotBlank()) summary += "sniffTimeout: $sniffTimeout\n"
+    if (sniffers.isNotEmpty()) summary += "sniffers: $sniffers\n"
 
-    if (customConfig.isNotBlank()) summary += stringResource(Res.string.menu_route)
-    if (customDnsConfig.isNotBlank()) summary += stringResource(Res.string.cag_dns)
+    if (customConfig.isNotBlank()) summary += stringResource(Res.string.menu_route) + "\n"
+    if (customDnsConfig.isNotBlank()) summary += stringResource(Res.string.cag_dns) + "\n"
 
-    return if (summary.size > 5) {
-        summary.subList(0, 5).joinToString("\n", postfix = "\n...")
+    // Even has "\n" suffix, TextView's "..." will be added and remove the last "\n".
+    val lines = summary.trim().split("\n")
+    return if (lines.size > 5) {
+        lines.subList(0, 5).joinToString("\n", postfix = "\n...")
     } else {
-        summary.joinToString("\n")
+        summary.trim()
     }
-}
-
-/** Name of a built-in outbound, or null when [outbound] is a profile ID. */
-internal fun builtinOutboundName(outbound: Long): StringResource? = when (outbound) {
-    OUTBOUND_PROXY -> Res.string.proxy
-    OUTBOUND_DIRECT -> Res.string.direct
-    OUTBOUND_BLOCK -> Res.string.route_block
-    OUTBOUND_BRIDGE -> Res.string.route_bridge
-    else -> null
 }
 
 @Composable
 private fun RuleEntity.displayOutbound(): String {
-    builtinOutboundName(outbound)?.let { return stringResource(it) }
-    val unknownProfile = stringResource(Res.string.error_title)
-    val profileName by produceState<String?>(null, outbound) {
-        value = ProfileManager.getProfile(outbound)?.displayName() ?: unknownProfile
+    return when (outbound) {
+        OUTBOUND_PROXY -> stringResource(Res.string.route_proxy)
+        OUTBOUND_DIRECT -> stringResource(Res.string.route_bypass)
+        OUTBOUND_BLOCK -> stringResource(Res.string.route_block)
+        OUTBOUND_BRIDGE -> stringResource(Res.string.route_bridge)
+        else -> ProfileManager.getProfile(outbound)?.displayName()
+            ?: stringResource(Res.string.error_title)
     }
-    return profileName.orEmpty()
 }

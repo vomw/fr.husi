@@ -2,9 +2,11 @@
 
 package libcore
 
-// PlatformInterface is empty on desktop after OnGroupSelectedChange / OnTask
-// moved off the FFI. Kept as a named type so registerPlatformInterface and
-// baseContext keep a stable signature; callers pass nil.
-//
-//goland:noinspection GoFixAny
-type PlatformInterface interface{} //nolint:modernize
+// PlatformInterface also named "iif".
+type PlatformInterface interface {
+	DeviceName() string
+	AnchorSSID() string
+	OnGroupSelectedChange(group, old, now string)
+	OnDeepLink(deepLink string)
+	OnTask(taskID string)
+}

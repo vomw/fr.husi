@@ -1,6 +1,6 @@
 [submodule "plugin/hysteria2/src/main/go/hysteria2"]
 	path = plugin/hysteria2/src/main/go/hysteria2
-	url = https://github.com/HyNetworks/hysteria.git
+	url = https://github.com/apernet/hysteria.git
 [submodule "plugin/juicity/src/main/go/juicity"]
 	path = plugin/juicity/src/main/go/juicity
 	url = https://github.com/juicity/juicity.git
@@ -13,9 +13,9 @@
 [submodule "plugin/shadowquic/src/main/rust/shadowquic"]
 	path = plugin/shadowquic/src/main/rust/shadowquic
 	url = https://github.com/spongebob888/shadowquic.git
+[submodule "library/compose-code-editor"]
+	path = library/compose-code-editor
+	url = https://github.com/xchacha20-poly1305/compose-code-editor.git
 [submodule "library/DragDropSwipeLazyColumn"]
 	path = library/DragDropSwipeLazyColumn
 	url = https://github.com/xchacha20-poly1305/DragDropSwipeLazyColumn.git
-[submodule "library/ComposePreference"]
-	path = library/ComposePreference
-	url = https://github.com/xchacha20-poly1305/ComposePreference.git

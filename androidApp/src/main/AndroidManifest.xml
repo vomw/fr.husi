@@ -45,9 +45,6 @@
     <!-- For rogue vendors -->
     <uses-permission android:name="com.android.permission.GET_INSTALLED_APPS" />
 
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
-
 
     <uses-feature
         android:name="android.software.leanback"
@@ -71,10 +68,6 @@
     <queries>
         <intent>
             <action android:name="io.nekohasekai.sagernet.plugin.ACTION_NATIVE_PLUGIN" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="obtainium" />
         </intent>
     </queries>
 
@@ -106,40 +99,21 @@
             android:configChanges="uiMode" />
 
         <activity
-            android:name="fr.husi.tailscale.TaildropShareActivity"
-            android:configChanges="uiMode"
-            android:excludeFromRecents="true"
-            android:exported="true"
-            android:label="@string/taildrop_share_label"
-            android:theme="@style/Theme.Dialog">
-            <intent-filter>
-                <action android:name="android.intent.action.SEND" />
-                <action android:name="android.intent.action.SEND_MULTIPLE" />
-
-                <category android:name="android.intent.category.DEFAULT" />
-
-                <data android:mimeType="*/*" />
-            </intent-filter>
-        </activity>
-
-        <!--
-            The terminal lays itself out again on any of these; recreating would drop its view state.
-            Its own task affinity with singleTask gives the terminal a separate card in recents.
-        -->
-        <activity
-            android:name="fr.husi.ui.tailscale.TailscaleSSHActivity"
-            android:autoRemoveFromRecents="true"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode"
-            android:label="@string/tailscale_ssh_label"
-            android:launchMode="singleTask"
-            android:taskAffinity="${applicationId}.tailscale_ssh"
-            android:windowSoftInputMode="adjustResize" />
-
-        <activity
             android:name=".ui.MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
             </intent-filter>
@@ -198,35 +172,10 @@
 
             </intent-filter>
 
-        </activity>
-
-        <!--
-            The launcher entry lives on an alias so that it can be disabled to hide the app from
-            the launcher without breaking deep links, shortcuts or the quick settings tile.
-            See fr.husi.LauncherIcon.
-        -->
-        <activity-alias
-            android:name=".ui.LauncherActivityAlias"
-            android:exported="true"
-            android:label="@string/app_name"
-            android:targetActivity=".ui.MainActivity">
-
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-
-                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
-            </intent-filter>
-
             <meta-data
                 android:name="android.app.shortcuts"
                 android:resource="@xml/shortcuts" />
-        </activity-alias>
+        </activity>
 
         <activity-alias
             android:name=".ui.ProcessTextActivityAlias"
@@ -245,21 +194,13 @@
         <activity
             android:name="fr.husi.ui.VpnRequestActivity"
             android:excludeFromRecents="true"
-            android:taskAffinity=""
-            android:theme="@style/Theme.Dialog" />
+            android:taskAffinity="" />
         <activity
-            android:name=".QuickToggleActivity"
-            android:excludeFromRecents="true"
-            android:exported="false"
-            android:launchMode="singleTask"
-            android:process=":bg"
-            android:taskAffinity=""
-            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
-        <activity
-            android:name=".CreateQuickToggleShortcutActivity"
+            android:name=".QuickToggleShortcut"
             android:excludeFromRecents="true"
             android:exported="true"
             android:label="@string/quick_toggle"
+            android:launchMode="singleTask"
             android:process=":bg"
             android:taskAffinity=""
             android:theme="@android:style/Theme.Translucent.NoTitleBar">
@@ -277,15 +218,6 @@
             android:name=".ui.SwitchActivity"
             android:launchMode="singleInstance"
             android:theme="@style/Theme.Dialog" />
-
-        <service
-            android:name="fr.husi.tailscale.TaildropSendService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="taildrop" />
-        </service>
 
         <service
             android:name=".bg.ProxyService"
@@ -346,25 +278,6 @@
         </provider>
 
         <provider
-            android:name="fr.husi.tailscale.TaildropDocumentsProvider"
-            android:authorities="${applicationId}.taildrop"
-            android:exported="true"
-            android:grantUriPermissions="true"
-            android:permission="android.permission.MANAGE_DOCUMENTS">
-            <intent-filter>
-                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
-            </intent-filter>
-        </provider>
-
-        <provider
-            android:name="rikka.shizuku.ShizukuProvider"
-            android:authorities="${applicationId}.shizuku"
-            android:enabled="true"
-            android:exported="true"
-            android:multiprocess="false"
-            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
-
-        <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="${applicationId}.androidx-startup"
             android:exported="false"
@@ -379,10 +292,6 @@
         </provider>
 
         <receiver
-            android:name=".bg.ApkInstallResultReceiver"
-            android:exported="false" />
-
-        <receiver
             android:name=".BootReceiver"
             android:enabled="false"
             android:exported="true"
@@ -394,26 +303,10 @@
             </intent-filter>
         </receiver>
 
-        <!-- Restores the launcher icon when *#*#231230#*#* is dialled, see fr.husi.LauncherIcon. -->
-        <receiver
-            android:name=".SecretCodeReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.provider.Telephony.SECRET_CODE" />
-                <action android:name="android.telephony.action.SECRET_CODE" />
-
-                <data
-                    android:host="231230"
-                    android:scheme="android_secret_code" />
-            </intent-filter>
-        </receiver>
-
         <receiver
             android:name="fr.husi.tasker.TaskerReceiver"
             android:directBootAware="true"
-            android:enabled="false"
             android:exported="true"
-            android:permission="com.twofortyfouram.locale.permission.FIRE_SETTING"
             android:process=":bg"
             tools:ignore="ExportedReceiver">
             <intent-filter>
@@ -423,7 +316,6 @@
 
         <activity
             android:name="fr.husi.tasker.TaskerActivity"
-            android:enabled="false"
             android:exported="true">
             <intent-filter>
                 <action android:name="com.twofortyfouram.locale.intent.action.EDIT_SETTING" />

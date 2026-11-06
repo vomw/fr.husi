@@ -11,8 +11,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.android.tools.smali.dexlib2.dexbacked.DexBackedDexFile
 import fr.husi.ktx.Logs
-import fr.husi.core.CoreClient
-import fr.husi.core.CoreRpcException
+import fr.husi.ktx.toStringIterator
+import fr.husi.libcore.Libcore
 import fr.husi.utils.PackageCache
 import java.io.File
 import java.util.zip.ZipFile
@@ -20,7 +20,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import org.koin.core.context.GlobalContext
 
 @Immutable
 internal data class VPNScannerUiState(
@@ -50,9 +49,7 @@ internal data class VPNCoreType(
 )
 
 @Stable
-internal class VPNScannerScreenViewModel(
-    private val coreClient: CoreClient = GlobalContext.get().get(),
-) : ViewModel() {
+internal class VPNScannerScreenViewModel : ViewModel() {
     companion object {
 
         private val v2rayNGClasses = listOf(
@@ -126,7 +123,7 @@ internal class VPNScannerScreenViewModel(
         val foundApps = mutableListOf<AppInfo>()
         for ((i, packageInfo) in vpnAppList.withIndex()) {
             val appType = runCatching { getVPNAppType(packageInfo) }.getOrNull()
-            val coreType = getVPNCoreType(packageInfo)
+            val coreType = runCatching { getVPNCoreType(packageInfo) }.getOrNull()
 
             val appInfo = AppInfo(
                 packageInfo = packageInfo,
@@ -204,16 +201,16 @@ internal class VPNScannerScreenViewModel(
         }
     }
 
-    private suspend fun getVPNCoreType(packageInfo: PackageInfo): VPNCoreType? {
-        val applicationInfo = packageInfo.applicationInfo ?: return null
-        val packageFiles = listOf(applicationInfo.publicSourceDir) +
-            applicationInfo.splitPublicSourceDirs.orEmpty()
+    private fun getVPNCoreType(packageInfo: PackageInfo): VPNCoreType? {
+        val packageFiles = mutableListOf(packageInfo.applicationInfo!!.publicSourceDir)
+        packageInfo.applicationInfo!!.splitPublicSourceDirs?.also {
+            packageFiles.addAll(it)
+        }
         val vpnType = try {
-            coreClient.readAndroidVPNType(packageFiles)
-        } catch (e: CoreRpcException) {
-            Logs.d("read VPN core of ${packageInfo.packageName}", e)
-            null
-        } ?: return null
+            Libcore.readAndroidVPNType(packageFiles.let { it.toStringIterator(it.size) })
+        } catch (_: Exception) {
+            return null
+        }
         return VPNCoreType(vpnType.coreType, vpnType.corePath, vpnType.goVersion)
     }
 }

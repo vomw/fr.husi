@@ -9,10 +9,9 @@ import fr.husi.ktx.blankAsNull
 import fr.husi.ktx.openFilePath
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import kotlin.enums.enumEntries
 
 internal actual fun platformPluginsFlow(): Flow<List<PluginDisplay>> {
-    val entries = enumEntries<PluginEntry>()
+    val entries = enumValues<PluginEntry>().toList()
     return SagerDatabase.pluginDao.getAll().map { plugins ->
         val pluginMap = plugins.associateBy { it.pluginId }
         entries.mapNotNull { entry ->
@@ -45,3 +44,9 @@ internal actual fun rememberOpenPluginCard(): (PluginDisplay) -> Unit {
         }
     }
 }
+
+@Composable
+internal actual fun rememberShouldRequestBatteryOptimizations(): Boolean = false
+
+@Composable
+internal actual fun rememberRequestIgnoreBatteryOptimizations(): () -> Unit = remember { {} }

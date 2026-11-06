@@ -10,17 +10,13 @@ import fr.husi.resources.connection_test_mux
 import fr.husi.resources.connection_test_refused
 import fr.husi.resources.connection_test_timeout
 import fr.husi.resources.not_set
-import okio.ByteString.Companion.toByteString
-import okio.HashingSink
-import okio.blackholeSink
-import okio.buffer
-import okio.source
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import java.io.Closeable
 import java.io.File
 import java.net.URLDecoder
 import java.net.URLEncoder
+import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -67,14 +63,14 @@ fun String.unUrlSafe(): String {
     }
 }
 
-fun <T> Continuation<T>.resumeOnce(value: T) {
+fun <T> Continuation<T>.tryResume(value: T) {
     try {
         resumeWith(Result.success(value))
     } catch (_: IllegalStateException) {
     }
 }
 
-fun <T> Continuation<T>.resumeWithExceptionOnce(exception: Throwable) {
+fun <T> Continuation<T>.tryResumeWithException(exception: Throwable) {
     try {
         resumeWith(Result.failure(exception))
     } catch (_: IllegalStateException) {
@@ -136,13 +132,6 @@ fun String.listByLineOrComma(): List<String> {
     return splitToSequence(",", "\n").map { it.trim() }.filter { it.isNotEmpty() }.toList()
 }
 
-fun String.listByLineIgnoringComments(): List<String> {
-    return lineSequence()
-        .map { it.trim() }
-        .filter { it.isNotEmpty() && !it.startsWith("#") }
-        .toList()
-}
-
 fun Closeable.closeQuietly() {
     try {
         close()
@@ -154,12 +143,11 @@ fun Closeable.closeQuietly() {
 
 fun String.sha256Hex(): String = toByteArray().sha256Hex()
 
-fun ByteArray.sha256Hex(): String = toByteString().sha256().hex()
-
-fun File.sha256Hex(): String = HashingSink.sha256(blackholeSink()).use { hashing ->
-    source().buffer().use { it.readAll(hashing) }
-    hashing.hash.hex()
-}
+fun ByteArray.sha256Hex(): String = MessageDigest.getInstance("SHA-256")
+    .digest(this)
+    .joinToString("") {
+        "%02x".format(it)
+    }
 
 inline fun <E> MutableList<E>.removeFirstMatched(match: (E) -> Boolean): E? {
     val index = indexOfFirst(match)

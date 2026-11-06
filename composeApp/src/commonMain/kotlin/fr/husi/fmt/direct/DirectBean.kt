@@ -1,11 +1,11 @@
 package fr.husi.fmt.direct
 
 import kotlinx.serialization.Serializable as KxsSerializable
+import com.esotericsoftware.kryo.io.ByteBufferInput
+import com.esotericsoftware.kryo.io.ByteBufferOutput
 import fr.husi.fmt.AbstractBean
-import fr.husi.fmt.BeanConverters
+import fr.husi.fmt.KryoConverters
 import fr.husi.fmt.SingBoxOptions
-import fr.husi.io.BinaryInput
-import fr.husi.io.BinaryOutput
 
 @KxsSerializable
 class DirectBean : AbstractBean() {
@@ -23,18 +23,18 @@ class DirectBean : AbstractBean() {
         }
     }
 
-    override fun serialize(output: BinaryOutput) {
+    override fun serialize(output: ByteBufferOutput) {
         output.writeInt(0)
         super.serialize(output)
     }
 
-    override fun deserialize(input: BinaryInput) {
+    override fun deserialize(input: ByteBufferInput) {
         input.readInt()
         super.deserialize(input)
     }
 
     override fun clone(): DirectBean {
-        return BeanConverters.deserialize(DirectBean(), BeanConverters.serialize(this))
+        return KryoConverters.deserialize(DirectBean(), KryoConverters.serialize(this))
     }
 
     override fun displayName(): String {

@@ -5,51 +5,53 @@ package libcore
 import (
 	"context"
 	"net/netip"
+	"strings"
+	"syscall"
 
 	"github.com/sagernet/sing-box/adapter"
 	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/dns"
-	"github.com/sagernet/sing-box/dns/transport/local"
 	"github.com/sagernet/sing-box/dns/transport/mdns"
 	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
+	"github.com/sagernet/sing/common"
 	E "github.com/sagernet/sing/common/exceptions"
-	"github.com/sagernet/sing/service"
+	M "github.com/sagernet/sing/common/metadata"
+	"github.com/sagernet/sing/common/task"
 
 	mDNS "github.com/miekg/dns"
 )
 
-var (
-	_ adapter.DNSTransport                    = (*platformTransport)(nil)
-	_ adapter.DNSTransportWithPreferredDomain = (*platformTransport)(nil)
-	_ adapter.DNSTransportWithConfiguration   = (*platformTransport)(nil)
-	_ adapter.DNSTransportWithEnvironment     = (*platformTransport)(nil)
-)
+type LocalDNSTransport interface {
+	Raw() bool
+	Lookup(ctx *ExchangeContext, network string, domain string) error
+	Exchange(ctx *ExchangeContext, message []byte) error
+}
+
+var _ adapter.DNSTransport = (*platformTransport)(nil)
 
 type platformTransport struct {
 	dns.TransportAdapter
-	iif               LocalDNSTransport
-	preferredResolver *local.PreferredDomainResolver
-	networkManager    adapter.NetworkManager
+	iif LocalDNSTransport
 }
 
-func (p *platformTransport) Start(stage adapter.StartStage, scope *adapter.Scope) error {
-	p.preferredResolver.Start(stage)
+func (p *platformTransport) Start(stage adapter.StartStage) error {
 	return nil
 }
 
-func newPlatformTransport(ctx context.Context, logger log.ContextLogger, iif LocalDNSTransport, tag string, options option.LocalDNSServerOptions) (adapter.DNSTransport, error) {
-	preferredResolver, err := local.NewPreferredDomainResolver(ctx, logger, options)
-	if err != nil {
-		return nil, err
+func (p *platformTransport) Close() error {
+	return nil
+}
+
+func newPlatformTransport(iif LocalDNSTransport, tag string, options option.LocalDNSServerOptions) adapter.DNSTransport {
+	transport := platformTransport{
+		TransportAdapter: dns.NewTransportAdapterWithLocalOptions(C.DNSTypeLocal, tag, options),
+		iif:              iif,
 	}
-	transport := &platformTransport{
-		TransportAdapter:  dns.NewTransportAdapterWithLocalOptions(C.DNSTypeLocal, tag, options),
-		iif:               iif,
-		preferredResolver: preferredResolver,
-		networkManager:    service.FromContext[adapter.NetworkManager](ctx),
+	if iif.Raw() {
+		return &mDNSPlatformTransport{transport}
 	}
-	return transport, nil
+	return &transport
 }
 
 func registerPlatformLocalDNSTransport(registry *dns.TransportRegistry, platformInterface PlatformInterface) {
@@ -61,101 +63,119 @@ func registerPlatformLocalDNSTransport(registry *dns.TransportRegistry, platform
 		return
 	}
 	dns.RegisterTransport[option.LocalDNSServerOptions](registry, C.DNSTypeLocal, func(ctx context.Context, logger log.ContextLogger, tag string, options option.LocalDNSServerOptions) (adapter.DNSTransport, error) {
-		return newPlatformTransport(ctx, logger, localTransport, tag, options)
+		return newPlatformTransport(localTransport, tag, options), nil
 	})
 }
 
 func (p *platformTransport) Reset() {
 }
 
-func (p *platformTransport) PreferredDomain(domain string) bool {
-	if !p.iif.Raw() && mdns.IsLocalDomain(domain) {
-		return false
-	}
-	return p.preferredResolver.PreferredDomain(domain)
-}
-
-func (p *platformTransport) ServerAddresses() []netip.Addr {
-	defaultInterface := p.defaultNetworkInterface()
-	if defaultInterface == nil {
-		return nil
-	}
-	var serverAddresses []netip.Addr
-	for _, server := range defaultInterface.DNSServers {
-		serverAddress, err := netip.ParseAddr(server)
-		if err == nil {
-			serverAddresses = append(serverAddresses, serverAddress)
-		}
-	}
-	return serverAddresses
-}
-
-func (p *platformTransport) SearchDomains() []string {
-	defaultInterface := p.defaultNetworkInterface()
-	if defaultInterface == nil {
-		return nil
-	}
-	return defaultInterface.DNSSearchDomains
-}
-
-func (p *platformTransport) Environment() []string {
-	defaultInterface := p.defaultNetworkInterface()
-	if defaultInterface == nil {
-		return nil
-	}
-	return defaultInterface.DNSServers
-}
-
-func (p *platformTransport) defaultNetworkInterface() *adapter.NetworkInterface {
-	if p.networkManager == nil {
-		return nil
-	}
-	return p.networkManager.DefaultNetworkInterface()
-}
-
 func (p *platformTransport) Exchange(ctx context.Context, message *mDNS.Msg) (*mDNS.Msg, error) {
-	localResponse := p.preferredResolver.Lookup(message)
-	if localResponse != nil {
-		return localResponse, nil
-	}
 	response := &ExchangeContext{
 		context: ctx,
 	}
 	if p.iif.Raw() {
-		return exchangePlatformDNS(ctx, p.iif, message)
-	}
-
-	question := message.Question[0]
-	var network string
-	switch question.Qtype {
-	case mDNS.TypeA:
-		network = "ip4"
-	case mDNS.TypeAAAA:
-		network = "ip6"
-	default:
-		return nil, E.New("only IP queries are supported by current version of Android")
-	}
-	done := make(chan error, 1)
-	go func() {
-		lookupErr := p.iif.Lookup(response, network, question.Name)
-		if lookupErr == nil {
-			lookupErr = response.error
-		}
-		done <- lookupErr
-	}()
-	select {
-	case err := <-done:
+		messageBytes, err := message.Pack()
 		if err != nil {
 			return nil, err
 		}
-		return dns.FixedResponse(message.Id, question, response.addresses, C.DefaultDNSTTL), nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
+		var responseMessage *mDNS.Msg
+		var group task.Group
+		group.Append0(func(ctx context.Context) error {
+			err = p.iif.Exchange(response, messageBytes)
+			if err != nil {
+				return err
+			}
+			if response.error != nil {
+				return response.error
+			}
+			responseMessage = &response.message
+			return nil
+		})
+		err = group.Run(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return responseMessage, nil
+	} else {
+		question := message.Question[0]
+		var network string
+		switch question.Qtype {
+		case mDNS.TypeA:
+			network = "ip4"
+		case mDNS.TypeAAAA:
+			network = "ip6"
+		default:
+			return nil, E.New("only IP queries are supported by current version of Android")
+		}
+		var responseAddrs []netip.Addr
+		var group task.Group
+		group.Append0(func(ctx context.Context) error {
+			err := p.iif.Lookup(response, network, question.Name)
+			if err != nil {
+				return err
+			}
+			if response.error != nil {
+				return response.error
+			}
+			responseAddrs = response.addresses
+			return nil
+		})
+		err := group.Run(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return dns.FixedResponse(message.Id, question, responseAddrs, C.DefaultDNSTTL), nil
 	}
 }
 
-func (p *platformTransport) ExchangeAsync(ctx context.Context, message *mDNS.Msg, callback func(response *mDNS.Msg, err error)) {
+var _ adapter.DNSTransportWithPreferredDomain = (*mDNSPlatformTransport)(nil)
+
+type mDNSPlatformTransport struct {
+	platformTransport
+}
+
+func (m *mDNSPlatformTransport) PreferredDomain(domain string) bool {
+	return mdns.IsLocalDomain(domain)
+}
+
+type Func interface {
+	Invoke() error
+}
+
+type ExchangeContext struct {
+	context   context.Context
+	message   mDNS.Msg
+	addresses []netip.Addr
+	error     error
+}
+
+func (c *ExchangeContext) OnCancel(callback Func) {
 	go func() {
-		callback(p.Exchange(ctx, message))
+		<-c.context.Done()
+		_ = callback.Invoke()
 	}()
+}
+
+func (c *ExchangeContext) Success(result string) {
+	c.addresses = common.Map(common.Filter(strings.Split(result, "\n"), func(it string) bool {
+		return !common.IsEmpty(it)
+	}), func(it string) netip.Addr {
+		return M.ParseSocksaddrHostPort(it, 0).Unwrap().Addr
+	})
+}
+
+func (c *ExchangeContext) RawSuccess(result []byte) {
+	err := c.message.Unpack(result)
+	if err != nil {
+		c.error = E.Cause(err, "parse response")
+	}
+}
+
+func (c *ExchangeContext) ErrorCode(code int32) {
+	c.error = dns.RcodeError(code)
+}
+
+func (c *ExchangeContext) ErrnoCode(code int32) {
+	c.error = syscall.Errno(code)
 }

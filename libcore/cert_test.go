@@ -1,7 +1,10 @@
 package libcore
 
 import (
+	"bytes"
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"net"
 	"os"
 	"path/filepath"
@@ -15,6 +18,22 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestRootCABundleAppendBuildsPoolAndPEM(t *testing.T) {
+	_, certificatePEM, err := aTLS.GenerateCertificate(nil, nil, time.Now, "example.com", time.Now().Add(5*time.Minute))
+	require.NoError(t, err)
+
+	roots := newRootCABundle()
+	require.NoError(t, roots.Append(certificatePEM))
+
+	block, remaining := pem.Decode(roots.pem.Bytes())
+	require.NotNil(t, block)
+	assert.Empty(t, remaining)
+	certificate, err := x509.ParseCertificate(block.Bytes)
+	require.NoError(t, err)
+	require.Len(t, roots.pool.Subjects(), 1)
+	assert.True(t, bytes.Equal(certificate.RawSubject, roots.pool.Subjects()[0]))
+}
 
 func TestSetupRootCA(t *testing.T) {
 	previousExternalAssetsPath := externalAssetsPath

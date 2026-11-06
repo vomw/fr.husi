@@ -1,10 +1,10 @@
 package fr.husi.fmt.snell
 
 import kotlinx.serialization.Serializable as KxsSerializable
+import com.esotericsoftware.kryo.io.ByteBufferInput
+import com.esotericsoftware.kryo.io.ByteBufferOutput
 import fr.husi.fmt.AbstractBean
-import fr.husi.fmt.BeanConverters
-import fr.husi.io.BinaryInput
-import fr.husi.io.BinaryOutput
+import fr.husi.fmt.KryoConverters
 
 @KxsSerializable
 class SnellBean : AbstractBean() {
@@ -40,7 +40,7 @@ class SnellBean : AbstractBean() {
         }
     }
 
-    override fun serialize(output: BinaryOutput) {
+    override fun serialize(output: ByteBufferOutput) {
         output.writeInt(0)
         super.serialize(output)
         output.writeInt(version)
@@ -59,7 +59,7 @@ class SnellBean : AbstractBean() {
         }
     }
 
-    override fun deserialize(input: BinaryInput) {
+    override fun deserialize(input: ByteBufferInput) {
         input.readInt()
         super.deserialize(input)
         version = input.readInt()
@@ -79,7 +79,7 @@ class SnellBean : AbstractBean() {
     }
 
     override fun clone(): SnellBean {
-        return BeanConverters.deserialize(SnellBean(), BeanConverters.serialize(this))
+        return KryoConverters.deserialize(SnellBean(), KryoConverters.serialize(this))
     }
 
     override fun applyFeatureSettings(other: AbstractBean) {

@@ -48,7 +48,7 @@ class BlankActivity : PrivacyModeActivity() {
             ".log",
             File(cacheDir, "log").also { it.mkdirs() },
         ).apply {
-            writeText(SendLog.buildLocalLog(getExternalFilesDir(null) ?: filesDir).content)
+            writeText(SendLog.buildLog(getExternalFilesDir(null) ?: filesDir))
         }
         sharedFile = logFile
         val uri = FileProvider.getUriForFile(this, packageName + ".cache", logFile)

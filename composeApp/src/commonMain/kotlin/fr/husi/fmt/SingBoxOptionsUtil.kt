@@ -1,6 +1,5 @@
 package fr.husi.fmt
 
-import fr.husi.database.AssetEntity
 import fr.husi.fmt.SingBoxOptions.DNSRule_Default
 import fr.husi.fmt.SingBoxOptions.DomainResolveOptions
 import fr.husi.fmt.SingBoxOptions.MyOptions
@@ -11,11 +10,14 @@ import fr.husi.fmt.SingBoxOptions.NewDNSServerOptions_RemoteDNSServerOptions
 import fr.husi.fmt.SingBoxOptions.NewDNSServerOptions_RemoteHTTPSDNSServerOptions
 import fr.husi.fmt.SingBoxOptions.NewDNSServerOptions_RemoteTLSDNSServerOptions
 import fr.husi.fmt.SingBoxOptions.OutboundTLSOptions
+import fr.husi.fmt.SingBoxOptions.RuleSet
 import fr.husi.fmt.SingBoxOptions.RuleSet_Local
 import fr.husi.fmt.SingBoxOptions.RuleSet_Remote
 import fr.husi.fmt.SingBoxOptions.Rule_Default
 import fr.husi.ktx.blankAsNull
-import io.github.xchacha20_poly1305.kpuri.Url
+import fr.husi.ktx.parseBoolean
+import fr.husi.ktx.queryParameterNotBlank
+import fr.husi.libcore.Libcore
 
 fun DNSRule_Default.makeCommonRule(list: List<RuleItem>) {
     domain = mutableListOf()
@@ -93,7 +95,7 @@ fun DNSRule_Default.makeResponseRule(list: List<RuleItem>) {
 }
 
 fun DNSRule_Default.checkEmpty(): Boolean {
-    if (match_response != null) return false
+    if (match_response == true) return false
     if (ip_cidr?.isNotEmpty() == true) return false
     if (ip_is_private == true) return false
     if (ip_accept_any == true) return false
@@ -115,7 +117,6 @@ fun DNSRule_Default.checkEmpty(): Boolean {
     if (user_id?.isNotEmpty() == true) return false
     if (wifi_ssid?.isNotEmpty() == true) return false
     if (wifi_bssid?.isNotEmpty() == true) return false
-    if (clash_mode?.isNotEmpty() == true) return false
     return true
 }
 
@@ -307,32 +308,16 @@ fun DNSRule_Default.makeProcessRule(list: List<RuleItem>) {
     if (user_id?.isEmpty() == true) user_id = null
 }
 
-sealed interface RuleSetSource {
-
-    data class Local(
-        val geoDir: String,
-        val customGeoDir: String,
-        val assets: List<AssetEntity>,
-    ) : RuleSetSource
-
-    data class Remote(
-        val geoipPrefix: String,
-        val geositePrefix: String,
-        val assets: List<AssetEntity>,
-    ) : RuleSetSource
-}
-
-private const val GEOIP_TAG_PREFIX = "geoip-"
-
-private const val RULE_SET_PLACEHOLDER_FILE =
-    SingBoxOptions.RULE_SET_TAG_PLACEHOLDER + SingBoxOptions.RULE_SET_FILE_SUFFIX
-
 /**
  * Builds all rule-set.
  * This will crate route if route is null,
  * and will refreshes route.rule_set.
  * */
-fun MyOptions.buildRuleSets(source: RuleSetSource) {
+fun MyOptions.buildRuleSets(
+    ipURL: String?,
+    domainURL: String?,
+    localPath: String?,
+) {
     val names = hashSetOf<String>()
     if (dns != null) collectSet(names, dns!!.rules)
     if (route != null) collectSet(names, route!!.rules)
@@ -341,100 +326,34 @@ fun MyOptions.buildRuleSets(source: RuleSetSource) {
 
     if (route == null) route = MyRouteOptions()
     if (route!!.rule_set == null) route!!.rule_set = mutableListOf()
-    for (set in route!!.rule_set!!) {
-        set.tag?.let { names.addAll(it) }
+    for (set in route!!.rule_set!!) names.add(set.tag!!)
+    val list = ArrayList<RuleSet>(names.size)
+
+    val isRemote = ipURL != null
+    for (name in names.sorted()) {
+        if (isRemote) list.add(
+            RuleSet_Remote().apply {
+                tag = name
+                type = SingBoxOptions.RULE_SET_TYPE_REMOTE
+                format = SingBoxOptions.RULE_SET_FORMAT_BINARY
+                val isIP = name.startsWith("geoip-")
+                url = if (isIP) {
+                    "${ipURL}/${name}.srs"
+                } else {
+                    "${domainURL}/${name}.srs"
+                }
+            },
+        ) else list.add(
+            RuleSet_Local().apply {
+                tag = name
+                type = SingBoxOptions.RULE_SET_TYPE_LOCAL
+                format = SingBoxOptions.RULE_SET_FORMAT_BINARY
+                path = "$localPath/$name.srs"
+            },
+        )
     }
 
-    val sorted = names.sorted()
-    val ruleSets = when (source) {
-        is RuleSetSource.Local -> source.buildLocalRuleSets(sorted)
-        is RuleSetSource.Remote -> source.buildRemoteRuleSets(sorted)
-    }
-
-    route!!.rule_set = ruleSets.toMutableList()
-}
-
-private fun List<AssetEntity>.customAssetsByTag(): Map<String, AssetEntity> {
-    return filter {
-        it.name.endsWith(SingBoxOptions.RULE_SET_FILE_SUFFIX)
-    }.associateBy {
-        it.name.removeSuffix(SingBoxOptions.RULE_SET_FILE_SUFFIX)
-    }
-}
-
-private fun RuleSetSource.Local.buildLocalRuleSets(sorted: List<String>): List<RuleSet_Local> {
-    val customTags = assets.customAssetsByTag().keys
-    val (assetTags, managedTags) = sorted.partition { customTags.contains(it) }
-
-    return buildList {
-        if (managedTags.isNotEmpty()) {
-            add(buildLocalRuleSet(tags = managedTags, dir = geoDir))
-        }
-        if (assetTags.isNotEmpty()) {
-            add(buildLocalRuleSet(tags = assetTags, dir = customGeoDir))
-        }
-    }
-}
-
-private fun buildLocalRuleSet(tags: List<String>, dir: String) = RuleSet_Local().apply {
-    tag = tags.toMutableList()
-    type = SingBoxOptions.RULE_SET_TYPE_LOCAL
-    format = SingBoxOptions.RULE_SET_FORMAT_BINARY
-    path = "$dir/$RULE_SET_PLACEHOLDER_FILE"
-}
-
-private fun RuleSetSource.Remote.buildRemoteRuleSets(sorted: List<String>): List<RuleSet_Remote> {
-    val assetsByTag = assets.customAssetsByTag().filterValues { it.url.isNotBlank() }
-    val (assetTags, repositoryTags) = sorted.partition { assetsByTag.containsKey(it) }
-
-    val repositoryRuleSets = repositoryTags.groupBy { it.startsWith(GEOIP_TAG_PREFIX) }
-        .map { (isIP, tags) ->
-            val prefix = if (isIP) {
-                geoipPrefix
-            } else {
-                geositePrefix
-            }
-            remoteRuleSet(
-                tags = tags,
-                url = "$prefix/$RULE_SET_PLACEHOLDER_FILE",
-            )
-        }
-
-    val tagsByPattern = sortedMapOf<String, MutableList<String>>()
-    val literalAssets = mutableListOf<Pair<String, String>>() // Tag to URL.
-    for (tag in assetTags) {
-        val asset = assetsByTag.getValue(tag)
-        val pattern = asset.ruleSetURLPattern()
-        if (pattern == null) {
-            literalAssets.add(tag to asset.url)
-        } else {
-            tagsByPattern.getOrPut(pattern) { mutableListOf() }.add(tag)
-        }
-    }
-
-    return repositoryRuleSets +
-            tagsByPattern.map { (pattern, tags) ->
-                remoteRuleSet(tags = tags, url = pattern)
-            } +
-            literalAssets.sortedBy { (_, url) ->
-                url
-            }.map { (tag, url) ->
-                remoteRuleSet(tags = listOf(tag), url = url)
-            }
-}
-
-private fun remoteRuleSet(tags: List<String>, url: String) = RuleSet_Remote().apply {
-    tag = tags.toMutableList()
-    type = SingBoxOptions.RULE_SET_TYPE_REMOTE
-    format = SingBoxOptions.RULE_SET_FORMAT_BINARY
-    this.url = url
-}
-
-private fun AssetEntity.ruleSetURLPattern(): String? {
-    val fileNameSuffix = "/$name"
-    if (!url.endsWith(fileNameSuffix)) return null
-    val directoryURL = url.removeSuffix(fileNameSuffix)
-    return "$directoryURL/$RULE_SET_PLACEHOLDER_FILE"
+    route!!.rule_set = list
 }
 
 /**
@@ -466,43 +385,7 @@ private fun collectSet(set: MutableSet<String>, rules: List<*>?) {
 
 fun isEndpoint(type: String): Boolean = when (type) {
     SingBoxOptions.TYPE_WIREGUARD -> true
-    SingBoxOptions.TYPE_OPENCONNECT -> true
-    SingBoxOptions.TYPE_OPENVPN_CLIENT -> true
-    SingBoxOptions.TYPE_MASQUE_CLIENT -> true
-    SingBoxOptions.TYPE_TAILSCALE -> true
     else -> false
-}
-
-fun proxyDisplayName(type: String): String = when (type) {
-    SingBoxOptions.TYPE_SELECTOR -> "Selector"
-    SingBoxOptions.TYPE_URLTEST -> "URLTest"
-    SingBoxOptions.TYPE_BALANCER -> "Balancer"
-    SingBoxOptions.TYPE_DIRECT -> "Direct"
-    SingBoxOptions.TYPE_BLOCK -> "Block"
-    SingBoxOptions.TYPE_BRIDGE -> "Bridge"
-    SingBoxOptions.TYPE_SOCKS -> "SOCKS"
-    SingBoxOptions.TYPE_HTTP -> "HTTP"
-    SingBoxOptions.TYPE_SHADOWSOCKS -> "Shadowsocks"
-    SingBoxOptions.TYPE_SNELL -> "Snell"
-    SingBoxOptions.TYPE_VMESS -> "VMess"
-    SingBoxOptions.TYPE_VLESS -> "VLESS"
-    SingBoxOptions.TYPE_TROJAN -> "Trojan"
-    SingBoxOptions.TYPE_NAIVE -> "Naive"
-    SingBoxOptions.TYPE_HYSTERIA -> "Hysteria"
-    SingBoxOptions.TYPE_HYSTERIA2 -> "Hysteria2"
-    SingBoxOptions.TYPE_TUIC -> "TUIC"
-    SingBoxOptions.TYPE_JUICITY -> "Juicity"
-    SingBoxOptions.TYPE_SSH -> "SSH"
-    SingBoxOptions.TYPE_SHADOWTLS -> "ShadowTLS"
-    SingBoxOptions.TYPE_ANYTLS -> "AnyTLS"
-    SingBoxOptions.TYPE_TRUST_TUNNEL -> "TrustTunnel"
-    SingBoxOptions.TYPE_WIREGUARD -> "WireGuard"
-    SingBoxOptions.TYPE_OPENCONNECT -> "OpenConnect"
-    SingBoxOptions.TYPE_OPENVPN_CLIENT -> "OpenVPN"
-    SingBoxOptions.TYPE_MASQUE_CLIENT -> "MASQUE"
-    SingBoxOptions.TYPE_TAILSCALE -> "Tailscale"
-    SingBoxOptions.TYPE_TAILCAT -> "Tailcat"
-    else -> type
 }
 
 /**
@@ -520,28 +403,32 @@ fun buildDNSServer(
     }
 
     val url = if (!link.contains("://")) {
-        Url.parse("${SingBoxOptions.DNS_TYPE_UDP}://$link")
+        Libcore.newURL(SingBoxOptions.DNS_TYPE_UDP).apply {
+            fullHost = link
+        }
     } else {
-        Url.parse(link)
+        Libcore.parseURL(link)
     }
     val resolver = domainResolver.takeIf { out.isNullOrBlank() }
 
-    return when (val scheme = url.scheme.orEmpty()) {
+    return when (val scheme = url.scheme) {
         SingBoxOptions.DNS_TYPE_TLS -> NewDNSServerOptions_RemoteTLSDNSServerOptions().apply {
             type = scheme
-            server = url.host.orEmpty()
-            server_port = url.port?.toIntOrNull()
+            server = url.host
+            server_port = url.ports.toIntOrNull()
             domain_resolver = resolver
             tls = OutboundTLSOptions().apply {
                 enabled = true
             }
             detour = out
+            if (url.parseBoolean("pipeline")) pipeline = true
+            max_queries = url.queryParameterNotBlank("maxqueries")?.toIntOrNull()
         }
 
         SingBoxOptions.DNS_TYPE_QUIC -> NewDNSServerOptions_RemoteTLSDNSServerOptions().apply {
             type = scheme
-            server = url.host.orEmpty()
-            server_port = url.port?.toIntOrNull()
+            server = url.host
+            server_port = url.ports.toIntOrNull()
             domain_resolver = resolver
             tls = OutboundTLSOptions().apply {
                 enabled = true
@@ -555,8 +442,8 @@ fun buildDNSServer(
             } else {
                 scheme
             }
-            server = url.host.orEmpty()
-            server_port = url.port?.toIntOrNull()
+            server = url.host
+            server_port = url.ports.toIntOrNull()
             domain_resolver = resolver
             tls = OutboundTLSOptions().apply {
                 enabled = true
@@ -565,13 +452,16 @@ fun buildDNSServer(
             detour = out
         }
 
-        SingBoxOptions.DNS_TYPE_TCP -> NewDNSServerOptions_RemoteDNSServerOptions()
+        SingBoxOptions.DNS_TYPE_TCP -> SingBoxOptions.NewDNSServerOptions_RemoteTCPDNSServerOptions()
             .apply {
                 type = SingBoxOptions.DNS_TYPE_TCP
-                server = url.host.orEmpty()
-                server_port = url.port?.toIntOrNull()
+                server = url.host
+                server_port = url.ports.toIntOrNull()
                 domain_resolver = resolver
                 detour = out
+                if (url.parseBoolean("reuse")) reuse = true
+                if (url.parseBoolean("pipeline")) pipeline = true
+                max_queries = url.queryParameterNotBlank("maxqueries")?.toIntOrNull()
             }
 
         // "", SingBoxOptions.DNS_TYPE_UDP ->
@@ -579,8 +469,8 @@ fun buildDNSServer(
             type = scheme.ifBlank {
                 SingBoxOptions.DNS_TYPE_UDP
             }
-            server = url.host.orEmpty()
-            server_port = url.port?.toIntOrNull()
+            server = url.host
+            server_port = url.ports.toIntOrNull()
             domain_resolver = resolver
             detour = out
         }
