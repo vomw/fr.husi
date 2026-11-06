@@ -52,10 +52,21 @@ jobs:
       - name: Install the pinned Android build tools and NDK
         shell: bash
         run: |
-          sdkmanager --install \
-            "platforms;android-37" \
-            "build-tools;37.0.0" \
-            "ndk;29.0.14206865"
+          set -euo pipefail
+          # API 37 / Build Tools 37 are preview-channel packages. The project
+          # pins them, so use the Android CLI preview channel rather than
+          # silently compiling against a different SDK level.
+          android --sdk="$ANDROID_HOME" sdk install --beta \
+            platforms/android-37 \
+            build-tools/37.0.0 \
+            ndk/29.0.14206865
+          test -d "$ANDROID_HOME/platforms/android-37"
+          test -x "$ANDROID_HOME/build-tools/37.0.0/apksigner"
+          test -f "$ANDROID_HOME/ndk/29.0.14206865/source.properties"
+          {
+            echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865"
+            echo "NDK=$ANDROID_HOME/ndk/29.0.14206865"
+          } >> "$GITHUB_ENV"
 
       - name: Restore the release keystore
         shell: bash
