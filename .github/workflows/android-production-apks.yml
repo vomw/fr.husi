@@ -146,7 +146,12 @@ jobs:
             }
           done
 
-          mapfile -t apks < <(find androidApp/build/outputs/apk/foss/release -maxdepth 1 -type f -name "*${ABI}*.apk" -print)
+          # Match the ABI as a complete final filename token. In particular,
+          # the x86 job must not also select the x86_64 split.
+          mapfile -t apks < <(
+            find androidApp/build/outputs/apk/foss/release -maxdepth 1 -type f -name '*.apk' -print |
+              grep -E -- "-${ABI}(-unsigned)?\.apk$"
+          )
           [[ ${#apks[@]} -eq 1 ]] || {
             printf 'Expected one %s APK, found %s:\n%s\n' "$ABI" "${#apks[@]}" "${apks[*]:-}" >&2
             exit 1
