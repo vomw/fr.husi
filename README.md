@@ -173,6 +173,38 @@ make apk
 
 The APK file will be located in `androidApp/build/outputs/apk`.
 
+#### GitHub Actions production APKs
+
+Run the **Android production APKs** workflow manually to produce separate signed
+`FossRelease` APKs for `arm64-v8a`, `armeabi-v7a`, `x86_64`, and `x86`. The
+workflow uploads one artifact per ABI. Its APK filenames are derived from the
+Gradle output metadata and have this form:
+
+```
+<application-id>-<version-name>-<version-code>-<abi>.apk
+```
+
+For example, the current metadata would produce
+`fr.husi-2.3.4-551-arm64-v8a.apk`.
+
+The repository checkout must contain `release.keystore`. Configure the GitHub
+Actions secret `LOCAL_PROPERTIES` as the literal contents of `local.properties`:
+
+```properties
+KEYSTORE_PASS=<keystore password>
+ALIAS_NAME=<key alias>
+ALIAS_PASS=<key password>
+```
+
+`KEYSTORE_PASS`, `ALIAS_NAME`, and `ALIAS_PASS` are the only signing values the
+workflow needs. The build logic accepts them either from `local.properties` or
+as same-named environment variables; the workflow intentionally writes the
+secret to `local.properties` so credentials are not passed on a Gradle command
+line. `ANDROID_HOME`, `ANDROID_NDK_VERSION`, `JAVA_HOME`, `GO_VERSION`,
+`GEOIP_VERSION`, and `GEOSITE_VERSION` are configured by the checked-in Actions
+setup steps and version file; do not add them as repository secrets. The NDK
+version is pinned to `30.0.16248370`.
+
 #### 🖥️ Desktop
 
 Environment:
