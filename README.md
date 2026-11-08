@@ -187,8 +187,17 @@ Gradle output metadata and have this form:
 For example, the current metadata would produce
 `fr.husi-2.3.4-551-arm64-v8a.apk`.
 
-The repository checkout must contain `release.keystore`. Configure the GitHub
-Actions secret `LOCAL_PROPERTIES` as the literal contents of `local.properties`:
+Do not commit a production keystore. Configure the GitHub Actions secret
+`ANDROID_KEYSTORE_BASE64` with the single-line Base64 encoding of your
+`release.keystore`. For example, in PowerShell:
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("release.keystore")) | Set-Clipboard
+```
+
+The workflow restores that secret as `release.keystore` at the repository root.
+Also configure the `LOCAL_PROPERTIES` Actions secret as the literal contents of
+`local.properties`:
 
 ```properties
 KEYSTORE_PASS=<keystore password>

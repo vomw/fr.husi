@@ -3,8 +3,8 @@ name: Android production APKs
 on:
   workflow_dispatch:
 
-# The checkout's release.keystore signs the APKs. No GitHub token is required
-# to build or upload workflow artifacts.
+# The signing keystore is restored from a repository secret. No GitHub token is
+# required to build or upload workflow artifacts.
 permissions:
   contents: read
 
@@ -41,6 +41,14 @@ jobs:
       - name: Prepare assets
         if: steps.cache-assets.outputs.cache-hit != 'true'
         run: make assets
+      - name: Restore signing keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > release.keystore
+          test -s release.keystore
+          chmod 600 release.keystore
       - name: Write signing properties
         env:
           LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
