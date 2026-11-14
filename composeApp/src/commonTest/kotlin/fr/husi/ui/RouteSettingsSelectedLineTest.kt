@@ -1,6 +1,7 @@
 package fr.husi.ui
 
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -78,7 +79,12 @@ class RouteSettingsSelectedLineTest {
 
     @Test
     fun `selectedLine returns null for range selection`() {
-        assertNull(selectedLine("set:foo\nset:bar", TextRange(2, 5)))
+        val value = TextFieldValue(
+            text = "set:foo\nset:bar",
+            selection = TextRange(2, 5),
+        )
+
+        assertNull(value.selectedLine())
     }
 
     @Test
@@ -263,6 +269,9 @@ class RouteSettingsSelectedLineTest {
     }
 
     private fun String.selectedLine(cursor: Int): SelectedLine? {
-        return selectedLine(this, TextRange(cursor))
+        return TextFieldValue(
+            text = this,
+            selection = TextRange(cursor),
+        ).selectedLine()
     }
 }

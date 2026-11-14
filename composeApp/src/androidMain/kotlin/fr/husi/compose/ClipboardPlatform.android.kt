@@ -8,10 +8,9 @@ import androidx.compose.ui.platform.Clipboard
 import androidx.compose.ui.platform.toClipEntry
 import androidx.core.content.FileProvider
 import fr.husi.ktx.Logs
+import fr.husi.ktx.onIoDispatcher
 import fr.husi.repository.resolveAndroidRepository
 import fr.husi.repository.resolveRepository
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
 
@@ -32,7 +31,7 @@ actual suspend fun Clipboard.getFirstContent(): ClipboardContent? {
 
     val context = resolveAndroidRepository().context
     val uri = item.uri ?: return null
-    return withContext(Dispatchers.IO) {
+    return onIoDispatcher {
         try {
             if (context.contentResolver.getType(uri)?.startsWith("image/") == true) {
                 context.contentResolver.openInputStream(uri)
@@ -50,7 +49,7 @@ actual suspend fun Clipboard.getFirstContent(): ClipboardContent? {
 
 actual suspend fun Clipboard.setImage(bitmap: ImageBitmap) {
     val context = resolveAndroidRepository().context
-    val imageFile = withContext(Dispatchers.IO) {
+    val imageFile = onIoDispatcher {
         File(
             resolveRepository().cacheDir.resolve(CLIPBOARD_IMAGE_CACHE_DIRECTORY),
             "${UUID.randomUUID()}.png",

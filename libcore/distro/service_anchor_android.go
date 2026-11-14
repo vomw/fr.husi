@@ -1,9 +1,9 @@
 package distro
 
 import (
-	"github.com/sagernet/sing-box/adapter/service"
+	"libcore/plugin/anchor"
 
-	"github.com/xchacha20-poly1305/husi/libcore/v2/plugin/anchor"
+	"github.com/sagernet/sing-box/adapter/service"
 )
 
 func registerAnchor(registry *service.Registry) {

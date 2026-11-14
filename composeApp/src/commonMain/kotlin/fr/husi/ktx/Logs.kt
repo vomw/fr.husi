@@ -25,9 +25,6 @@ expect object Logs {
 
     fun e(exception: Throwable)
 
-    /** Empties the log file that bug reports attach. */
-    fun clearFile()
-
 }
 
 fun InputStream.use(out: OutputStream) {

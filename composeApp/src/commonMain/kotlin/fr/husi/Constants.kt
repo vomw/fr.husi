@@ -1,31 +1,8 @@
 package fr.husi
 
-const val HUSI_REPOSITORY = "xchacha20-poly1305/husi"
-
-/** Well-known UDS name under the core host dir (mirrors coresvc.Socket). */
-const val CORE_SOCKET_NAME = "api.sock"
-
-/**
- * PEM of the roots the user's certificate provider selects, under the external assets dir
- * (mirrors libcore.PluginCaFile). Plugins get it as `SSL_CERT_FILE`, and the remote control
- * client trusts exactly these roots.
- */
-const val PLUGIN_CA_FILE = "plugin-ca.pem"
-
-const val LOG_FILE_NAME = "stderr.log"
-
 const val CONNECTION_TEST_URL = "http://cp.cloudflare.com/"
-const val NETWORK_QUALITY_CONFIG_URL = "https://mensura.cdn-apple.com/api/v1/gm/config"
-
-// Note that nextcloud runs TCP without TLS on 443.
-const val STUN_SERVERS = """turns:turn.matrix.org:443
-turns:turn.cloudflare.com:443
-turn:stun.nextcloud.com:443?transport=tcp
-"""
-
-// Actually no "auto" domain strategy. It is legacy "let the core decide",
-// and every consumer strips it back to an empty strategy.
-const val DOMAIN_STRATEGY_AUTO = "auto"
+const val SPEED_TEST_URL = "http://speed.cloudflare.com/__down?bytes=20000000"
+const val SPEED_TEST_UPLOAD_URL = "http://speed.cloudflare.com/__up"
 
 object Key {
 
@@ -42,16 +19,7 @@ object Key {
 
     const val PERSIST_ACROSS_REBOOT = "isAutoConnect"
 
-    const val REMEMBER_WINDOW_SIZE = "rememberWindowSize"
-    const val WINDOW_WIDTH = "windowWidth"
-    const val WINDOW_HEIGHT = "windowHeight"
-
-    const val ADVANCED_FEATURES = "advancedFeatures"
-
-    // Advanced feature keys. A feature that reveals one preference reuses that preference's key.
-    const val ADVANCED_DEBUG = "debug"
-    const val ADVANCED_TAILSCALE_SSH_SERVER = "tailscaleSSHServer"
-
+    const val APP_EXPERT = "isExpert"
     const val APP_THEME = "appTheme"
     const val NIGHT_THEME = "nightTheme"
     const val APP_LANGUAGE = "appLanguage"
@@ -82,7 +50,8 @@ object Key {
     const val METERED_NETWORK = "meteredNetwork"
     const val NETWORK_INTERFACE_STRATEGY = "networkInterfaceStrategy"
     const val NETWORK_PREFERRED_INTERFACES = "networkPreferredInterfaces"
-    const val FORCED_SEARCH_PROCESS = "forcedSearchProcess"
+
+    // const val FORCED_SEARCH_PROCESS = "forcedSearchProcess"
     const val RULES_PROVIDER = "rulesProvider"
     const val CUSTOM_RULE_PROVIDER = "customRuleProvider"
     const val ROUTE_ASSETS_AUTO_UPDATE_DELAY = "routeAssetsAutoUpdateDelay"
@@ -91,7 +60,6 @@ object Key {
     const val BYPASS_LAN = "bypassLan"
 
     const val APPEND_HTTP_PROXY = "appendHttpProxy"
-    const val SYSTEM_PROXY = "systemProxy"
     const val HTTP_PROXY_BYPASS = "httpProxyBypass"
     const val INBOUND_USERNAME = "inboundUsername"
     const val INBOUND_PASSWORD = "inboundPassword"
@@ -104,8 +72,6 @@ object Key {
     const val SHOW_DIRECT_SPEED = "showDirectSpeed"
     const val LOCAL_DNS_PORT = "portLocalDns"
 
-    const val AUTO_DETECT_IP = "autoDetectIP"
-    const val IP_TEST_SERVERS = "ipTestServers"
     const val CONNECTION_TEST_URL = "connectionTestURL"
     const val CONNECTION_TEST_CONCURRENT = "connectionTestConcurrent"
     const val CONNECTION_TEST_TIMEOUT = "connectionTestTimeout"
@@ -118,7 +84,6 @@ object Key {
     const val TCP_KEEP_ALIVE_INTERVAL_0 = "tcpKeepAliveInterval0"
     const val LOG_LEVEL = "logLevel"
     const val LOG_MAX_LINE = "logMaxLine"
-    const val LOG_TERMINAL_MODE = "logTerminalMode"
     const val MTU = "mtu"
     const val VPN_SESSION_NAME = "vpnSessionName"
     const val TUN_INTERFACE_NAME = "tunInterfaceName"
@@ -145,38 +110,21 @@ object Key {
 
     const val ACQUIRE_WAKE_LOCK = "acquireWakeLock"
 
+    const val TUN_IMPLEMENTATION = "tunImplementation"
     const val PROFILE_TRAFFIC_STATISTICS = "profileTrafficStatistics"
 
     const val CERT_PROVIDER = "certProvider"
     const val DISABLE_PROCESS_TEXT = "disableProcessText"
     const val HIDE_LAUNCHER_ICON = "hideLauncherIcon"
-    const val ENABLE_TASKER = "enableTasker"
 
     const val TRAFFIC_DESCENDING = "trafficDescending"
     const val TRAFFIC_SORT_MODE = "trafficSortMode"
     const val TRAFFIC_CONNECTION_QUERY = "trafficConnectionQuery"
-    const val PROXY_SET_ORDER = "proxySetOrder"
-    const val DASHBOARD_WIDGETS = "dashboardWidgets"
 
-    // App Update Settings
-    const val APP_UPDATE_AUTO_CHECK = "appUpdateAutoCheck"
-    const val APP_UPDATE_PRE_RELEASE = "appUpdatePreRelease"
-    const val APP_UPDATE_ONLY_WHEN_CONNECTED = "appUpdateOnlyWhenConnected"
-    const val APP_UPDATE_TOKEN = "appUpdateToken"
-    const val APP_UPDATE_USE_SHIZUKU = "appUpdateUseShizuku"
-    const val APP_UPDATE_LAST_CHECK_EPOCH_DAY = "appUpdateLastCheckEpochDay"
-    const val APP_UPDATE_SKIPPED_VERSION = "appUpdateSkippedVersion"
-
-    const val WEBDAV_URL = "webdavURL"
-    const val WEBDAV_USERNAME = "webdavUsername"
-    const val WEBDAV_PASSWORD = "webdavPassword"
-
-    const val TAILSCALE_SSH_LOGINS = "tailscaleSSHLogins"
-
-    const val NETWORK_QUALITY_CONFIG_URL = "networkQualityConfigURL"
-    const val NETWORK_QUALITY_SERIAL = "networkQualitySerial"
-    const val NETWORK_QUALITY_MAX_RUNTIME = "networkQualityMaxRuntime"
-    const val NETWORK_QUALITY_HTTP3 = "networkQualityHTTP3"
+    const val SPEED_TEST_URL = "speedTestURL"
+    const val SPEED_TEST_UPLOAD_URL = "speedTestUploadURL"
+    const val SPEED_TEST_UPLOAD_LENGTH = "speedTestUploadLength"
+    const val SPEED_TEST_TIMEOUT = "speedTestTimeout"
 
     const val PROFILE_ID = "profileId"
     const val PROFILE_GROUP = "profileGroup"
@@ -184,10 +132,16 @@ object Key {
 
     const val RULES_FIRST_CREATE = "rulesFirstCreate"
 
-    const val DESKTOP_NAV_RAIL_WIDTH = "desktopNavRailWidth"
+}
 
-    const val ACTIVE_REMOTE_SERVER_ID = "activeRemoteServerId"
+object AlertType {
+    const val COMMON = 0
 
+    // message: none
+    const val MISSING_PLUGIN = 1
+
+    // message: plugin name
+    const val NEED_WIFI_PERMISSION = 2
 }
 
 fun logLevelString(level: Int): String = when (level) {
@@ -199,6 +153,12 @@ fun logLevelString(level: Int): String = when (level) {
     5 -> "debug"
     6 -> "trace"
     else -> "info"
+}
+
+object TunImplementation {
+    const val GVISOR = 0
+    const val SYSTEM = 1
+    const val MIXED = 2
 }
 
 object GroupType {
@@ -247,8 +207,6 @@ object TrafficSortMode {
     const val UPLOAD = 4
     const val DOWNLOAD = 5
     const val MATCHED_RULE = 6
-    const val UPLOAD_SPEED = 7
-    const val DOWNLOAD_SPEED = 8
 
     val values
         get() = listOf(
@@ -258,8 +216,6 @@ object TrafficSortMode {
             DST,
             UPLOAD,
             DOWNLOAD,
-            UPLOAD_SPEED,
-            DOWNLOAD_SPEED,
             MATCHED_RULE,
         )
 }

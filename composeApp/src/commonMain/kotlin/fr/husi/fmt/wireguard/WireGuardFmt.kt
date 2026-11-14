@@ -9,8 +9,6 @@ import fr.husi.ktx.b64EncodeOneLine
 import fr.husi.ktx.blankAsNull
 import fr.husi.ktx.listByLineOrComma
 import fr.husi.ktx.applyDefaultValues
-import fr.husi.ktx.splitAddress
-import fr.husi.ktx.toPortOrNull
 import org.ini4j.Ini
 import java.io.StringReader
 
@@ -36,9 +34,9 @@ fun parseWireGuardConfig(conf: String): List<WireGuardBean> {
         for ((keyName, keyValue) in peer) {
             when (keyName.lowercase()) {
                 "endpoint" -> {
-                    val (host, port) = splitAddress(keyValue) ?: continue@loopPeer
-                    peerBean.serverAddress = host
-                    peerBean.serverPort = port.toPortOrNull() ?: continue@loopPeer
+                    peerBean.serverPort = keyValue.substringAfterLast(":", "").toIntOrNull()
+                        ?: continue@loopPeer
+                    peerBean.serverAddress = keyValue.substringBeforeLast(":")
                 }
 
                 "publickey" -> peerBean.publicKey = keyValue ?: continue@loopPeer

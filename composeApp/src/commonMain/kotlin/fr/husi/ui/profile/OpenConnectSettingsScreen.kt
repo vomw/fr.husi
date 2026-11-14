@@ -5,14 +5,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.text.AnnotatedString
 import fr.husi.compose.IconMaskColors
 import fr.husi.compose.IconMaskShapes
-import fr.husi.compose.ListPreference
 import fr.husi.compose.MaskedIcon
 import fr.husi.compose.MultilineTextField
 import fr.husi.compose.PasswordPreference
-import fr.husi.compose.Preference
 import fr.husi.compose.PreferenceCategory
-import fr.husi.compose.SwitchPreference
-import fr.husi.compose.TextFieldPreference
+import fr.husi.compose.PreferenceDivider
 import fr.husi.compose.material3.Text
 import fr.husi.compose.preferenceGroup
 import fr.husi.ktx.contentOrUnset
@@ -25,6 +22,7 @@ import fr.husi.resources.clear_remembered_authentication_answers
 import fr.husi.resources.client_certificate
 import fr.husi.resources.client_key
 import fr.husi.resources.delete
+import fr.husi.resources.directions_boat
 import fr.husi.resources.dns
 import fr.husi.resources.domain
 import fr.husi.resources.emoji_symbols
@@ -56,7 +54,11 @@ import fr.husi.resources.vpn_key
 import fr.husi.resources.vpn_server_url
 import fr.husi.resources.warning_amber
 import fr.husi.ui.NavRoutes
+import me.zhanghai.compose.preference.ListPreference
 import me.zhanghai.compose.preference.ListPreferenceType
+import me.zhanghai.compose.preference.Preference
+import me.zhanghai.compose.preference.SwitchPreference
+import me.zhanghai.compose.preference.TextFieldPreference
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
@@ -136,6 +138,7 @@ private fun LazyListScope.openConnectSettings(
             summary = { Text(contentOrUnset(state.server)) },
             icon = { MaskedIcon(Res.drawable.router, IconMaskColors.IconLightBlue) },
         )
+        PreferenceDivider()
         ListPreference(
             value = state.flavor,
             onValueChange = viewModel::setFlavor,
@@ -146,9 +149,10 @@ private fun LazyListScope.openConnectSettings(
             },
             icon = { MaskedIcon(Res.drawable.category, IconMaskColors.IconLavender) },
             type = ListPreferenceType.DROPDOWN_MENU,
-            valueToText = { AnnotatedString(it.ifBlank { stringResource(Res.string.auto) }) },
+            valueToText = { AnnotatedString(if (it.isBlank()) stringResource(Res.string.auto) else it) },
         )
         if (state.flavor == "pulse") {
+            PreferenceDivider()
             ListPreference(
                 value = state.reportedOS,
                 onValueChange = viewModel::setReportedOS,
@@ -159,9 +163,10 @@ private fun LazyListScope.openConnectSettings(
                 },
                 icon = { MaskedIcon(Res.drawable.android, IconMaskColors.IconLightYellow) },
                 type = ListPreferenceType.DROPDOWN_MENU,
-                valueToText = { AnnotatedString(it.ifBlank { stringResource(Res.string.auto) }) },
+                valueToText = { AnnotatedString(if (it.isBlank()) stringResource(Res.string.auto) else it) },
             )
         }
+        PreferenceDivider()
         TextFieldPreference(
             value = state.username,
             onValueChange = viewModel::setUsername,
@@ -171,11 +176,13 @@ private fun LazyListScope.openConnectSettings(
             summary = { Text(contentOrUnset(state.username)) },
             icon = { MaskedIcon(Res.drawable.person, IconMaskColors.IconLightGreen) },
         )
+        PreferenceDivider()
         PasswordPreference(
             value = state.password,
             onValueChange = viewModel::setPassword,
             title = { Text(stringResource(Res.string.password)) },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = state.authGroup,
             onValueChange = viewModel::setAuthGroup,
@@ -185,6 +192,7 @@ private fun LazyListScope.openConnectSettings(
             summary = { Text(contentOrUnset(state.authGroup)) },
             icon = { MaskedIcon(Res.drawable.domain, IconMaskColors.IconLightOrange) },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = state.userAgent,
             onValueChange = viewModel::setUserAgent,
@@ -194,6 +202,7 @@ private fun LazyListScope.openConnectSettings(
             summary = { Text(contentOrUnset(state.userAgent)) },
             icon = { MaskedIcon(Res.drawable.language, IconMaskColors.IconWarmGray) },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = state.localHostname,
             onValueChange = viewModel::setLocalHostname,
@@ -218,6 +227,7 @@ private fun LazyListScope.openConnectSettings(
                 )
             },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = state.tlsServerName,
             onValueChange = viewModel::setTlsServerName,
@@ -227,6 +237,7 @@ private fun LazyListScope.openConnectSettings(
             summary = { Text(contentOrUnset(state.tlsServerName)) },
             icon = { MaskedIcon(Res.drawable.dns, IconMaskColors.IconLightBlue) },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = state.tlsPeerFingerprint,
             onValueChange = viewModel::setTlsPeerFingerprint,
@@ -236,6 +247,7 @@ private fun LazyListScope.openConnectSettings(
             summary = { Text(contentOrUnset(state.tlsPeerFingerprint)) },
             icon = { MaskedIcon(Res.drawable.fingerprint, IconMaskColors.IconLightYellow) },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = state.certificateAuthority,
             onValueChange = viewModel::setCertificateAuthority,
@@ -243,11 +255,12 @@ private fun LazyListScope.openConnectSettings(
             textToValue = { it },
             valueToText = { it },
             summary = { Text(contentOrUnset(state.certificateAuthority)) },
-            textField = { fieldState, ok ->
-                MultilineTextField(fieldState, ok)
+            textField = { fieldValue, change, ok ->
+                MultilineTextField(fieldValue, change, ok)
             },
             icon = { MaskedIcon(Res.drawable.enhanced_encryption, IconMaskColors.IconLightBlue) },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = state.clientCertificate,
             onValueChange = viewModel::setClientCertificate,
@@ -255,11 +268,12 @@ private fun LazyListScope.openConnectSettings(
             textToValue = { it },
             valueToText = { it },
             summary = { Text(contentOrUnset(state.clientCertificate)) },
-            textField = { fieldState, ok ->
-                MultilineTextField(fieldState, ok)
+            textField = { fieldValue, change, ok ->
+                MultilineTextField(fieldValue, change, ok)
             },
             icon = { MaskedIcon(Res.drawable.fingerprint, IconMaskColors.IconLavender, IconMaskShapes.credential()) },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = state.clientKey,
             onValueChange = viewModel::setClientKey,
@@ -267,15 +281,17 @@ private fun LazyListScope.openConnectSettings(
             textToValue = { it },
             valueToText = { it },
             summary = { Text(contentOrUnset(state.clientKey)) },
-            textField = { fieldState, ok ->
-                MultilineTextField(fieldState, ok)
+            textField = { fieldValue, change, ok ->
+                MultilineTextField(fieldValue, change, ok)
             },
             icon = { MaskedIcon(Res.drawable.vpn_key, IconMaskColors.IconCoral, IconMaskShapes.credential()) },
         )
+        PreferenceDivider()
         PasswordPreference(
             value = state.clientKeyPassword,
             onValueChange = viewModel::setClientKeyPassword,
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = state.mcaCertificate,
             onValueChange = viewModel::setMcaCertificate,
@@ -283,11 +299,12 @@ private fun LazyListScope.openConnectSettings(
             textToValue = { it },
             valueToText = { it },
             summary = { Text(contentOrUnset(state.mcaCertificate)) },
-            textField = { fieldState, ok ->
-                MultilineTextField(fieldState, ok)
+            textField = { fieldValue, change, ok ->
+                MultilineTextField(fieldValue, change, ok)
             },
             icon = { MaskedIcon(Res.drawable.lock, IconMaskColors.IconLightOrange, IconMaskShapes.credential()) },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = state.mcaKey,
             onValueChange = viewModel::setMcaKey,
@@ -295,15 +312,17 @@ private fun LazyListScope.openConnectSettings(
             textToValue = { it },
             valueToText = { it },
             summary = { Text(contentOrUnset(state.mcaKey)) },
-            textField = { fieldState, ok ->
-                MultilineTextField(fieldState, ok)
+            textField = { fieldValue, change, ok ->
+                MultilineTextField(fieldValue, change, ok)
             },
             icon = { MaskedIcon(Res.drawable.vpn_key, IconMaskColors.IconLightPink, IconMaskShapes.credential()) },
         )
+        PreferenceDivider()
         PasswordPreference(
             value = state.mcaKeyPassword,
             onValueChange = viewModel::setMcaKeyPassword,
         )
+        PreferenceDivider()
         SwitchPreference(
             value = state.allowInsecureCrypto,
             onValueChange = viewModel::setAllowInsecureCrypto,

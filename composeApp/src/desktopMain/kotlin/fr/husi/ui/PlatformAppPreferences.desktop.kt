@@ -1,9 +1,13 @@
+@file:OptIn(ExperimentalFoundationApi::class, ExperimentalComposeUiApi::class)
+
 package fr.husi.ui
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
@@ -12,13 +16,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import fr.husi.compose.IconMaskColors
 import fr.husi.compose.MaskedIcon
 import fr.husi.compose.SimpleIconButton
-import fr.husi.compose.TextFieldPreference
 import fr.husi.compose.hasFileList
 import fr.husi.compose.material3.Text
 import fr.husi.compose.rememberFileDropTarget
@@ -32,6 +37,7 @@ import fr.husi.resources.select_file
 import io.github.vinceglb.filekit.absolutePath
 import io.github.vinceglb.filekit.dialogs.FileKitMode
 import io.github.vinceglb.filekit.dialogs.compose.rememberFilePickerLauncher
+import me.zhanghai.compose.preference.TextFieldPreference
 import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.vectorResource
 import java.io.File
@@ -57,15 +63,20 @@ internal actual fun AppSelectPreference(
         summary = { Text(contentOrUnset(content)) },
         textToValue = { it },
         valueToText = { it },
-        textField = { state, onOk ->
+        textField = { value, onValueChange, onOk ->
+            // Workaround stale TextFieldPreference value snapshots in asynchronous file picker and drop callbacks.
+            var text by remember { mutableStateOf(value) }
+            fun updateText(newValue: TextFieldValue) {
+                text = newValue
+                onValueChange(newValue)
+            }
+
             fun appendPaths(paths: List<String>) {
                 val selectedPaths = paths.joinToString("\n")
-                if (selectedPaths.isEmpty()) return
-                state.edit {
-                    if (length > 0) append("\n")
-                    append(selectedPaths)
-                    selection = TextRange(length)
-                }
+                val content = listOf(text.text, selectedPaths)
+                    .filter { it.isNotEmpty() }
+                    .joinToString("\n")
+                updateText(text.copy(text = content, selection = TextRange(content.length)))
             }
 
             fun appendFiles(files: List<File>) {
@@ -99,9 +110,11 @@ internal actual fun AppSelectPreference(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 OutlinedTextField(
-                    state = state,
+                    value = text,
+                    onValueChange = ::updateText,
                     modifier = Modifier.weight(1f),
-                    onKeyboardAction = { onOk() },
+                    keyboardActions = KeyboardActions { onOk() },
+                    singleLine = false,
                 )
                 SimpleIconButton(
                     imageVector = vectorResource(Res.drawable.folder_open),

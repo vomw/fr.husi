@@ -7,21 +7,16 @@ import com.ernestoyaquello.dragdropswipelazycolumn.OrderedItem
 import fr.husi.database.ProfileManager
 import fr.husi.database.ProxyEntity
 import fr.husi.fmt.internal.ChainBean
+import fr.husi.ktx.onDefaultDispatcher
 import fr.husi.resources.Res
 import fr.husi.resources.circular_reference
 import fr.husi.resources.circular_reference_sum
 import fr.husi.resources.duplicate_name
 import fr.husi.ui.StringOrRes
-import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.persistentListOf
-import kotlinx.collections.immutable.toImmutableList
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 @Immutable
 internal data class ChainUiState(
@@ -29,7 +24,7 @@ internal data class ChainUiState(
     override val customOutbound: String = "",
 
     val name: String = "",
-    val profiles: ImmutableList<ProxyEntity> = persistentListOf(),
+    val profiles: List<ProxyEntity> = emptyList(),
 ) : ProfileEditorUiState
 
 @Stable
@@ -61,103 +56,102 @@ internal class ChainSettingsViewModel : ProfileEditorViewModel<ChainBean>() {
     }
 
     private suspend fun load(ids: List<Long>) {
+        val proxyList = ArrayList<ProxyEntity>(ids.size)
         val profiles = ProfileManager.getProfiles(ids).associateBy { it.id }
-        val proxyList = withContext(Dispatchers.Default) {
-            buildList(ids.size) {
-                for (id in ids) {
-                    add(profiles[id] ?: continue)
-                }
+        onDefaultDispatcher {
+            for (id in ids) {
+                proxyList.add(profiles[id] ?: continue)
             }
         }
-        uiState.update { state ->
-            state.copy(profiles = proxyList.toImmutableList())
+        uiState.update {
+            it.copy(profiles = proxyList)
         }
     }
 
     fun submitReorder(changes: List<OrderedItem<ProxyEntity>>) {
-        invalidateProfileSelection()
+        val currentProfiles = uiState.value.profiles
+        val changesMap = changes.associate { it.value.id to it.newIndex }
 
-        uiState.update { state ->
-            val currentProfiles = state.profiles
-            val changesMap = changes.associate { it.value.id to it.newIndex }
-            val reordered = currentProfiles.sortedBy { profile ->
-                changesMap[profile.id] ?: currentProfiles.indexOf(profile)
-            }
-            state.copy(profiles = reordered.toImmutableList())
+        val reordered = currentProfiles.sortedBy { profile ->
+            changesMap[profile.id] ?: currentProfiles.indexOf(profile)
+        }
+
+        uiState.update {
+            it.copy(profiles = reordered)
         }
     }
 
-    fun remove(index: Int) {
-        invalidateProfileSelection()
-        uiState.update { state ->
-            val profiles = state.profiles.toMutableList()
-            profiles.removeAt(index)
-            state.copy(profiles = profiles.toImmutableList())
+    fun remove(index: Int) = viewModelScope.launch {
+        val profiles = uiState.value.profiles.toMutableList()
+        profiles.removeAt(index)
+        uiState.update {
+            it.copy(profiles = profiles)
         }
     }
 
     /** The profile index that is being replacing */
     var replacing = -1
 
-    private var profileSelectionJob: Job? = null
-    private var profileMutationVersion = 0L
-
-    private fun invalidateProfileSelection() {
-        profileMutationVersion++
-        profileSelectionJob?.cancel()
-        profileSelectionJob = null
-    }
-
-    fun onSelectProfile(id: Long) {
-        val replacingIndex = replacing
-        replacing = -1
-        val version = ++profileMutationVersion
-        profileSelectionJob?.cancel()
-        profileSelectionJob = viewModelScope.launch(Dispatchers.Default) {
-            val profile = withContext(Dispatchers.IO) {
-                ProfileManager.getProfile(id)!!
+    fun onSelectProfile(id: Long) = viewModelScope.launch {
+        val profile = ProfileManager.getProfile(id)!!
+        if (!profile.canAdd()) {
+            emitAlert(
+                title = StringOrRes.Res(Res.string.circular_reference),
+                message = StringOrRes.Res(Res.string.circular_reference_sum),
+            )
+            return@launch
+        }
+        val profiles = uiState.value.profiles.toMutableList()
+        if (replacing < 0) {
+            if (profiles.any { it.id == profile.id }) {
+                emitAlert(
+                    title = StringOrRes.Res(Res.string.duplicate_name),
+                    message = StringOrRes.Direct(profile.displayName()),
+                )
+                return@launch
             }
-            if (version != profileMutationVersion) return@launch
-            uiState.update { state ->
-                val profiles = state.profiles.toMutableList()
-                if (replacingIndex >= profiles.size) return@launch
-                val otherProfiles = profiles.filterIndexed { index, _ ->
-                    index != replacingIndex
-                }
-                if (otherProfiles.any { it.id == profile.id }) {
-                    emitAlert(
-                        title = StringOrRes.Res(Res.string.duplicate_name),
-                        message = StringOrRes.Direct(profile.displayName()),
-                    )
-                    return@launch
-                }
-                if (!profile.canAdd(otherProfiles)) {
-                    if (version != profileMutationVersion) return@launch
-                    emitAlert(
-                        title = StringOrRes.Res(Res.string.circular_reference),
-                        message = StringOrRes.Res(Res.string.circular_reference_sum),
-                    )
-                    return@launch
-                }
-                if (version != profileMutationVersion) return@launch
-                if (replacingIndex < 0) {
-                    profiles.add(profile)
-                } else {
-                    profiles[replacingIndex] = profile
-                }
-                state.copy(profiles = profiles.toImmutableList())
+            profiles.add(profile)
+        } else {
+            if (profiles.filterIndexed { index, _ -> index != replacing }
+                    .any { it.id == profile.id }) {
+                emitAlert(
+                    title = StringOrRes.Res(Res.string.duplicate_name),
+                    message = StringOrRes.Direct(profile.displayName()),
+                )
+                replacing = -1
+                return@launch
             }
+            profiles[replacing] = profile
+            replacing = -1
+        }
+        uiState.update {
+            it.copy(profiles = profiles)
         }
     }
 
-    private suspend fun ProxyEntity.canAdd(otherProfiles: List<ProxyEntity>): Boolean {
-        if (containsProfileReference(editingId)) return false
-        for (existingProfile in otherProfiles) {
-            if (existingProfile.containsProfileReference(id)) {
-                return false
-            }
+    private fun ProxyEntity.canAdd(): Boolean {
+        if (id == editingId) return false
+
+        for (entity in uiState.value.profiles) {
+            if (testProfileContains(entity, this)) return false
         }
+
         return true
+    }
+
+    private fun testProfileContains(profile: ProxyEntity, anotherProfile: ProxyEntity): Boolean {
+        if (profile.type != ProxyEntity.TYPE_CHAIN || anotherProfile.type != ProxyEntity.TYPE_CHAIN) return false
+        if (profile.id == anotherProfile.id) return true
+        val proxies = profile.chainBean!!.proxies
+        if (proxies.contains(anotherProfile.id)) return true
+        if (proxies.isNotEmpty()) {
+            for (entity in ProfileManager.getProfiles(proxies)) {
+                if (testProfileContains(entity, anotherProfile)) {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     override fun setCustomConfig(config: String) {

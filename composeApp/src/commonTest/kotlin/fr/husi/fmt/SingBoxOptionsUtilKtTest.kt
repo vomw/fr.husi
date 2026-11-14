@@ -1,6 +1,5 @@
 package fr.husi.fmt
 
-import fr.husi.database.AssetEntity
 import fr.husi.fmt.SingBoxOptions.MyOptions
 import fr.husi.fmt.SingBoxOptions.MyDNSOptions
 import fr.husi.fmt.SingBoxOptions.MyRouteOptions
@@ -68,15 +67,6 @@ class SingBoxOptionsUtilKtTest {
         return rule as? RuleSet_Local ?: fail("Rule set $expectedTags is not local")
     }
 
-    private fun asset(name: String, url: String) = AssetEntity(name = name, url = url)
-
-    private fun MyOptions.withRuleSetTags(vararg tags: String) {
-        route = null
-        dns = MyDNSOptions().apply {
-            rules = mutableListOf(buildRule<DNSRule_Default>(tags.toList()).asMap())
-        }
-    }
-
     @BeforeTest
     fun setUp() {
         options = MyOptions()
@@ -113,7 +103,9 @@ class SingBoxOptionsUtilKtTest {
         options.route = null
 
         options.buildRuleSets(
-            RuleSetSource.Remote("http://ip.example.com", "http://domain.example.com", emptyList()),
+            ipURL = "http://ip.example.com",
+            domainURL = "http://domain.example.com",
+            localPath = "/data/local"
         )
 
         assertNull(options.route)
@@ -125,7 +117,9 @@ class SingBoxOptionsUtilKtTest {
         options.route = MyRouteOptions().apply { rule_set = mutableListOf() }
 
         options.buildRuleSets(
-            RuleSetSource.Remote("http://ip.example.com", "http://domain.example.com", emptyList()),
+            ipURL = "http://ip.example.com",
+            domainURL = "http://domain.example.com",
+            localPath = "/data/local"
         )
 
         assertTrue(requireNotNull(options.route).rule_set.isNullOrEmpty())
@@ -145,7 +139,9 @@ class SingBoxOptionsUtilKtTest {
         val domainURL = "http://domain.remote.com"
 
         options.buildRuleSets(
-            RuleSetSource.Remote(ipURL, domainURL, emptyList()),
+            ipURL = ipURL,
+            domainURL = domainURL,
+            localPath = null
         )
 
         val expectedTags = setOf("geoip-cn", "geoip-us", "geosite-google", "geosite-youtube")
@@ -174,7 +170,9 @@ class SingBoxOptionsUtilKtTest {
         val localPath = "/data/local_rules"
 
         options.buildRuleSets(
-            RuleSetSource.Local(localPath, "/data/custom_rules", emptyList()),
+            ipURL = null,
+            domainURL = null,
+            localPath = localPath
         )
 
         val expectedTags = setOf("geosite-facebook", "geoip-us")
@@ -206,7 +204,9 @@ class SingBoxOptionsUtilKtTest {
         val domainURL = "http://domain.remote.com"
 
         options.buildRuleSets(
-            RuleSetSource.Remote(ipURL, domainURL, emptyList()),
+            ipURL = ipURL,
+            domainURL = domainURL,
+            localPath = null
         )
 
         val expectedTags = setOf("existing-rule", "geoip-kr", "geoip-jp", "twitter")
@@ -242,9 +242,7 @@ class SingBoxOptionsUtilKtTest {
         val ipURL = "http://ip.test.com"
         val domainURL = "http://domain.test.com"
 
-        options.buildRuleSets(
-            RuleSetSource.Remote(ipURL, domainURL, emptyList()),
-        )
+        options.buildRuleSets(ipURL, domainURL, null)
 
         val expectedTags = setOf(
             "dns-set-1", "dns-set-3", "geoip-dns-set-2",
@@ -280,9 +278,7 @@ class SingBoxOptionsUtilKtTest {
             )
         }
 
-        options.buildRuleSets(
-            RuleSetSource.Remote("ip", "domain", emptyList()),
-        )
+        options.buildRuleSets("ip", "domain", null)
 
         val expectedTags = setOf("another-set", "common-set", "geoip-common-set")
         options.requireRuleSets().assertTags(expectedTags)
@@ -298,9 +294,7 @@ class SingBoxOptionsUtilKtTest {
         }
         options.route = null
 
-        options.buildRuleSets(
-            RuleSetSource.Remote("ip", "domain", emptyList()),
-        )
+        options.buildRuleSets("ip", "domain", null)
 
         val expectedTags = setOf("good-set")
         options.requireRuleSets().assertTags(expectedTags)
@@ -316,9 +310,7 @@ class SingBoxOptionsUtilKtTest {
         }
         options.route = null
 
-        options.buildRuleSets(
-            RuleSetSource.Remote("ip", "domain", emptyList()),
-        )
+        options.buildRuleSets("ip", "domain", null)
 
         val expectedTags = setOf("another-good-set")
         options.requireRuleSets().assertTags(expectedTags)
@@ -334,9 +326,7 @@ class SingBoxOptionsUtilKtTest {
         }
         options.route = null
 
-        options.buildRuleSets(
-            RuleSetSource.Remote("ip", "domain", emptyList()),
-        )
+        options.buildRuleSets("ip", "domain", null)
 
         val expectedTags = setOf("nested-set")
         options.requireRuleSets().assertTags(expectedTags)
@@ -352,9 +342,7 @@ class SingBoxOptionsUtilKtTest {
         }
         options.route = null
 
-        options.buildRuleSets(
-            RuleSetSource.Remote("ip", "domain", emptyList()),
-        )
+        options.buildRuleSets("ip", "domain", null)
 
         val expectedTags = setOf("another-nested-set")
         options.requireRuleSets().assertTags(expectedTags)
@@ -379,9 +367,7 @@ class SingBoxOptionsUtilKtTest {
         val domainURL = "http://domain.com"
         val localPath = "/local"
 
-        options.buildRuleSets(
-            RuleSetSource.Remote(ipURL, domainURL, emptyList()),
-        )
+        options.buildRuleSets(ipURL, domainURL, localPath)
 
         val expectedTags = setOf("new-set", "existing-local", "existing-remote")
         val ruleSets = options.requireRuleSets()
@@ -405,9 +391,7 @@ class SingBoxOptionsUtilKtTest {
         val ipURL = "http://ip.only.com"
         val domainURL = "http://domain.only.com"
 
-        options.buildRuleSets(
-            RuleSetSource.Remote(ipURL, domainURL, emptyList()),
-        )
+        options.buildRuleSets(ipURL, domainURL, null)
 
         val expectedTags = setOf("geoip-route-only-set-2", "route-only-set-1")
         val ruleSets = options.requireRuleSets()
@@ -432,147 +416,13 @@ class SingBoxOptionsUtilKtTest {
         }
 
         options.buildRuleSets(
-            RuleSetSource.Local(
-                """C:\Users\demo\.config\husi\external\geo""",
-                """C:\Users\demo\.config\husi\external\geo-custom""",
-                emptyList(),
-            ),
+            ipURL = null,
+            domainURL = null,
+            localPath = """C:\Users\demo\.config\husi\external\geo""",
         )
 
         val ruleSet = options.requireRuleSets().requireLocal("geosite-facebook", "geosite-google")
         assertEquals(RULE_SET_FORMAT_BINARY, ruleSet.format)
         assertEquals("""C:\Users\demo\.config\husi\external\geo/{tag}.srs""", ruleSet.path)
-    }
-
-    @Test
-    fun `buildRuleSets should emit separate local rule sets for managed and custom tags`() {
-        options.withRuleSetTags("geoip-cn", "my-list", "geosite-google")
-
-        options.buildRuleSets(
-            RuleSetSource.Local(
-                geoDir = "/managed",
-                customGeoDir = "/custom",
-                assets = listOf(asset("my-list.srs", "")),
-            ),
-        )
-
-        val ruleSets = options.requireRuleSets()
-        assertEquals(2, ruleSets.size)
-        assertEquals("/managed/{tag}.srs", ruleSets.requireLocal("geoip-cn", "geosite-google").path)
-        assertEquals("/custom/{tag}.srs", ruleSets.requireLocal("my-list").path)
-    }
-
-    @Test
-    fun `buildRuleSets should emit a single local rule set when every tag is managed`() {
-        options.withRuleSetTags("geoip-cn", "geosite-google")
-
-        options.buildRuleSets(
-            RuleSetSource.Local(
-                geoDir = "/managed",
-                customGeoDir = "/custom",
-                assets = emptyList(),
-            ),
-        )
-
-        val ruleSets = options.requireRuleSets()
-        assertEquals(1, ruleSets.size)
-        assertEquals("/managed/{tag}.srs", ruleSets.requireLocal("geoip-cn", "geosite-google").path)
-    }
-
-    @Test
-    fun `buildRuleSets should point an asset rule set at its own repository`() {
-        options.withRuleSetTags("geosite-cn", "my-list")
-
-        options.buildRuleSets(
-            RuleSetSource.Remote(
-                "http://ip.remote.com",
-                "http://domain.remote.com",
-                listOf(asset("my-list.srs", "https://example.com/rules/my-list.srs")),
-            ),
-        )
-
-        val ruleSets = options.requireRuleSets()
-        ruleSets.assertTags(setOf("geosite-cn", "my-list"))
-        assertEquals("http://domain.remote.com/{tag}.srs", ruleSets.requireRemote("geosite-cn").url)
-
-        val assetRuleSet = ruleSets.requireRemote("my-list")
-        assertEquals(RULE_SET_TYPE_REMOTE, assetRuleSet.type)
-        assertEquals(RULE_SET_FORMAT_BINARY, assetRuleSet.format)
-        assertEquals("https://example.com/rules/{tag}.srs", assetRuleSet.url)
-    }
-
-    @Test
-    fun `buildRuleSets should merge assets served from the same directory`() {
-        options.withRuleSetTags("first", "second")
-
-        options.buildRuleSets(
-            RuleSetSource.Remote(
-                "http://ip.remote.com",
-                "http://domain.remote.com",
-                listOf(
-                    asset("first.srs", "https://example.com/rules/first.srs"),
-                    asset("second.srs", "https://example.com/rules/second.srs"),
-                ),
-            ),
-        )
-
-        val ruleSets = options.requireRuleSets()
-        assertEquals(1, ruleSets.size)
-        assertEquals("https://example.com/rules/{tag}.srs", ruleSets.requireRemote("first", "second").url)
-    }
-
-    @Test
-    fun `buildRuleSets should keep an asset URL literal when it does not end with the asset name`() {
-        options.withRuleSetTags("dynamic")
-
-        val downloadURL = "https://example.com/download?id=1"
-        options.buildRuleSets(
-            RuleSetSource.Remote(
-                "http://ip.remote.com",
-                "http://domain.remote.com",
-                listOf(asset("dynamic.srs", downloadURL)),
-            ),
-        )
-
-        assertEquals(downloadURL, options.requireRuleSets().requireRemote("dynamic").url)
-    }
-
-    @Test
-    fun `buildRuleSets should keep a tag placeholder the user wrote into an asset URL`() {
-        options.withRuleSetTags("my-list")
-
-        val placeholderURL = "https://example.com/rules/{tag}.srs"
-        options.buildRuleSets(
-            RuleSetSource.Remote(
-                "http://ip.remote.com",
-                "http://domain.remote.com",
-                listOf(asset("my-list.srs", placeholderURL)),
-            ),
-        )
-
-        assertEquals(placeholderURL, options.requireRuleSets().requireRemote("my-list").url)
-    }
-
-    @Test
-    fun `buildRuleSets should ignore assets which are not usable rule sets`() {
-        options.withRuleSetTags("blank-url", "not-a-rule-set.txt")
-
-        options.buildRuleSets(
-            RuleSetSource.Remote(
-                "http://ip.remote.com",
-                "http://domain.remote.com",
-                listOf(
-                    asset("blank-url.srs", ""),
-                    asset("not-a-rule-set.txt", "https://example.com/rules/not-a-rule-set.txt"),
-                ),
-            ),
-        )
-
-        val ruleSets = options.requireRuleSets()
-        assertEquals(1, ruleSets.size)
-        assertEquals(
-            "http://domain.remote.com/{tag}.srs",
-            ruleSets.requireRemote("blank-url", "not-a-rule-set.txt").url,
-        )
     }
 }

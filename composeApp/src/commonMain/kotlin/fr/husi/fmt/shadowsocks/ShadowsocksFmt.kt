@@ -12,9 +12,8 @@ import fr.husi.ktx.blankAsNull
 import fr.husi.ktx.getIntOrNull
 import fr.husi.ktx.getStr
 import fr.husi.ktx.substringBetween
-import io.github.xchacha20_poly1305.kpuri.Url
-import io.github.xchacha20_poly1305.kpuri.UrlBuilder
-import io.github.xchacha20_poly1305.kpuri.buildUrl
+import fr.husi.libcore.Libcore
+import fr.husi.libcore.URL
 
 const val SIMPLE_OBFS = "simple-obfs"
 const val OBFS_LOCAL = "obfs-local"
@@ -62,49 +61,52 @@ fun parseShadowsocks(rawUrl: String): ShadowsocksBean {
         rawUrl
     }
 
-    var url = Url.parse(fixedURL)
-    if (url.username.isNullOrBlank()) { // fix justmysocks' non-standard link
-        url = Url.parse(fixedURL.substringBefore("#").b64DecodeToString()).newBuilder().also {
-            it.encodedFragment = fixedURL.substringAfter("#", "")
-        }.build()
+    var url = Libcore.parseURL(fixedURL)
+    if (url.username.isBlank()) { // fix justmysocks' non-standard link
+        url = Libcore.parseURL(fixedURL.substringBefore("#").b64DecodeToString())
+        url.fragment = fixedURL.substringAfter("#", "")
     }
 
-    val pass = url.password.orEmpty()
+    val pass = url.password
     return ShadowsocksBean().apply {
         if (pass.isEmpty()) {
             // ss://cmM0LW1kNTpwYXNzd2Q@192.168.100.1:8888/?plugin=obfs-local%3Bobfs%3Dhttp#Example2
-            url.username.orEmpty().b64DecodeToString().let {
+            url.username.b64DecodeToString().let {
                 method = it.substringBefore(":")
                 password = it.substringAfter(":")
             }
         } else {
             // ss://2022-blake3-aes-256-gcm:YctPZ6U7xPPcU%2Bgp3u%2B0tx%2FtRizJN9K8y%2BuKlW2qjlI%3D@192.168.100.1:8888/?plugin=v2ray-plugin%3Bserver#Example3
-            method = url.username.orEmpty()
+            method = url.username
             password = pass
         }
-        serverAddress = url.host.orEmpty()
-        serverPort = url.port?.toIntOrNull() ?: 8388
-        plugin = url.queryParameter("plugin").orEmpty()
-        name = url.fragment.orEmpty()
+        serverAddress = url.host
+        serverPort = url.ports.toIntOrNull() ?: 8388
+        plugin = url.queryParameter("plugin")
+        name = url.fragment
         pluginToLocal()
     }
 
 }
 
 // https://shadowsocks.org/doc/sip002.html
-fun ShadowsocksBean.toUri(): String = buildUrl("ss") {
-    encodeShadowsocksUserInfo(this@toUri.password, method)
-    host = serverAddress
-    port = serverPort.toString()
+fun ShadowsocksBean.toUri(): String {
+    val builder = Libcore.newURL("ss").apply {
+        encodeShadowsocksUserInfo(this@toUri.password, method)
+        host = serverAddress
+        ports = serverPort.toString()
+    }
 
     if (plugin.isNotBlank()) {
         // The last `/` should be appended if plugin is present,
         // but is optional if only tag is present.
-        encodedPath = "/"
-        addQueryParameter("plugin", pluginToStandard(plugin))
+        builder.rawPath = "/"
+        builder.addQueryParameter("plugin", pluginToStandard(plugin))
     }
-    if (name.isNotBlank()) fragment = name
-}.toString()
+    if (name.isNotBlank()) builder.fragment = name
+
+    return builder.string
+}
 
 fun JSONMap.parseShadowsocks(): ShadowsocksBean {
     return ShadowsocksBean().apply {
@@ -122,7 +124,7 @@ fun JSONMap.parseShadowsocks(): ShadowsocksBean {
     }
 }
 
-suspend fun buildSingBoxOutboundShadowsocksBean(bean: ShadowsocksBean): SingBoxOptions.Outbound_ShadowsocksOptions {
+fun buildSingBoxOutboundShadowsocksBean(bean: ShadowsocksBean): SingBoxOptions.Outbound_ShadowsocksOptions {
     return SingBoxOptions.Outbound_ShadowsocksOptions().apply {
         type = SingBoxOptions.TYPE_SHADOWSOCKS
         server = bean.serverAddress
@@ -145,7 +147,7 @@ suspend fun buildSingBoxOutboundShadowsocksBean(bean: ShadowsocksBean): SingBoxO
  * But for AEAD-2022 (SIP022), userinfo MUST NOT be encoded with Base64URL.
  * When userinfo is not encoded, method and password MUST be percent encoded.
  */
-private fun UrlBuilder.encodeShadowsocksUserInfo(pass: String, method: String) {
+private fun URL.encodeShadowsocksUserInfo(pass: String, method: String) {
     if (method.startsWith("2022-")) {
         username = method
         password = pass

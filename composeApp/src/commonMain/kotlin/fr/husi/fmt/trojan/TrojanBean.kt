@@ -1,11 +1,11 @@
 package fr.husi.fmt.trojan
 
 import kotlinx.serialization.Serializable as KxsSerializable
-import fr.husi.fmt.BeanConverters
+import com.esotericsoftware.kryo.io.ByteBufferInput
+import com.esotericsoftware.kryo.io.ByteBufferOutput
+import fr.husi.fmt.KryoConverters
 import fr.husi.fmt.ValidateResult
 import fr.husi.fmt.v2ray.StandardV2RayBean
-import fr.husi.io.BinaryInput
-import fr.husi.io.BinaryOutput
 
 @KxsSerializable
 class TrojanBean : StandardV2RayBean() {
@@ -32,20 +32,20 @@ class TrojanBean : StandardV2RayBean() {
         return validateTLSSettings(requireTLS = true, warnAllowInsecure = true)
     }
 
-    override fun serialize(output: BinaryOutput) {
+    override fun serialize(output: ByteBufferOutput) {
         output.writeInt(0)
         super.serialize(output)
         output.writeString(password)
     }
 
-    override fun deserialize(input: BinaryInput) {
+    override fun deserialize(input: ByteBufferInput) {
         input.readInt()
         super.deserialize(input) // StandardV2RayBean
         password = input.readString()
     }
 
     override fun clone(): TrojanBean {
-        return BeanConverters.deserialize(TrojanBean(), BeanConverters.serialize(this))
+        return KryoConverters.deserialize(TrojanBean(), KryoConverters.serialize(this))
     }
 
     override val defaultPort get() = 443

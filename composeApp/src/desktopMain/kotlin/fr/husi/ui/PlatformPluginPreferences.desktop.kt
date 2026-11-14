@@ -1,6 +1,9 @@
+@file:OptIn(ExperimentalFoundationApi::class, ExperimentalComposeUiApi::class)
+
 package fr.husi.ui
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.layout.Row
@@ -20,6 +23,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -28,7 +32,6 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.husi.compose.MaskedIcon
-import fr.husi.compose.Preference
 import fr.husi.compose.PreferenceCategory
 import fr.husi.compose.IconMaskColors
 import fr.husi.compose.SimpleIconButton
@@ -55,12 +58,13 @@ import io.github.vinceglb.filekit.dialogs.compose.rememberFilePickerLauncher
 import io.github.vinceglb.filekit.parent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import me.zhanghai.compose.preference.Preference
 import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.vectorResource
 import kotlin.enums.enumEntries
 
 internal actual fun LazyListScope.platformPluginPreferences(
-    isCustomPluginPrefixEnabled: Boolean,
+    isExpert: Boolean,
     needRestart: () -> Unit,
 ) {
     item("desktop_plugins_category") {

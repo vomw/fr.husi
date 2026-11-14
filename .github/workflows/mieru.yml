@@ -15,31 +15,37 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout source code
         uses: actions/checkout@v7
         with:
           submodules: recursive
       - uses: ./.github/actions/load-build-versions
-      - uses: ./.github/actions/setup-ndk
       - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
           cache-dependency-path: plugin/mieru/src/main/go/mieru/go.sum
+      - name: Setup Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: ${{ env.ANDROID_NDK_VERSION }}
       - name: Native build
         run: ./run plugin mieru
-      - uses: ./.github/actions/setup-jbr
-      - uses: ./.github/actions/gradle-cache
+      - uses: actions/setup-java@v5
         with:
-          build-cache-name: plugin-mieru
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+      - uses: burrunan/gradle-cache-action@v3
       - name: Write signing properties
         env:
           LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
         run: printf '%s' "$LOCAL_PROPERTIES" > local.properties
       - name: Gradle Build
         env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           SKIP_BUILD: on
         run: make plugin PLUGIN=mieru
       - uses: actions/upload-artifact@v7
@@ -51,7 +57,7 @@ jobs:
   publish:
     needs: build
     if: startsWith(github.ref, 'refs/tags/plugin-mieru-')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/download-artifact@v8
         with:
@@ -67,6 +73,6 @@ jobs:
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" "${files[@]}" --clobber
           else
-            UPSTREAM_VERSION=$(echo "${{ github.ref_name }}" | sed -E 's/plugin-mieru-(v[0-9]+\.[0-9]+\.[0-9]+).*/\1/')
-            gh release create "$RELEASE_TAG" "${files[@]}" --title "$RELEASE_TAG" --prerelease --notes $'# :memo: Release Notes\n\nUpstream: <https://github.com/enfein/mieru/releases/tag/'"$UPSTREAM_VERSION"'>'
+            UPSTREAM_VERSION=$(echo "${{ github.event.inputs.tag }}" | sed -E 's/plugin-mieru-(v[0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+            gh release create "$RELEASE_TAG" "${files[@]}" --prerelease --notes $'# :memo: Release Notes\n\nUpstream: <https://github.com/enfein/mieru/releases/tag/'"$UPSTREAM_VERSION"'>'
           fi

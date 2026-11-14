@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.AnnotatedString
@@ -12,13 +13,11 @@ import androidx.compose.ui.unit.dp
 import fr.husi.compose.HostTextField
 import fr.husi.compose.IconMaskColors
 import fr.husi.compose.IconMaskShapes
-import fr.husi.compose.ListPreference
 import fr.husi.compose.MaskedIcon
 import fr.husi.compose.MultilineTextField
 import fr.husi.compose.PasswordPreference
 import fr.husi.compose.PreferenceCategory
-import fr.husi.compose.SwitchPreference
-import fr.husi.compose.TextFieldPreference
+import fr.husi.compose.PreferenceDivider
 import fr.husi.compose.UIntegerTextField
 import fr.husi.compose.material3.Text
 import fr.husi.compose.preferenceGroup
@@ -43,6 +42,7 @@ import fr.husi.resources.naive_insecure_concurrency_summary
 import fr.husi.resources.naive_tunnel_timeout
 import fr.husi.resources.nfc
 import fr.husi.resources.not_set
+import fr.husi.resources.password
 import fr.husi.resources.password_opt
 import fr.husi.resources.person
 import fr.husi.resources.profile_config
@@ -62,9 +62,13 @@ import fr.husi.resources.tuic_congestion_controller
 import fr.husi.resources.udp_over_tcp
 import fr.husi.resources.username_opt
 import fr.husi.ui.NavRoutes
+import me.zhanghai.compose.preference.ListPreference
 import me.zhanghai.compose.preference.ListPreferenceType
+import me.zhanghai.compose.preference.SwitchPreference
+import me.zhanghai.compose.preference.TextFieldPreference
 import org.jetbrains.compose.resources.stringResource
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NaiveSettingsScreen(
     profileId: Long,
@@ -94,6 +98,13 @@ private fun LazyListScope.naiveSettings(
     viewModel: NaiveSettingsViewModel,
 ) {
     val protos = listOf("https", "quic")
+    val quicCongestionControls = listOf(
+        "",
+        "bbr",
+        "bbr2",
+        "cubic",
+        "reno",
+    )
 
     preferenceGroup(key = "name") {
         TextFieldPreference(
@@ -127,6 +138,7 @@ private fun LazyListScope.naiveSettings(
             summary = { Text(contentOrUnset(uiState.address)) },
             valueToText = { it },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = uiState.port,
             onValueChange = { viewModel.setPort(it) },
@@ -140,10 +152,11 @@ private fun LazyListScope.naiveSettings(
             },
             summary = { Text(contentOrUnset(uiState.port)) },
             valueToText = { it.toString() },
-            textField = { state, onOk ->
-                UIntegerTextField(state, onOk)
+            textField = { value, onValueChange, onOk ->
+                UIntegerTextField(value, onValueChange, onOk)
             },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = uiState.username,
             onValueChange = { viewModel.setUsername(it) },
@@ -155,11 +168,13 @@ private fun LazyListScope.naiveSettings(
             summary = { Text(contentOrUnset(uiState.username)) },
             valueToText = { it },
         )
+        PreferenceDivider()
         PasswordPreference(
             value = uiState.password,
             onValueChange = { viewModel.setPassword(it) },
             title = { Text(stringResource(Res.string.password_opt)) },
         )
+        PreferenceDivider()
         ListPreference(
             value = uiState.proto,
             values = protos,
@@ -172,9 +187,10 @@ private fun LazyListScope.naiveSettings(
             type = ListPreferenceType.DROPDOWN_MENU,
             valueToText = { AnnotatedString(it) },
         )
+        PreferenceDivider()
         ListPreference(
             value = uiState.quicCongestionControl,
-            values = congestionControlsWithEmpty,
+            values = quicCongestionControls,
             onValueChange = { viewModel.setQuicCongestionControl(it) },
             title = { Text(stringResource(Res.string.tuic_congestion_controller)) },
             enabled = uiState.proto == "quic",
@@ -185,6 +201,7 @@ private fun LazyListScope.naiveSettings(
             type = ListPreferenceType.DROPDOWN_MENU,
             valueToText = { AnnotatedString(it) },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = uiState.sni,
             onValueChange = { viewModel.setSni(it) },
@@ -196,6 +213,7 @@ private fun LazyListScope.naiveSettings(
             summary = { Text(contentOrUnset(uiState.sni)) },
             valueToText = { it },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = uiState.extraHeaders,
             onValueChange = { viewModel.setExtraHeaders(it) },
@@ -206,10 +224,11 @@ private fun LazyListScope.naiveSettings(
             },
             summary = { Text(contentOrUnset(uiState.extraHeaders)) },
             valueToText = { it },
-            textField = { state, onOk ->
-                HostTextField(state, onOk)
+            textField = { value, onValueChange, onOk ->
+                HostTextField(value, onValueChange, onOk)
             },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = uiState.insecureConcurrency,
             onValueChange = { viewModel.setInsecureConcurrency(it) },
@@ -226,17 +245,18 @@ private fun LazyListScope.naiveSettings(
                 }
                 Text(text)
             },
-            textField = { state, onOk ->
+            textField = { value, onValueChange, onOk ->
                 Column {
                     Text(
                         text = stringResource(Res.string.naive_insecure_concurrency_summary),
                         modifier = Modifier.padding(16.dp),
                     )
 
-                    UIntegerTextField(state, onOk)
+                    UIntegerTextField(value, onValueChange, onOk)
                 }
             },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = uiState.tunnelTimeout,
             onValueChange = { viewModel.setTunnelTimeout(it) },
@@ -254,10 +274,11 @@ private fun LazyListScope.naiveSettings(
                 Text(text)
             },
             valueToText = { it.toString() },
-            textField = { state, onOk ->
-                UIntegerTextField(state, onOk)
+            textField = { value, onValueChange, onOk ->
+                UIntegerTextField(value, onValueChange, onOk)
             },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = uiState.idleTimeout,
             onValueChange = { viewModel.setIdleTimeout(it) },
@@ -275,8 +296,8 @@ private fun LazyListScope.naiveSettings(
                 Text(text)
             },
             valueToText = { it.toString() },
-            textField = { state, onOk ->
-                UIntegerTextField(state, onOk)
+            textField = { value, onValueChange, onOk ->
+                UIntegerTextField(value, onValueChange, onOk)
             },
         )
     }
@@ -293,6 +314,7 @@ private fun LazyListScope.naiveSettings(
             title = { Text(stringResource(Res.string.udp_over_tcp)) },
             icon = { Spacer(Modifier.size(24.dp)) },
         )
+        PreferenceDivider()
         SwitchPreference(
             value = uiState.noPostQuantum,
             onValueChange = { viewModel.setNoPostQuantum(it) },
@@ -315,6 +337,7 @@ private fun LazyListScope.naiveSettings(
                 MaskedIcon(Res.drawable.security, IconMaskColors.IconCoral, IconMaskShapes.risk())
             },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = uiState.echConfig,
             onValueChange = { viewModel.setEchConfig(it) },
@@ -326,10 +349,11 @@ private fun LazyListScope.naiveSettings(
             enabled = uiState.enableEch,
             summary = { Text(contentOrUnset(uiState.echConfig)) },
             valueToText = { it },
-            textField = { state, onOk ->
-                MultilineTextField(state, onOk)
+            textField = { value, onValueChange, onOk ->
+                MultilineTextField(value, onValueChange, onOk)
             },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = uiState.echQueryServerName,
             onValueChange = { viewModel.setEchQueryServerName(it) },

@@ -25,10 +25,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.input.TextFieldState
-import androidx.compose.foundation.text.input.TextFieldLineLimits
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
@@ -36,7 +32,6 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuDefaults
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,16 +41,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastCoerceAtLeast
 import fr.husi.compose.BoxedVerticalScrollbar
@@ -65,15 +52,13 @@ import fr.husi.compose.material3.Icon
 import fr.husi.compose.material3.Surface
 import fr.husi.compose.material3.Text
 import fr.husi.compose.platformCombinedClickable
+import fr.husi.compose.rememberScrollHideState
 import fr.husi.resources.Res
 import fr.husi.resources.bolt
-import fr.husi.resources.close
 import fr.husi.resources.connection_test
 import fr.husi.resources.expand
 import fr.husi.resources.expand_less
 import fr.husi.resources.expand_more
-import fr.husi.resources.no_results
-import fr.husi.resources.search
 import fr.husi.resources.selected
 import io.github.oikvpqya.compose.fastscroller.material3.defaultMaterialScrollbarStyle
 import io.github.oikvpqya.compose.fastscroller.rememberScrollbarAdapter
@@ -84,16 +69,18 @@ import org.jetbrains.compose.resources.vectorResource
 internal fun DashboardProxySetScreen(
     modifier: Modifier = Modifier,
     uiState: DashboardState,
-    contentPadding: PaddingValues,
+    bottomPadding: Dp,
     selectProxy: (group: String, tag: String) -> Unit,
     urlTestForSingle: (tag: String) -> Unit,
     urlTestForGroup: (group: String) -> Unit,
-    groupSearchTextFieldState: TextFieldState,
-    openGroupSearch: (group: String) -> Unit,
-    closeGroupSearch: () -> Unit,
+    onVisibleChange: (Boolean) -> Unit,
 ) {
-    val query = uiState.proxySetQuery
     val listState = rememberLazyListState()
+    val visible by rememberScrollHideState(listState)
+
+    LaunchedEffect(visible) {
+        onVisibleChange(visible)
+    }
 
     Row(modifier = modifier.fillMaxSize()) {
         LazyColumn(
@@ -101,7 +88,7 @@ internal fun DashboardProxySetScreen(
                 .weight(1f)
                 .fillMaxHeight(),
             state = listState,
-            contentPadding = contentPadding,
+            contentPadding = PaddingValues(bottom = bottomPadding),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             items(
@@ -111,25 +98,15 @@ internal fun DashboardProxySetScreen(
             ) { proxySet ->
                 ProxySetCard(
                     proxySet = proxySet,
-                    isRemote = uiState.isRemote,
-                    urlTestingTags = uiState.urlTestingTags,
                     selectProxy = selectProxy,
                     urlTestSingle = urlTestForSingle,
                     urlTestForGroup = urlTestForGroup,
-                    isSearching = query.searchingProxyGroup == proxySet.id,
-                    isForceExpanded = query.forcesExpanded(proxySet),
-                    showGroupSearchButton = !query.hasGlobalQuery,
-                    groupSearchTextFieldState = groupSearchTextFieldState,
-                    openGroupSearch = openGroupSearch,
-                    closeGroupSearch = closeGroupSearch,
                 )
             }
         }
 
         BoxedVerticalScrollbar(
-            modifier = Modifier
-                .padding(contentPadding)
-                .fillMaxHeight(),
+            modifier = Modifier.fillMaxHeight(),
             adapter = rememberScrollbarAdapter(scrollState = listState),
             style = defaultMaterialScrollbarStyle().copy(
                 thickness = 12.dp,
@@ -142,21 +119,12 @@ internal fun DashboardProxySetScreen(
 private fun ProxySetCard(
     modifier: Modifier = Modifier,
     proxySet: ProxySet,
-    isRemote: Boolean,
-    urlTestingTags: Map<String, Int>,
     selectProxy: (group: String, tag: String) -> Unit,
     urlTestSingle: (tag: String) -> Unit,
     urlTestForGroup: (group: String) -> Unit,
-    isSearching: Boolean,
-    isForceExpanded: Boolean,
-    showGroupSearchButton: Boolean,
-    groupSearchTextFieldState: TextFieldState,
-    openGroupSearch: (group: String) -> Unit,
-    closeGroupSearch: () -> Unit,
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     var selectedProxyMenuExpanded by rememberSaveable { mutableStateOf(false) }
-    val shownExpanded = expanded || isForceExpanded
     val selectedProxy = proxySet.items.find { it.tag == proxySet.selected }
     val selectedDelay = selectedProxy?.urlTestDelay ?: 0
     val urlTestProgress = proxySet.urlTestProgress
@@ -202,7 +170,7 @@ private fun ProxySetCard(
                             modifier = Modifier.weight(1f),
                         ) {
                             Text(
-                                text = proxySet.displayType,
+                                text = proxySet.type,
                                 color = MaterialTheme.colorScheme.primary,
                                 style = MaterialTheme.typography.titleMediumEmphasized,
                             )
@@ -216,84 +184,53 @@ private fun ProxySetCard(
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            val showGroupTest = !(proxySet.isAll && isRemote)
-                            if (showGroupTest) {
-                                Surface(
-                                    onClick = { urlTestForGroup(proxySet.id) },
-                                    enabled = !proxySet.isTesting,
-                                    shape = CircleShape,
-                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                ) {
-                                    if (urlTestProgress != null) {
-                                        Text(
-                                            text = "${urlTestProgress.current} / ${urlTestProgress.total}",
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                            style = MaterialTheme.typography.labelMedium,
-                                        )
-                                    } else {
-                                        Icon(
-                                            imageVector = vectorResource(Res.drawable.bolt),
-                                            contentDescription = stringResource(Res.string.connection_test),
-                                            modifier = Modifier.padding(8.dp).size(20.dp),
-                                        )
-                                    }
+                            Surface(
+                                onClick = { urlTestForGroup(proxySet.id) },
+                                enabled = !proxySet.isTesting,
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            ) {
+                                if (urlTestProgress != null) {
+                                    Text(
+                                        text = "${urlTestProgress.current} / ${urlTestProgress.total}",
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                        style = MaterialTheme.typography.labelMedium,
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = vectorResource(Res.drawable.bolt),
+                                        contentDescription = stringResource(Res.string.connection_test),
+                                        modifier = Modifier.padding(8.dp).size(20.dp),
+                                    )
                                 }
-                            }
-                            if (shownExpanded && showGroupSearchButton) {
-                                SimpleIconButton(
-                                    imageVector = vectorResource(Res.drawable.search),
-                                    contentDescription = stringResource(Res.string.search),
-                                    onClick = { openGroupSearch(proxySet.id) },
-                                )
                             }
                             SimpleIconButton(
                                 imageVector = vectorResource(
-                                    if (shownExpanded) {
+                                    if (expanded) {
                                         Res.drawable.expand_less
                                     } else {
                                         Res.drawable.expand_more
                                     },
                                 ),
                                 contentDescription = stringResource(Res.string.expand),
-                                onClick = {
-                                    if (isSearching) closeGroupSearch()
-                                    expanded = !shownExpanded
-                                },
+                                onClick = { expanded = !expanded },
                             )
                         }
                     }
 
-                    if (isSearching) {
-                        ProxyGroupSearchField(
-                            state = groupSearchTextFieldState,
-                            onClose = closeGroupSearch,
+                    if (expanded) {
+                        ProxyGrid(
+                            proxySet = proxySet,
+                            selectProxy = selectProxy,
+                            urlTestSingle = urlTestSingle,
                         )
-                    }
-
-                    if (shownExpanded) {
-                        if (proxySet.items.isEmpty()) {
-                            Text(
-                                text = stringResource(Res.string.no_results),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                        } else {
-                            ProxyGrid(
-                                proxySet = proxySet,
-                                urlTestingTags = urlTestingTags,
-                                selectProxy = selectProxy,
-                                urlTestSingle = urlTestSingle,
-                            )
-                        }
                     } else if (!proxySet.isAll) {
                         Box(modifier = Modifier.fillMaxWidth()) {
                             Surface(
                                 modifier = Modifier.platformCombinedClickable(
                                     onClick = {},
-                                    onLongClick = {
-                                        selectedProxyMenuExpanded = true
-                                    },
+                                    onLongClick = { selectedProxyMenuExpanded = true },
                                 ),
                                 color = MaterialTheme.colorScheme.surfaceContainer,
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
@@ -326,10 +263,7 @@ private fun ProxySetCard(
                                             style = MaterialTheme.typography.titleSmallEmphasized,
                                         )
                                     }
-                                    URLTestDelayText(
-                                        delay = selectedDelay,
-                                        isTesting = urlTestingTags.containsKey(proxySet.selected),
-                                    )
+                                    URLTestDelayText(delay = selectedDelay)
                                 }
                             }
                             DropdownMenu(
@@ -355,43 +289,6 @@ private fun ProxySetCard(
     }
 }
 
-@Composable
-private fun ProxyGroupSearchField(
-    state: TextFieldState,
-    onClose: () -> Unit,
-) {
-    val focusRequester = remember { FocusRequester() }
-    val focusManager = LocalFocusManager.current
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
-    }
-    OutlinedTextField(
-        state = state,
-        modifier = Modifier
-            .fillMaxWidth()
-            .focusRequester(focusRequester)
-            .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
-                    onClose()
-                    true
-                } else {
-                    false
-                }
-            },
-        placeholder = { Text(stringResource(Res.string.search)) },
-        trailingIcon = {
-            SimpleIconButton(
-                imageVector = vectorResource(Res.drawable.close),
-                contentDescription = stringResource(Res.string.close),
-                onClick = onClose,
-            )
-        },
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-        onKeyboardAction = { focusManager.clearFocus() },
-        lineLimits = TextFieldLineLimits.SingleLine,
-    )
-}
-
 private const val PROXY_COLUMNS = 2
 private const val PROXY_CARD_GAP = 8
 
@@ -399,7 +296,6 @@ private const val PROXY_CARD_GAP = 8
 private fun ProxyGrid(
     modifier: Modifier = Modifier,
     proxySet: ProxySet,
-    urlTestingTags: Map<String, Int>,
     selectProxy: (group: String, tag: String) -> Unit,
     urlTestSingle: (tag: String) -> Unit,
 ) {
@@ -422,7 +318,6 @@ private fun ProxyGrid(
             ProxyCard(
                 proxy = proxy,
                 selected = proxySet.selected == proxy.tag,
-                isTesting = urlTestingTags.containsKey(proxy.tag),
                 selectable = proxySet.selectable,
                 select = { selectProxy(proxySet.tag, proxy.tag) },
                 urlTest = { urlTestSingle(proxy.tag) },
@@ -436,7 +331,6 @@ private fun ProxyCard(
     modifier: Modifier = Modifier,
     proxy: ProxyItem,
     selected: Boolean,
-    isTesting: Boolean,
     selectable: Boolean,
     select: () -> Unit,
     urlTest: () -> Unit,
@@ -487,13 +381,12 @@ private fun ProxyCard(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
-                    text = proxy.displayType,
+                    text = proxy.type,
                     color = MaterialTheme.colorScheme.outline,
                     style = MaterialTheme.typography.labelMedium,
                 )
                 URLTestDelayText(
                     delay = proxy.urlTestDelay,
-                    isTesting = isTesting,
                 )
             }
         }
@@ -519,16 +412,7 @@ private fun ProxyCard(
 private fun URLTestDelayText(
     modifier: Modifier = Modifier,
     delay: Int,
-    isTesting: Boolean = false,
 ) {
-    if (isTesting) {
-        CircularProgressIndicator(
-            modifier = modifier.size(15.dp),
-            color = MaterialTheme.colorScheme.primary,
-            strokeWidth = 2.dp,
-        )
-        return
-    }
     Text(
         text = if (delay > 0) delay.toString() else "--",
         color = if (delay > 0) colorForUrlTestDelay(delay) else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -537,64 +421,36 @@ private fun URLTestDelayText(
     )
 }
 
-private fun previewProxySets() = listOf(
-    ProxySet(
-        tag = "♻️自动选择",
-        displayType = "URLTest",
-        selected = "🇭🇰 Hong Kong",
-        items = listOf(
-            ProxyItem("🇭🇰 Hong Kong", "Shadowsocks", 18),
-            ProxyItem(
-                "Long long Advertisement -- example.com -- Expire: 2099-12-31 -- Invite your friend plz",
-                "VLESS",
-            ),
-            ProxyItem("🇺🇸 US - LAX", "Hysteria2", 140),
-            ProxyItem("🇩🇪 Germany - Frankfurt", "VMess", 888),
-            ProxyItem("🇦🇶 Antarctica", "Snell", 1762),
-        ),
-    ),
-)
-
 @Preview
 @Composable
 private fun PreviewProxySet() {
     val uiState = remember {
         DashboardState(
-            proxySets = previewProxySets(),
-            urlTestingTags = mapOf("🇺🇸 US - LAX" to 1),
+            proxySets = listOf(
+                ProxySet(
+                    tag = "♻️自动选择",
+                    type = "URLTest",
+                    selected = "🇭🇰 Hong Kong",
+                    items = listOf(
+                        ProxyItem("🇭🇰 Hong Kong", "Shadowsocks", 18),
+                        ProxyItem(
+                            "Long long Advertisement -- example.com -- Expire: 2099-12-31 -- Invite your friend plz",
+                            "VLESS",
+                        ),
+                        ProxyItem("🇺🇸 US - LAX", "Hysteria2", 140),
+                        ProxyItem("🇩🇪 Germany - Frankfurt", "VMess", 888),
+                        ProxyItem("🇦🇶 Antarctica", "Snell", 1762),
+                    ),
+                ),
+            ),
         )
     }
     DashboardProxySetScreen(
         uiState = uiState,
-        contentPadding = PaddingValues(bottom = 64.dp),
+        bottomPadding = 64.dp,
         selectProxy = { _, _ -> },
         urlTestForSingle = {},
         urlTestForGroup = {},
-        groupSearchTextFieldState = remember { TextFieldState() },
-        openGroupSearch = {},
-        closeGroupSearch = {},
-    )
-}
-
-@Preview
-@Composable
-private fun PreviewProxySetSearching() {
-    val uiState = remember {
-        DashboardState(
-            proxySets = previewProxySets(),
-            proxySetQuery = ProxySetQuery(searchingProxyGroup = "♻️自动选择", groupSearch = "Hong"),
-            urlTestingTags = mapOf("🇺🇸 US - LAX" to 1),
-        )
-    }
-    val searchState = remember { TextFieldState("Hong") }
-    DashboardProxySetScreen(
-        uiState = uiState,
-        contentPadding = PaddingValues(bottom = 64.dp),
-        selectProxy = { _, _ -> },
-        urlTestForSingle = {},
-        urlTestForGroup = {},
-        groupSearchTextFieldState = searchState,
-        openGroupSearch = {},
-        closeGroupSearch = {},
+        onVisibleChange = {},
     )
 }

@@ -79,8 +79,10 @@ data class RuleEntity(
 
         // Clash Modes
         // Use lower case to adapt with clash dashboard
+        const val MODE_RULE = "rule"
         const val MODE_DIRECT = "direct"
         const val MODE_GLOBAL = "global"
+        const val MODE_BLOCK = "block"
     }
 
     fun displayName(): String {
@@ -96,7 +98,7 @@ data class RuleEntity(
          * IMPORTANT: Prefer using [ProfileManager.getRules] instead of calling this directly.
          * The wrapper handles first-time initialization of default rules (sniff, hijack_dns, etc).
          */
-        @Query("SELECT * FROM rules ORDER BY userOrder, id")
+        @Query("SELECT * FROM rules ORDER BY userOrder")
         fun allRules(): Flow<List<RuleEntity>>
 
         @Query("SELECT MAX(userOrder) + 1 FROM rules")

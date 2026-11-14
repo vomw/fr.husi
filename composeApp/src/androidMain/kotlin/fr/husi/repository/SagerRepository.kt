@@ -17,23 +17,20 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
 import fr.husi.Action
 import fr.husi.bg.SagerConnection
-import fr.husi.bg.TAILSCALE_NOTIFICATION_CHANNEL_ID
-import fr.husi.libcore.Service
 import fr.husi.libcore.createBoxService
 import fr.husi.resources.Res
-import fr.husi.resources.openconnect_authentication
-import fr.husi.resources.openvpn_authentication
+import fr.husi.resources.openconnect_auth_channel
 import fr.husi.resources.service_proxy
 import fr.husi.resources.service_subscription
-import fr.husi.resources.service_tailscale
 import fr.husi.resources.service_vpn
-import fr.husi.resources.service_vpn_request
-import fr.husi.resources.taildrop_sending
-import fr.husi.tailscale.TaildropSendService
 import fr.husi.ui.MainActivity
 import org.jetbrains.compose.resources.ExperimentalResourceApi
+import org.jetbrains.compose.resources.PluralStringResource
+import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.setResourceReaderAndroidContext
 import java.io.File
+import org.jetbrains.compose.resources.getPluralString as getComposePluralString
+import org.jetbrains.compose.resources.getString as getComposeString
 
 @OptIn(ExperimentalResourceApi::class)
 open class SagerRepository(
@@ -47,7 +44,7 @@ open class SagerRepository(
         setResourceReaderAndroidContext(context)
     }
 
-    override val boxService: Service? by lazy {
+    override val boxService: fr.husi.libcore.Service? by lazy {
         createBoxService(isBgProcess)
     }
 
@@ -114,6 +111,22 @@ open class SagerRepository(
     override val isTv: Boolean
         get() = uiMode.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
 
+    override suspend fun getString(resource: StringResource): String {
+        return getComposeString(resource)
+    }
+
+    override suspend fun getString(resource: StringResource, vararg formatArgs: Any): String {
+        return getComposeString(resource, *formatArgs)
+    }
+
+    override suspend fun getPluralString(
+        resource: PluralStringResource,
+        quantity: Int,
+        vararg formatArgs: Any,
+    ): String {
+        return getComposePluralString(resource, quantity, *formatArgs)
+    }
+
     override fun startService() {
         ContextCompat.startForegroundService(
             serviceContext,
@@ -147,16 +160,11 @@ open class SagerRepository(
                 "service-vpn",
                 getString(Res.string.service_vpn),
                 importanceVpn,
-            ).also { it.setShowBadge(false) },
+            ),
             NotificationChannel(
                 "service-proxy",
                 getString(Res.string.service_proxy),
                 NotificationManager.IMPORTANCE_LOW,
-            ).also { it.setShowBadge(false) },
-            NotificationChannel(
-                "service-vpn-request",
-                getString(Res.string.service_vpn_request),
-                NotificationManager.IMPORTANCE_HIGH,
             ),
             NotificationChannel(
                 "service-subscription",
@@ -165,24 +173,9 @@ open class SagerRepository(
             ),
             NotificationChannel(
                 "service-openconnect-auth",
-                getString(Res.string.openconnect_authentication),
+                getString(Res.string.openconnect_auth_channel),
                 NotificationManager.IMPORTANCE_HIGH,
             ),
-            NotificationChannel(
-                "service-openvpn-auth",
-                getString(Res.string.openvpn_authentication),
-                NotificationManager.IMPORTANCE_HIGH,
-            ),
-            NotificationChannel(
-                TAILSCALE_NOTIFICATION_CHANNEL_ID,
-                getString(Res.string.service_tailscale),
-                NotificationManager.IMPORTANCE_DEFAULT,
-            ),
-            NotificationChannel(
-                TaildropSendService.CHANNEL_ID,
-                getString(Res.string.taildrop_sending),
-                NotificationManager.IMPORTANCE_LOW,
-            ).also { it.setShowBadge(false) },
         )
         notification.createNotificationChannels(channels)
     }

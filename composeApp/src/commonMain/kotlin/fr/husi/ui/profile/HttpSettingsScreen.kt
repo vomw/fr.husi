@@ -1,21 +1,21 @@
 package fr.husi.ui.profile
 
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
-import fr.husi.compose.IconMaskColors
-import fr.husi.compose.MaskedIcon
 import fr.husi.compose.MultilineTextField
 import fr.husi.compose.PasswordPreference
-import fr.husi.compose.SwitchPreference
-import fr.husi.compose.TextFieldPreference
+import fr.husi.compose.PreferenceCategory
+import fr.husi.compose.PreferenceDivider
+import fr.husi.compose.IconMaskColors
+import fr.husi.compose.MaskedIcon
 import fr.husi.compose.material3.Text
 import fr.husi.compose.preferenceGroup
-import fr.husi.fmt.HttpVersion
 import fr.husi.ktx.contentOrUnset
 import fr.husi.resources.Res
-import fr.husi.resources.block
 import fr.husi.resources.code
-import fr.husi.resources.disable_version_fallback
+import fr.husi.resources.experimental_settings
+import fr.husi.resources.grid_on
 import fr.husi.resources.http_headers
 import fr.husi.resources.http_host
 import fr.husi.resources.http_path
@@ -25,10 +25,14 @@ import fr.husi.resources.password_opt
 import fr.husi.resources.person
 import fr.husi.resources.profile_config
 import fr.husi.resources.route
+import fr.husi.resources.udp_over_tcp
 import fr.husi.resources.username_opt
 import fr.husi.ui.NavRoutes
+import me.zhanghai.compose.preference.SwitchPreference
+import me.zhanghai.compose.preference.TextFieldPreference
 import org.jetbrains.compose.resources.stringResource
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HttpSettingsScreen(
     profileId: Long,
@@ -53,6 +57,7 @@ fun HttpSettingsScreen(
     }
 }
 
+
 private fun LazyListScope.httpSettings(
     uiState: HttpUiState,
     viewModel: HttpSettingsViewModel,
@@ -71,6 +76,7 @@ private fun LazyListScope.httpSettings(
             summary = { Text(contentOrUnset(uiState.username)) },
             valueToText = { it },
         )
+        PreferenceDivider()
         PasswordPreference(
             value = uiState.password,
             onValueChange = { viewModel.setPassword(it) },
@@ -83,53 +89,37 @@ private fun LazyListScope.httpSettings(
             },
         )
     }
-    val isHttp1 = uiState.httpVersion == HttpVersion.HTTP_1
     preferenceGroup {
-        HttpVersionPreference(
-            value = uiState.httpVersion,
-            isTLS = uiState.isTLS,
-            onValueChange = { viewModel.setHttpVersion(it) },
+        TextFieldPreference(
+            value = uiState.host,
+            onValueChange = { viewModel.setHost(it) },
+            title = { Text(stringResource(Res.string.http_host)) },
+            textToValue = { it },
+            icon = {
+                MaskedIcon(
+                    Res.drawable.language,
+                    color = IconMaskColors.IconLightBlue,
+                )
+            },
+            summary = { Text(contentOrUnset(uiState.host)) },
+            valueToText = { it },
         )
-        if (isHttp1) {
-            TextFieldPreference(
-                value = uiState.host,
-                onValueChange = { viewModel.setHost(it) },
-                title = { Text(stringResource(Res.string.http_host)) },
-                textToValue = { it },
-                icon = {
-                    MaskedIcon(
-                        resource = Res.drawable.language,
-                        color = IconMaskColors.IconLightBlue,
-                    )
-                },
-                summary = { Text(contentOrUnset(uiState.host)) },
-                valueToText = { it },
-            )
-            TextFieldPreference(
-                value = uiState.path,
-                onValueChange = { viewModel.setPath(it) },
-                title = { Text(stringResource(Res.string.http_path)) },
-                textToValue = { it },
-                icon = {
-                    MaskedIcon(
-                        resource = Res.drawable.route,
-                        color = IconMaskColors.IconLightOrange,
-                    )
-                },
-                summary = { Text(contentOrUnset(uiState.path)) },
-                valueToText = { it },
-            )
-        } else {
-            SwitchPreference(
-                value = uiState.disableVersionFallback,
-                onValueChange = { viewModel.setDisableVersionFallback(it) },
-                enabled = uiState.isTLS,
-                title = { Text(stringResource(Res.string.disable_version_fallback)) },
-                icon = {
-                    MaskedIcon(Res.drawable.block, IconMaskColors.IconCoral)
-                },
-            )
-        }
+        PreferenceDivider()
+        TextFieldPreference(
+            value = uiState.path,
+            onValueChange = { viewModel.setPath(it) },
+            title = { Text(stringResource(Res.string.http_path)) },
+            textToValue = { it },
+            icon = {
+                MaskedIcon(
+                    Res.drawable.route,
+                    color = IconMaskColors.IconLightOrange,
+                )
+            },
+            summary = { Text(contentOrUnset(uiState.path)) },
+            valueToText = { it },
+        )
+        PreferenceDivider()
         TextFieldPreference(
             value = uiState.headers,
             onValueChange = { viewModel.setHeaders(it) },
@@ -140,11 +130,27 @@ private fun LazyListScope.httpSettings(
             },
             summary = { Text(contentOrUnset(uiState.headers)) },
             valueToText = { it },
-            textField = { state, onOk ->
-                MultilineTextField(state, onOk)
+            textField = { value, onValueChange, onOk ->
+                MultilineTextField(value, onValueChange, onOk)
             },
         )
     }
 
     tlsSettings(uiState, viewModel, scrollTo)
+
+    item("category_experimental") {
+        PreferenceCategory(
+            text = { Text(stringResource(Res.string.experimental_settings)) },
+        )
+    }
+    preferenceGroup {
+        SwitchPreference(
+            value = uiState.udpOverTcp,
+            onValueChange = { viewModel.setUdpOverTcp(it) },
+            title = { Text(stringResource(Res.string.udp_over_tcp)) },
+            icon = {
+                MaskedIcon(Res.drawable.grid_on, color = IconMaskColors.IconCoral)
+            },
+        )
+    }
 }

@@ -5,18 +5,17 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.core.MultiProcessDataStoreFactory
 import androidx.datastore.core.Serializer
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
-import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.PreferencesSerializer
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.preferencesDataStoreFile
 import fr.husi.repository.resolveAndroidRepository
 import kotlinx.coroutines.CoroutineScope
-import okio.Path.Companion.toPath
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import okio.buffer
 import okio.sink
 import okio.source
-import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
 
@@ -24,14 +23,14 @@ private object MultiProcessPreferenceDataStoreHolder {
     @Volatile
     private var instance: DataStore<Preferences>? = null
 
-    fun get(context: Context, scope: CoroutineScope): DataStore<Preferences> {
+    fun get(context: Context): DataStore<Preferences> {
         val appContext = context.applicationContext
         return instance ?: synchronized(this) {
             instance ?: MultiProcessDataStoreFactory.create(
                 serializer = MultiProcessPreferencesSerializer,
                 corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
                 migrations = listOf(RoomToDataStoreMigration(appContext)),
-                scope = scope,
+                scope = CoroutineScope(Dispatchers.IO + SupervisorJob()),
                 produceFile = { appContext.preferencesDataStoreFile("configuration") },
             ).also { instance = it }
         }
@@ -56,15 +55,6 @@ private object MultiProcessPreferencesSerializer : Serializer<Preferences> {
     }
 }
 
-internal actual fun createPlatformConfigurationDataStore(scope: CoroutineScope): DataStore<Preferences> {
-    return MultiProcessPreferenceDataStoreHolder.get(resolveAndroidRepository().context, scope)
+internal actual fun createConfigurationDataStore(): DataStore<Preferences> {
+    return MultiProcessPreferenceDataStoreHolder.get(resolveAndroidRepository().context)
 }
-
-internal actual fun createSimpleConfigurationDataStore(
-    file: File,
-    scope: CoroutineScope,
-): DataStore<Preferences> = PreferenceDataStoreFactory.createWithPath(
-    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
-    scope = scope,
-    produceFile = { file.absolutePath.toPath() },
-)

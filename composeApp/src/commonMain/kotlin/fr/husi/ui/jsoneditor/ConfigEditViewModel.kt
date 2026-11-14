@@ -9,29 +9,22 @@ import androidx.compose.runtime.Stable
 import androidx.compose.ui.text.TextRange
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import fr.husi.core.CoreClient
-import fr.husi.core.CoreRpcException
 import fr.husi.ktx.Logs
 import fr.husi.ktx.kxs
 import fr.husi.ktx.readableMessage
+import fr.husi.libcore.Libcore
 import fr.husi.resources.Res
 import fr.husi.resources.ok
-import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import org.jetbrains.compose.resources.StringResource
-import org.koin.core.context.GlobalContext
 import kotlin.time.Duration.Companion.milliseconds
 
 @Immutable
@@ -49,17 +42,10 @@ data class ConfigEditUiState(
     val selectedSchemaCompletion: Int = 0,
 )
 
-private data class EditorPosition(
-    val text: String,
-    val cursor: Int,
-)
-
 @Stable
 class ConfigEditViewModel(
     initialText: String,
     schema: ConfigSchema = ConfigSchema.CONFIG,
-    private val coreClient: CoreClient = GlobalContext.get().get(),
-    completionDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : ViewModel() {
 
     val uiEvent: SharedFlow<ConfigEditUiEvent>
@@ -78,24 +64,10 @@ class ConfigEditViewModel(
     private val debounceDelay = 500.milliseconds
 
     private var lastText: String = ""
-    private val editorPosition = MutableStateFlow<EditorPosition?>(null)
+    private val schemaCompleter = schema.completer
 
     init {
         initialize(initialText)
-        viewModelScope.launch(completionDispatcher) {
-            val schemaCompleter = try {
-                schema.loadCompleter(coreClient)
-            } catch (e: Exception) {
-                Logs.w("failed to load config schema", e)
-                return@launch
-            }
-            editorPosition.filterNotNull().collectLatest { position ->
-                val completions = schemaCompleter.complete(position.text, position.cursor)
-                uiState.update {
-                    it.copy(schemaCompletions = completions, selectedSchemaCompletion = 0)
-                }
-            }
-        }
     }
 
     fun initialize(initialText: String) {
@@ -121,21 +93,18 @@ class ConfigEditViewModel(
 
     fun onEditorChange(text: String, selection: TextRange) {
         onTextChange(text)
-        editorPosition.value = EditorPosition(text, selection.end)
+        uiState.value = uiState.value.copy(
+            schemaCompletions = schemaCompleter.complete(text, selection.end),
+            selectedSchemaCompletion = 0,
+        )
     }
 
     fun selectSchemaCompletion(offset: Int) {
-        uiState.update { state ->
-            val completions = state.schemaCompletions
-            if (completions.isEmpty()) {
-                state
-            } else {
-                state.copy(
-                    selectedSchemaCompletion = (state.selectedSchemaCompletion + offset)
-                        .mod(completions.size),
-                )
-            }
-        }
+        val completions = uiState.value.schemaCompletions
+        if (completions.isEmpty()) return
+        uiState.value = uiState.value.copy(
+            selectedSchemaCompletion = (uiState.value.selectedSchemaCompletion + offset).mod(completions.size),
+        )
     }
 
     fun insertText(insertion: String) {
@@ -144,7 +113,7 @@ class ConfigEditViewModel(
             val end = selection.end
             delete(start, end)
             insert(start, insertion)
-            selection = TextRange(start + insertion.length)
+            selection = androidx.compose.ui.text.TextRange(start + insertion.length)
         }
         addToHistory(textFieldState.text.toString())
     }
@@ -165,7 +134,7 @@ class ConfigEditViewModel(
         textFieldState.edit {
             val currentPos = selection.start
             val newPos = (currentPos + offset).coerceIn(0, length)
-            selection = TextRange(newPos)
+            selection = androidx.compose.ui.text.TextRange(newPos)
         }
     }
 
@@ -209,34 +178,30 @@ class ConfigEditViewModel(
     }
 
     private fun updateUndoRedoState() {
-        uiState.update {
-            it.copy(
-                canUndo = historyPointer > 0,
-                canRedo = historyPointer < historyStack.size - 1,
-            )
-        }
+        uiState.value = uiState.value.copy(
+            canUndo = historyPointer > 0,
+            canRedo = historyPointer < historyStack.size - 1,
+        )
     }
 
-    fun formatCurrentText() = viewModelScope.launch {
-        val origin = textFieldState.text.toString()
-        val formatted = try {
-            formatJson(origin)
+    fun formatCurrentText() {
+        try {
+            val formatted = formatJson(textFieldState.text)
+            textFieldState.setTextAndPlaceCursorAtEnd(formatted)
+            lastText = formatted
+            addToHistory(formatted)
         } catch (e: Exception) {
-            uiEvent.emit(ConfigEditUiEvent.Alert(e.readableMessage))
-            return@launch
+            viewModelScope.launch {
+                uiEvent.emit(ConfigEditUiEvent.Alert(e.readableMessage))
+            }
         }
-        // Formatting is a round trip to the core host; text typed meanwhile wins.
-        if (textFieldState.text.toString() != origin) return@launch
-        textFieldState.setTextAndPlaceCursorAtEnd(formatted)
-        lastText = formatted
-        addToHistory(formatted)
     }
 
-    private suspend fun formatJson(origin: String): String {
-        if (origin.isBlank()) {
+    fun formatJson(origin: CharSequence?): String {
+        if (origin.isNullOrBlank()) {
             return ""
         }
-        return coreClient.formatConfig(origin)
+        return Libcore.formatConfig(origin.toString())
     }
 
     suspend fun checkConfig() {
@@ -254,13 +219,7 @@ class ConfigEditViewModel(
                 val jsonArray = JsonArray(listOf(singleOutbound))
                 JsonObject(mapOf("outbounds" to jsonArray)).toString()
             }
-            // ApplicationService reports parse failures as INVALID_ARGUMENT
-            // with the parser message; CoreRpcException.message carries that.
-            coreClient.checkConfig(jsonContent)
-        } catch (e: CoreRpcException) {
-            Logs.i("failed to check config", e)
-            uiEvent.emit(ConfigEditUiEvent.Alert(e.message.ifBlank { e.readableMessage }))
-            return
+            Libcore.checkConfig(jsonContent)
         } catch (e: Exception) {
             Logs.i("failed to check config", e)
             uiEvent.emit(ConfigEditUiEvent.Alert(e.readableMessage))

@@ -8,7 +8,9 @@ import (
 	"encoding/hex"
 	"net"
 	"os"
-	"uuid"
+
+	"libcore/plugin/pluginoption"
+	"libcore/plugin/raybridge"
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/adapter/outbound"
@@ -23,19 +25,14 @@ import (
 	N "github.com/sagernet/sing/common/network"
 
 	"github.com/exclavenetwork/sing-juicity"
-	"github.com/xchacha20-poly1305/husi/libcore/v2/plugin/pluginoption"
-	"github.com/xchacha20-poly1305/husi/libcore/v2/plugin/raybridge"
+	"github.com/gofrs/uuid/v5"
 )
 
 func RegisterOutbound(registry *outbound.Registry) {
 	outbound.Register[pluginoption.JuicityOutboundOptions](registry, pluginoption.TypeJuicity, NewOutbound)
 }
 
-var (
-	_ adapter.OutboundWithMultiplex   = (*Outbound)(nil)
-	_ adapter.InterfaceUpdateListener = (*Outbound)(nil)
-	_ adapter.IdleConnectionKeeper    = (*Outbound)(nil)
-)
+var _ adapter.Outbound = (*Outbound)(nil)
 
 type Outbound struct {
 	outbound.Adapter
@@ -77,7 +74,7 @@ func NewOutbound(ctx context.Context, router adapter.Router, logger log.ContextL
 		}
 		stdTLSConfig.InsecureSkipVerify = true
 	}
-	UUID, err := uuid.Parse(options.UUID)
+	uuidInstance, err := uuid.FromString(options.UUID)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +83,7 @@ func NewOutbound(ctx context.Context, router adapter.Router, logger log.ContextL
 		Dialer:        outboundDialer,
 		ServerAddress: options.Build(),
 		TLSConfig:     tlsConfig,
-		UUID:          UUID,
+		UUID:          [uuid.Size]byte(uuidInstance.Bytes()),
 		Password:      options.Password,
 	})
 	if err != nil {
@@ -97,6 +94,10 @@ func NewOutbound(ctx context.Context, router adapter.Router, logger log.ContextL
 		logger:  logger,
 		client:  client,
 	}, nil
+}
+
+func (o *Outbound) Close() error {
+	return o.client.CloseWithError(os.ErrClosed)
 }
 
 func (o *Outbound) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
@@ -124,32 +125,6 @@ func (o *Outbound) ListenPacket(ctx context.Context, destination M.Socksaddr) (n
 	metadata.Destination = destination
 	o.logger.InfoContext(ctx, "outbound packet connection to ", destination)
 	return o.client.ListenPacket(ctx, destination)
-}
-
-func (o *Outbound) InterfaceUpdated(ctx context.Context) {
-	_ = o.client.CloseWithError(E.New("network changed"))
-}
-
-func (o *Outbound) MultiplexEnabled() bool {
-	return true
-}
-
-func (o *Outbound) SetKeepIdleConnections(keep bool) {
-	o.client.SetKeepIdleConnections(keep)
-}
-
-func (o *Outbound) CloseIdleConnections() {
-	o.client.CloseIdleConnections()
-}
-
-func (o *Outbound) Start(stage adapter.StartStage, scope *adapter.Scope) error {
-	if stage != adapter.StartStateInitialize {
-		return nil
-	}
-	scope.Add(func() error {
-		return o.client.CloseWithError(os.ErrClosed)
-	})
-	return nil
 }
 
 // https://github.com/juicity/juicity/blob/412dbe43e091788c5464eb2d6e9c169bdf39f19c/cmd/client/run.go#L86-L96

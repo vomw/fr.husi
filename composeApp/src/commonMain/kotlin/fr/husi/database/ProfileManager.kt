@@ -11,29 +11,18 @@ import fr.husi.fmt.SingBoxOptions.NetworkICMP
 import fr.husi.fmt.SingBoxOptions.NetworkUDP
 import fr.husi.ktx.applyDefaultValues
 import fr.husi.repository.resolveRepository
-import fr.husi.resources.Res
-import fr.husi.resources.hijack_dns
-import fr.husi.resources.route_clash_mode
-import fr.husi.resources.route_direct_domain
-import fr.husi.resources.route_direct_icmp
-import fr.husi.resources.route_direct_ip
-import fr.husi.resources.route_direct_lan
-import fr.husi.resources.route_opt_block_ads
-import fr.husi.resources.route_opt_block_quic
-import fr.husi.resources.route_play_store
-import fr.husi.resources.sniff
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import java.io.IOException
-import java.util.*
+import java.util.Locale
+import kotlinx.coroutines.runBlocking
+import fr.husi.resources.*
 
 object ProfileManager {
 
-    private val defaultGroupMutex = Mutex()
+    private val defaultGroupLock = Any()
     private val repository get() = resolveRepository()
 
     suspend fun createProfile(groupId: Long, bean: AbstractBean): ProxyEntity {
@@ -62,8 +51,8 @@ object ProfileManager {
 
     suspend fun deleteProfile(groupId: Long, profileId: Long) {
         if (SagerDatabase.proxyDao.deleteById(profileId) == 0) return
-        if (DataStore.selectedProxy.get() == profileId) {
-            DataStore.selectedProxy.set(0L)
+        if (DataStore.selectedProxy == profileId) {
+            DataStore.selectedProxy = 0L
         }
         if (SagerDatabase.proxyDao.countByGroup(groupId).first() > 1) {
             GroupManager.rearrange(groupId)
@@ -73,27 +62,27 @@ object ProfileManager {
     suspend fun deleteProfiles(groupId: Long, profileIDs: List<Long>) {
         if (profileIDs.isEmpty()) return
         SagerDatabase.proxyDao.deleteProxies(profileIDs)
-        if (profileIDs.contains(DataStore.selectedProxy.get())) {
-            DataStore.selectedProxy.set(0L)
+        if (profileIDs.contains(DataStore.selectedProxy)) {
+            DataStore.selectedProxy = 0L
         }
         if (SagerDatabase.proxyDao.countByGroup(groupId).first() > 1) {
             GroupManager.rearrange(groupId)
         }
     }
 
-    suspend fun getProfile(profileId: Long): ProxyEntity? {
+    fun getProfile(profileId: Long): ProxyEntity? {
         if (profileId == 0L) return null
         return try {
-            SagerDatabase.proxyDao.getById(profileId)
+            runBlocking { SagerDatabase.proxyDao.getById(profileId) }
         } catch (e: SQLiteException) {
             throw IOException(e)
         }
     }
 
-    suspend fun getProfiles(profileIds: List<Long>): List<ProxyEntity> {
+    fun getProfiles(profileIds: List<Long>): List<ProxyEntity> {
         if (profileIds.isEmpty()) return listOf()
         return try {
-            SagerDatabase.proxyDao.getEntities(profileIds)
+            runBlocking { SagerDatabase.proxyDao.getEntities(profileIds) }
         } catch (e: SQLiteException) {
             throw IOException(e)
         }
@@ -133,8 +122,8 @@ object ProfileManager {
     fun getRules(): Flow<List<RuleEntity>> {
         return SagerDatabase.rulesDao.allRules().onStart {
             val currentRules = SagerDatabase.rulesDao.allRules().first()
-            if (currentRules.isEmpty() && !DataStore.rulesFirstCreate.get()) {
-                DataStore.rulesFirstCreate.set(true)
+            if (currentRules.isEmpty() && !DataStore.rulesFirstCreate) {
+                DataStore.rulesFirstCreate = true
                 createRule(
                     RuleEntity(
                         enabled = true,
@@ -152,25 +141,9 @@ object ProfileManager {
                 )
                 createRule(
                     RuleEntity(
-                        name = repository.getString(Res.string.route_clash_mode, RuleEntity.MODE_GLOBAL),
-                        clashMode = RuleEntity.MODE_GLOBAL,
-                        action = ACTION_ROUTE,
-                        outbound = RuleEntity.OUTBOUND_PROXY,
-                    ),
-                )
-                createRule(
-                    RuleEntity(
-                        name = repository.getString(Res.string.route_clash_mode, RuleEntity.MODE_DIRECT),
-                        clashMode = RuleEntity.MODE_DIRECT,
-                        action = ACTION_ROUTE,
-                        outbound = RuleEntity.OUTBOUND_DIRECT,
-                    ),
-                )
-                createRule(
-                    RuleEntity(
                         enabled = true,
                         action = ACTION_ROUTE,
-                        name = repository.getString(Res.string.route_direct_icmp),
+                        name = repository.getString(Res.string.bypass_icmp),
                         network = setOf(NetworkICMP),
                         outbound = RuleEntity.OUTBOUND_DIRECT,
                     ),
@@ -209,7 +182,7 @@ object ProfileManager {
                     )
                     createRule(
                         RuleEntity(
-                            name = repository.getString(Res.string.route_direct_domain, displayCountry),
+                            name = repository.getString(Res.string.route_bypass_domain, displayCountry),
                             action = ACTION_ROUTE,
                             domains = "set+dns:geosite-$country",
                             outbound = RuleEntity.OUTBOUND_DIRECT,
@@ -218,7 +191,7 @@ object ProfileManager {
                     )
                     createRule(
                         RuleEntity(
-                            name = repository.getString(Res.string.route_direct_ip, displayCountry),
+                            name = repository.getString(Res.string.route_bypass_ip, displayCountry),
                             action = ACTION_ROUTE,
                             ip = "set-dns:geoip-$country",
                             outbound = RuleEntity.OUTBOUND_DIRECT,
@@ -228,7 +201,7 @@ object ProfileManager {
                 }
                 createRule(
                     RuleEntity(
-                        name = repository.getString(Res.string.route_direct_lan),
+                        name = repository.getString(Res.string.route_opt_bypass_lan),
                         action = ACTION_ROUTE,
                         ip = RuleItem.CONTENT_PRIVATE,
                         outbound = RuleEntity.OUTBOUND_DIRECT,
@@ -260,10 +233,12 @@ object ProfileManager {
         }
     }
 
-    suspend fun ensureDefaultGroupId(): Long = defaultGroupMutex.withLock {
-        SagerDatabase.groupDao.firstGroupId()
-            ?: SagerDatabase.groupDao.ungroupedId()
-            ?: SagerDatabase.groupDao.createGroup(ProxyGroup(ungrouped = true))
+    fun ensureDefaultGroupId(): Long = synchronized(defaultGroupLock) {
+        runBlocking {
+            SagerDatabase.groupDao.firstGroupId()
+                ?: SagerDatabase.groupDao.ungroupedId()
+                ?: SagerDatabase.groupDao.createGroup(ProxyGroup(ungrouped = true))
+        }
     }
 
 }

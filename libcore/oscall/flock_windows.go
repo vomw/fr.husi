@@ -6,37 +6,12 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-const (
-	lockOffsetLow   = 0
-	lockOffsetHigh  = 0
-	lockLengthLow   = 1
-	lockLengthHigh  = 0
-	noReservedFlags = 0
-)
+var overlapped windows.Overlapped
 
 func Flock(file *os.File) error {
-	var overlapped windows.Overlapped
-	overlapped.Offset = lockOffsetLow
-	overlapped.OffsetHigh = lockOffsetHigh
-	return windows.LockFileEx(
-		windows.Handle(file.Fd()),
-		windows.LOCKFILE_EXCLUSIVE_LOCK,
-		noReservedFlags,
-		lockLengthLow,
-		lockLengthHigh,
-		&overlapped,
-	)
+	return windows.LockFileEx(windows.Handle(file.Fd()), windows.LOCKFILE_EXCLUSIVE_LOCK, 0, 1, 0, &overlapped)
 }
 
 func FUnlock(file *os.File) error {
-	var overlapped windows.Overlapped
-	overlapped.Offset = lockOffsetLow
-	overlapped.OffsetHigh = lockOffsetHigh
-	return windows.UnlockFileEx(
-		windows.Handle(file.Fd()),
-		noReservedFlags,
-		lockLengthLow,
-		lockLengthHigh,
-		&overlapped,
-	)
+	return windows.UnlockFileEx(windows.Handle(file.Fd()), 0, 1, 0, &overlapped)
 }

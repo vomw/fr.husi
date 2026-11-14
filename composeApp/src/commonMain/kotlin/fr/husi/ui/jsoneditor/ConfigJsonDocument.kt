@@ -1,68 +1,24 @@
 package fr.husi.ui.jsoneditor
 
-import androidx.compose.ui.util.fastCoerceAtLeast
-import androidx.compose.ui.util.fastCoerceAtMost
-
 enum class ConfigJsonTokenType {
-    OBJECT_KEY,
     STRING,
     NUMBER,
     BOOLEAN,
     NULL,
     PUNCTUATION,
-    INVALID;
-
-    val isStringLiteral: Boolean get() = this == OBJECT_KEY || this == STRING
+    INVALID,
 }
 
 data class ConfigJsonToken(
     val type: ConfigJsonTokenType,
     val start: Int,
     val end: Int,
-    val isTerminated: Boolean = true,
 )
 
 class ConfigJsonDocument private constructor(
     val text: String,
     val tokens: List<ConfigJsonToken>,
-    private val lineStarts: IntArray,
 ) {
-
-    val lineCount: Int get() = lineStarts.size
-
-    fun tokensInLines(lines: IntRange): List<ConfigJsonToken> {
-        if (tokens.isEmpty() || lines.isEmpty()) return emptyList()
-        if (lines.last < 0 || lines.first > lineStarts.lastIndex) return emptyList()
-        val firstLine = lines.first.fastCoerceAtLeast(0)
-        val lastLine = lines.last.fastCoerceAtMost(lineStarts.lastIndex)
-        val from = lineStarts[firstLine]
-        val until = if (lastLine == lineStarts.lastIndex) {
-            text.length
-        } else {
-            lineStarts[lastLine + 1]
-        }
-        return tokens.subList(firstTokenEndingAfter(from), firstTokenStartingAtOrAfter(until))
-    }
-
-    private fun firstTokenEndingAfter(offset: Int): Int {
-        var low = 0
-        var high = tokens.size
-        while (low < high) {
-            val middle = (low + high) / 2
-            if (tokens[middle].end <= offset) low = middle + 1 else high = middle
-        }
-        return low
-    }
-
-    private fun firstTokenStartingAtOrAfter(offset: Int): Int {
-        var low = 0
-        var high = tokens.size
-        while (low < high) {
-            val middle = (low + high) / 2
-            if (tokens[middle].start < offset) low = middle + 1 else high = middle
-        }
-        return low
-    }
 
     companion object {
         fun parse(text: String): ConfigJsonDocument {
@@ -80,7 +36,6 @@ class ConfigJsonDocument private constructor(
                         '"' -> {
                             index++
                             var escaped = false
-                            var terminated = false
                             while (index < text.length) {
                                 val current = text[index++]
                                 if (escaped) {
@@ -88,16 +43,10 @@ class ConfigJsonDocument private constructor(
                                 } else if (current == '\\') {
                                     escaped = true
                                 } else if (current == '"') {
-                                    terminated = true
                                     break
                                 }
                             }
-                            val type = if (isFollowedByColon(text, index)) {
-                                ConfigJsonTokenType.OBJECT_KEY
-                            } else {
-                                ConfigJsonTokenType.STRING
-                            }
-                            add(ConfigJsonToken(type, start, index, terminated))
+                            add(ConfigJsonToken(ConfigJsonTokenType.STRING, start, index))
                         }
 
                         '-', in '0'..'9' -> {
@@ -121,21 +70,7 @@ class ConfigJsonDocument private constructor(
                     }
                 }
             }
-            return ConfigJsonDocument(text, tokens, lineStartsOf(text))
-        }
-
-        private fun isFollowedByColon(text: String, from: Int): Boolean {
-            var index = from
-            while (index < text.length && text[index].isWhitespace()) index++
-            return index < text.length && text[index] == ':'
-        }
-
-        private fun lineStartsOf(text: String): IntArray {
-            val starts = mutableListOf(0)
-            for (index in text.indices) {
-                if (text[index] == '\n') starts += index + 1
-            }
-            return starts.toIntArray()
+            return ConfigJsonDocument(text, tokens)
         }
     }
 }

@@ -1,19 +1,33 @@
 package fr.husi.ui.profile
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -22,12 +36,10 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.ernestoyaquello.dragdropswipelazycolumn.AllowedSwipeDirections
 import com.ernestoyaquello.dragdropswipelazycolumn.DragDropSwipeLazyColumn
 import com.ernestoyaquello.dragdropswipelazycolumn.DraggableSwipeableItem
 import com.ernestoyaquello.dragdropswipelazycolumn.config.DraggableSwipeableItemColors
 import fr.husi.compose.MaskedIcon
-import fr.husi.compose.TextFieldPreference
 import fr.husi.compose.TooltipIconButton
 import fr.husi.compose.material3.Icon
 import fr.husi.compose.material3.Text
@@ -39,15 +51,19 @@ import fr.husi.resources.Res
 import fr.husi.resources.add_profile
 import fr.husi.resources.chain_settings
 import fr.husi.resources.delete
-import fr.husi.resources.drag_indicator
 import fr.husi.resources.edit
 import fr.husi.resources.emoji_symbols
 import fr.husi.resources.profile_name
 import fr.husi.ui.NavRoutes
 import fr.husi.ui.OpenProfilePicker
+import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.delay
+import me.zhanghai.compose.preference.TextFieldPreference
 import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.vectorResource
+import kotlin.time.Duration.Companion.milliseconds
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChainSettingsScreen(
     profileId: Long,
@@ -87,6 +103,7 @@ fun ChainSettingsScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 private fun LazyListScope.chainSettings(
     uiState: ChainUiState,
     viewModel: ChainSettingsViewModel,
@@ -108,7 +125,7 @@ private fun LazyListScope.chainSettings(
     item("add_profile") {
         ElevatedCard(
             onClick = onAdd,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            modifier = Modifier.fillMaxWidth().padding(4.dp),
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             colors =
                 CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
@@ -129,12 +146,14 @@ private fun LazyListScope.chainSettings(
             with(density) { windowInfo.containerSize.height.toDp() }.takeIf { it > 0.dp } ?: 480.dp
         DragDropSwipeLazyColumn(
             modifier = Modifier.fillMaxWidth().heightIn(max = maxHeight),
-            items = uiState.profiles,
+            items = uiState.profiles.toImmutableList(),
             key = { it.id },
             contentType = { 0 },
             userScrollEnabled = false,
             onIndicesChangedViaDragAndDrop = { viewModel.submitReorder(it) },
         ) { i, profile ->
+            val swipeState = rememberSwipeToDismissBoxState()
+            var visible by remember { mutableStateOf(true) }
             DraggableSwipeableItem(
                 modifier = Modifier.animateDraggableSwipeableItem(),
                 colors =
@@ -142,47 +161,62 @@ private fun LazyListScope.chainSettings(
                         containerBackgroundColor = Color.Transparent,
                         containerBackgroundColorWhileDragged = Color.Transparent,
                     ),
-                allowedSwipeDirections = AllowedSwipeDirections.None,
             ) {
-                ChainProfileCard(
-                    profile = profile,
-                    onReplace = { onReplace(i, profile.id) },
-                    onRemove = { viewModel.remove(i) },
-                    dragHandleModifier = Modifier.dragDropModifier(),
-                )
+                AnimatedVisibility(
+                    visible = visible,
+                    exit = shrinkVertically(animationSpec = tween(200)) + fadeOut(),
+                ) {
+                    SwipeToDismissBox(
+                        state = swipeState,
+                        enableDismissFromStartToEnd = true,
+                        enableDismissFromEndToStart = true,
+                        backgroundContent = {
+                            Box(
+                                modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                                contentAlignment = Alignment.CenterEnd,
+                            ) {
+                                Icon(vectorResource(Res.drawable.delete), null)
+                            }
+                        },
+                        onDismiss = { value ->
+                            when (value) {
+                                SwipeToDismissBoxValue.StartToEnd,
+                                SwipeToDismissBoxValue.EndToStart,
+                                    -> visible = false
+
+                                else -> {}
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().dragDropModifier(),
+                    ) {
+                        ChainProfileCard(
+                            profile = profile,
+                            onReplace = { onReplace(i, profile.id) },
+                            onRemove = { viewModel.remove(i) },
+                        )
+                    }
+                }
+            }
+            LaunchedEffect(visible) {
+                if (!visible) {
+                    delay(220.milliseconds)
+                    viewModel.remove(i)
+                }
             }
         }
     }
 }
 
 @Composable
-private fun ChainProfileCard(
-    profile: ProxyEntity,
-    onReplace: () -> Unit,
-    onRemove: () -> Unit,
-    dragHandleModifier: Modifier,
-    modifier: Modifier = Modifier,
-) {
+private fun ChainProfileCard(profile: ProxyEntity, onReplace: () -> Unit, onRemove: () -> Unit) {
     ElevatedCard(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
         Row(modifier = Modifier.fillMaxWidth()) {
-            Icon(
-                imageVector = vectorResource(Res.drawable.drag_indicator),
-                contentDescription = "Drag to reorder",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .align(Alignment.CenterVertically)
-                    .size(40.dp)
-                    .padding(8.dp)
-                    .then(dragHandleModifier),
-            )
             Column(modifier = Modifier.weight(1f).padding(vertical = 4.dp)) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(start = 0.dp, end = 4.dp),
+                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
@@ -217,7 +251,7 @@ private fun ChainProfileCard(
 
                 Text(
                     text = profile.displayType(),
-                    modifier = Modifier.fillMaxWidth().padding(end = 16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.outline,
                 )

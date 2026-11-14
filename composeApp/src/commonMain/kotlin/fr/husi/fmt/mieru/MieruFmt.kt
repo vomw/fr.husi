@@ -21,100 +21,86 @@ package fr.husi.fmt.mieru
 import fr.husi.ktx.blankAsNull
 import fr.husi.ktx.isIpAddress
 import fr.husi.ktx.queryParameterNotBlank
-import fr.husi.ktx.kxs
+import fr.husi.ktx.toJsonMapKxs
 import fr.husi.ktx.toJsonStringKxs
+import fr.husi.libcore.Libcore
 import fr.husi.logLevelString
-import io.github.xchacha20_poly1305.kpuri.Url
-import io.github.xchacha20_poly1305.kpuri.buildUrl
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.addJsonObject
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
-import kotlinx.serialization.json.putJsonObject
 
 fun MieruBean.buildMieruConfig(port: Int, logLevel: Int): String {
-    if (password.isEmpty()) error("mieru password is empty")
-    val profile = buildJsonObject {
-        put("profileName", "default")
-        putJsonObject("user") {
-            put("name", username)
-            put("password", password)
-        }
-        putJsonArray("servers") {
-            addJsonObject {
-                putJsonArray("portBindings") {
-                    addJsonObject {
-                        put("port", finalPort)
-                        put("protocol", protocol.uppercase())
-                    }
-                }
+    val profile = mutableMapOf(
+        "profileName" to "default",
+        "user" to mapOf(
+            "name" to username,
+            "password" to password.also {
+                if (it.isEmpty()) error("mieru password is empty")
+            },
+        ),
+        "servers" to listOf(
+            mutableMapOf<String, Any>(
+                "portBindings" to listOf(
+                    mapOf(
+                        "port" to finalPort,
+                        "protocol" to protocol.uppercase(),
+                    ),
+                ),
+            ).also {
                 // mieru refuses to parse a domain name in the ipAddress field.
                 if (finalAddress.isIpAddress()) {
-                    put("ipAddress", finalAddress)
+                    it["ipAddress"] = finalAddress
                 } else {
-                    put("domainName", finalAddress)
+                    it["domainName"] = finalAddress
                 }
-            }
-        }
-        put("mtu", mtu)
-        mieruMuxToString(serverMuxNumber)?.let { level ->
-            putJsonObject("multiplexing") { put("level", level) }
-        }
+            },
+        ),
+        "mtu" to mtu,
+        "multiplexing" to mieruMuxToString(serverMuxNumber)?.let { mapOf("level" to it) },
         // "handshakeMode" to "HANDSHAKE_NO_WAIT",
         // https://github.com/enfein/mieru/issues/254
         // Mieru TCP mux long-time mutex holding + no wait = bug.
-        put("handshakeMode", "HANDSHAKE_STANDARD")
-        trafficPattern.blankAsNull()?.let { pattern ->
-            put(
-                "trafficPattern",
-                runCatching {
-                    pattern.parseMieruTrafficPattern()
-                }.getOrElse { _ ->
-                    decodeMieruTrafficPattern(pattern)
-                },
-            )
+        "handshakeMode" to "HANDSHAKE_STANDARD",
+    )
+    trafficPattern.blankAsNull()?.let { trafficPattern ->
+        profile["trafficPattern"] = runCatching {
+            trafficPattern.toJsonMapKxs().let {
+                it["trafficPattern"] ?: it
+            }
+        }.getOrElse { _ ->
+            Libcore.decodeMieruTrafficPattern(trafficPattern).toJsonMapKxs().let {
+                it["trafficPattern"] ?: it
+            }
         }
     }
-    return buildJsonObject {
-        put("activeProfile", "default")
-        put("socks5Port", port)
-        logLevel.takeIf { it > 0 }?.let {
-            put("loggingLevel", logLevelString(it).uppercase())
-        }
-        putJsonObject("advancedSettings") { put("noCheckUpdate", true) }
-        putJsonArray("profiles") { add(profile) }
-    }.toJsonStringKxs()
-}
-
-private fun String.parseMieruTrafficPattern(): JsonElement {
-    val root = kxs.parseToJsonElement(this) as? JsonObject
-        ?: error("mieru traffic pattern is not a JSON object")
-    return root["trafficPattern"] ?: root
+    val basic = mutableMapOf(
+        "activeProfile" to "default",
+        "socks5Port" to port,
+        "loggingLevel" to logLevel.takeIf { it > 0 }?.let { logLevelString(it).uppercase() },
+        "advancedSettings" to mapOf("noCheckUpdate" to true),
+        "profiles" to listOf(profile),
+    )
+    return basic.toJsonStringKxs()
 }
 
 // https://github.com/enfein/mieru/blob/b1cd50fabb2f893c7878388767d97370dbb7a660/pkg/appctl/url.go#L51
 fun parseMieru(link: String): MieruBean = MieruBean().apply {
-    val url = Url.parse(link)
-    username = url.username.orEmpty()
-    password = url.password.orEmpty()
-    serverAddress = url.host.orEmpty()
-    serverPort = url.port?.toIntOrNull() ?: defaultPort
+    val url = Libcore.parseURL(link)
+    username = url.username
+    password = url.password
+    serverAddress = url.host
+    serverPort = url.ports.toIntOrNull() ?: defaultPort
 
-    name = url.queryParameter("profile").orEmpty()
+    name = url.queryParameter("profile")
     mtu = url.queryParameterNotBlank("mtu")?.toIntOrNull() ?: 0
     serverMuxNumber = url.queryParameter("multiplexing")?.let {
         parseMieruMux(it)
     } ?: 0
-    trafficPattern = url.queryParameter("traffic-pattern").orEmpty()
+    trafficPattern = url.queryParameter("traffic-pattern")
 }
 
-fun MieruBean.toUri(): String = buildUrl("mierus") {
+fun MieruBean.toUri(): String = Libcore.newURL("mierus").apply {
     username = this@toUri.username
     password = this@toUri.password
     host = serverAddress
-    port = serverPort.toString()
+    ports = serverPort.toString()
 
     name.takeIf { it.isNotBlank() }?.let {
         addQueryParameter("profile", it)
@@ -127,13 +113,13 @@ fun MieruBean.toUri(): String = buildUrl("mierus") {
     }
     trafficPattern.blankAsNull()?.let { trafficPattern ->
         val base64TrafficPattern = runCatching {
-            encodeMieruTrafficPattern(trafficPattern)
+            Libcore.encodeMieruTrafficPattern(trafficPattern)
         }.getOrElse {
             trafficPattern
         }
         addQueryParameter("traffic-pattern", base64TrafficPattern)
     }
-}.toString()
+}.string
 
 private fun parseMieruMux(link: String): Int? = when (link) {
     "MULTIPLEXING_OFF" -> 0

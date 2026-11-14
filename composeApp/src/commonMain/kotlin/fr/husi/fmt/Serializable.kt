@@ -1,12 +1,12 @@
 package fr.husi.fmt
 
-import fr.husi.io.BinaryInput
-import fr.husi.io.BinaryOutput
+import com.esotericsoftware.kryo.io.ByteBufferInput
+import com.esotericsoftware.kryo.io.ByteBufferOutput
 
 expect abstract class Serializable() {
     open fun initializeDefaultValues()
-    abstract fun serializeToBuffer(output: BinaryOutput)
-    abstract fun deserializeFromBuffer(input: BinaryInput)
+    abstract fun serializeToBuffer(output: ByteBufferOutput)
+    abstract fun deserializeFromBuffer(input: ByteBufferInput)
     open fun describeContents(): Int
 
     abstract class CREATOR<T : Serializable>() {

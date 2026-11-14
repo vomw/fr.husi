@@ -7,6 +7,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import fr.husi.Key
 import fr.husi.database.DataStore
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -14,18 +15,19 @@ import kotlinx.coroutines.launch
 open class PrivacyModeActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        applyPrivacyMode(DataStore.privacyMode.getBlocking())
+        applyPrivacyMode(DataStore.privacyMode)
         super.onCreate(savedInstanceState)
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                DataStore.privacyMode.flow()
+                DataStore.configurationStore
+                    .booleanFlow(Key.PRIVACY_MODE, false)
                     .collectLatest(::applyPrivacyMode)
             }
         }
     }
 
     override fun onStart() {
-        applyPrivacyMode(DataStore.privacyMode.getBlocking())
+        applyPrivacyMode(DataStore.privacyMode)
         super.onStart()
     }
 

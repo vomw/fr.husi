@@ -1,15 +1,14 @@
 package fr.husi.ui.profile
 
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.text.AnnotatedString
-import fr.husi.compose.ListPreference
 import fr.husi.compose.PasswordPreference
 import fr.husi.compose.PreferenceCategory
+import fr.husi.compose.PreferenceDivider
 import fr.husi.compose.IconMaskColors
 import fr.husi.compose.MaskedIcon
-import fr.husi.compose.SwitchPreference
-import fr.husi.compose.TextFieldPreference
 import fr.husi.compose.UIntegerTextField
 import fr.husi.compose.material3.Text
 import fr.husi.compose.preferenceGroup
@@ -37,9 +36,13 @@ import fr.husi.resources.snell_mode
 import fr.husi.resources.snell_reuse
 import fr.husi.resources.snell_user_key
 import fr.husi.ui.NavRoutes
+import me.zhanghai.compose.preference.ListPreference
 import me.zhanghai.compose.preference.ListPreferenceType
+import me.zhanghai.compose.preference.SwitchPreference
+import me.zhanghai.compose.preference.TextFieldPreference
 import org.jetbrains.compose.resources.stringResource
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SnellSettingsScreen(
     profileId: Long,
@@ -113,6 +116,7 @@ private fun LazyListScope.snellSettings(
             summary = { Text(contentOrUnset(uiState.address)) },
             valueToText = { it },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = uiState.port,
             onValueChange = { viewModel.setPort(it) },
@@ -126,10 +130,11 @@ private fun LazyListScope.snellSettings(
             },
             summary = { Text(contentOrUnset(uiState.port)) },
             valueToText = { it.toString() },
-            textField = { state, onOk ->
-                UIntegerTextField(state, onOk)
+            textField = { value, onValueChange, onOk ->
+                UIntegerTextField(value, onValueChange, onOk)
             },
         )
+        PreferenceDivider()
         ListPreference(
             value = uiState.version,
             values = versions,
@@ -145,6 +150,7 @@ private fun LazyListScope.snellSettings(
             type = ListPreferenceType.DROPDOWN_MENU,
             valueToText = { AnnotatedString(versionText(it)) },
         )
+        PreferenceDivider()
         PasswordPreference(
             value = uiState.psk,
             onValueChange = { viewModel.setPsk(it) },
@@ -156,6 +162,7 @@ private fun LazyListScope.snellSettings(
                 )
             },
         )
+        PreferenceDivider()
         PasswordPreference(
             value = uiState.userKey,
             onValueChange = { viewModel.setUserKey(it) },
@@ -204,6 +211,7 @@ private fun LazyListScope.snellSettings(
                     type = ListPreferenceType.DROPDOWN_MENU,
                     valueToText = { AnnotatedString(contentOrUnset(it)) },
                 )
+                PreferenceDivider()
                 TextFieldPreference(
                     value = uiState.obfsHost,
                     onValueChange = { viewModel.setObfsHost(it) },

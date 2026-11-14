@@ -14,7 +14,6 @@ import fr.husi.database.SubscriptionBean
 import fr.husi.ktx.applyDefaultValues
 import fr.husi.ktx.blankAsNull
 import fr.husi.ktx.runOnIoDispatcher
-import fr.husi.net.buildUserAgent
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -30,7 +29,8 @@ internal data class GroupSettingsUiState(
     val name: String = "",
     val type: Int = GroupType.BASIC,
     val order: Int = GroupOrder.ORIGIN,
-    val outboundDns: String = "",
+    val frontProxy: Long = -1,
+    val landingProxy: Long = -1,
 
     val subscriptionType: Int = SubscriptionType.RAW,
     val subscriptionToken: String = "",
@@ -53,10 +53,6 @@ internal class GroupSettingsViewModel(
     val uiState: StateFlow<GroupSettingsUiState>
         field = MutableStateFlow(GroupSettingsUiState())
 
-    /** Shown in place of a blank custom User-Agent. */
-    val defaultUserAgent: StateFlow<String>
-        field = MutableStateFlow("")
-
     private var editingID: Long = 0L
     val isNew get() = editingID == 0L
 
@@ -73,9 +69,6 @@ internal class GroupSettingsViewModel(
 
     init {
         initialize(groupId)
-        viewModelScope.launch {
-            defaultUserAgent.value = buildUserAgent()
-        }
     }
 
     fun initialize(id: Long) = viewModelScope.launch {
@@ -92,7 +85,8 @@ internal class GroupSettingsViewModel(
                 name = group.name ?: "",
                 type = group.type,
                 order = group.order,
-                outboundDns = group.outboundDns ?: "",
+                frontProxy = group.frontProxy,
+                landingProxy = group.landingProxy,
 
                 subscriptionType = subscription.type,
                 subscriptionToken = subscription.token,
@@ -141,7 +135,8 @@ internal class GroupSettingsViewModel(
         name = state.name.blankAsNull() ?: "My Group"
         type = state.type
         order = state.order
-        outboundDns = state.outboundDns.blankAsNull()
+        frontProxy = state.frontProxy
+        landingProxy = state.landingProxy
 
         if (type == GroupType.SUBSCRIPTION) {
             subscription = (subscription ?: SubscriptionBean().applyDefaultValues()).apply {
@@ -182,9 +177,15 @@ internal class GroupSettingsViewModel(
         }
     }
 
-    fun setOutboundDns(outboundDns: String) = viewModelScope.launch {
+    fun setFrontProxy(frontProxy: Long) = viewModelScope.launch {
         uiState.update {
-            it.copy(outboundDns = outboundDns)
+            it.copy(frontProxy = frontProxy)
+        }
+    }
+
+    fun setLandingProxy(landingProxy: Long) = viewModelScope.launch {
+        uiState.update {
+            it.copy(landingProxy = landingProxy)
         }
     }
 

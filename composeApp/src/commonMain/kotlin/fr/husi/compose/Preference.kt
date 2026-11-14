@@ -1,16 +1,15 @@
 package fr.husi.compose
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
@@ -18,15 +17,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.input.TextObfuscationMode
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialShapes
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedSecureTextField
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -35,16 +33,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -56,22 +51,18 @@ import fr.husi.compose.material3.Text
 import fr.husi.compose.theme.LocalAppDarkMode
 import fr.husi.resources.Res
 import fr.husi.resources.cancel
-import fr.husi.resources.action_copy
-import fr.husi.resources.content_copy
-import fr.husi.resources.hide
-import fr.husi.resources.show
-import fr.husi.resources.visibility
-import fr.husi.resources.visibility_off
 import fr.husi.resources.not_set
 import fr.husi.resources.ok
 import fr.husi.resources.password
+import fr.husi.resources.settings
 import fr.husi.resources.wifi
-import kotlinx.coroutines.launch
+import me.zhanghai.compose.preference.Preference
 import me.zhanghai.compose.preference.PreferenceCategory
+import me.zhanghai.compose.preference.ProvidePreferenceLocals
+import me.zhanghai.compose.preference.TextFieldPreference
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.vectorResource
-import me.zhanghai.compose.preference.ProvidePreferenceLocals as BaseProvidePreferenceLocals
 
 object PreferenceType {
     const val CATEGORY = 0
@@ -83,19 +74,19 @@ object PreferenceType {
 }
 
 /**
- * A header naming the group that follows it.
- *
- * The title is indented so that it sits just inside the group's left edge rather than lining up
- * with the rows' text, which is where a native Android preference category puts it.
- */
+ * Not only support icon, but also use spacer as icon if not set.
+ * */
 @Composable
 fun PreferenceCategory(
     modifier: Modifier = Modifier,
+    icon: @Composable () -> Unit = { Spacer(Modifier.size(24.dp)) },
     text: @Composable () -> Unit,
 ) {
     PreferenceCategory(
         title = {
-            Box(Modifier.padding(start = PreferenceGroupDefaults.CategoryTitleIndent)) {
+            Row {
+                icon()
+                Spacer(Modifier.padding(8.dp))
                 text()
             }
         },
@@ -116,7 +107,6 @@ fun PasswordPreference(
             color = IconMaskColors.IconCoral,
         )
     },
-    dialogFooter: @Composable (() -> Unit)? = null,
 ) {
     TextFieldPreference(
         value = value,
@@ -135,62 +125,21 @@ fun PasswordPreference(
             Text(text = summaryText)
         },
         valueToText = { it },
-        textField = { state, onOk ->
-            var passwordVisible by remember(state) { mutableStateOf(false) }
-            val clipboard = LocalClipboard.current
-            val scope = rememberCoroutineScope()
-            Column(horizontalAlignment = Alignment.End) {
-                OutlinedSecureTextField(
-                    state = state,
-                    modifier = Modifier.fillMaxWidth(),
-                    textObfuscationMode = if (passwordVisible) {
-                        TextObfuscationMode.Visible
-                    } else {
-                        TextObfuscationMode.RevealLastTyped
-                    },
-                    trailingIcon = {
-                        SimpleIconButton(
-                            imageVector = vectorResource(
-                                if (passwordVisible) {
-                                    Res.drawable.visibility_off
-                                }
-                                else {
-                                    Res.drawable.visibility
-                                },
-                            ),
-                            contentDescription = stringResource(
-                                if (passwordVisible) {
-                                    Res.string.hide
-                                } else {
-                                    Res.string.show
-                                },
-                            ),
-                            onClick = { passwordVisible = !passwordVisible },
-                        )
-                    },
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Password,
-                        autoCorrectEnabled = false,
-                        imeAction = ImeAction.Done,
-                    ),
-                    onKeyboardAction = { onOk() },
-                )
-                // SecureTextField always disable cut and copy. So we have to provide one ourselves.
-                SimpleIconButton(
-                    imageVector = vectorResource(Res.drawable.content_copy),
-                    contentDescription = stringResource(Res.string.action_copy),
-                    // Only enabled it on visible to prevent accidentally touch.
-                    enabled = passwordVisible,
-                    onClick = {
-                        val password = state.text.toString()
-                        scope.launch {
-                            clipboard.setPlainText(password)
-                            // TODO: Show copy confirmation once a CompositionLocal provides the snackbar.
-                        }
-                    },
-                )
-                dialogFooter?.invoke()
-            }
+        textField = { textFieldValue, onTextFieldValueChange, onOk ->
+            OutlinedTextField(
+                value = textFieldValue,
+                onValueChange = onTextFieldValueChange,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                // visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Password,
+                    imeAction = ImeAction.Done,
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = { onOk() },
+                ),
+            )
         },
     )
 }
@@ -318,94 +267,26 @@ fun <T> OrderedMultiselectPreference(
     }
 }
 
-object PreferenceGroupDefaults {
-    /**
-     * Radius of the group as a whole. The pair of radii is spelled out here rather than taken from
-     * [MaterialTheme.shapes] so that the outer and inner corners cannot drift apart.
-     */
-    val GroupCornerRadius = 20.dp
-
-    /** Radius of a single row. Rows at the edges are rounded up by the group's clip. */
-    val ItemCornerRadius = 4.dp
-
-    val groupShape: Shape
-        @Composable get() = RoundedCornerShape(GroupCornerRadius)
-
-    val itemShape: Shape
-        @Composable get() = RoundedCornerShape(ItemCornerRadius)
-
-    /** A row is brighter than the ground it sits on; see [screenContainerColor]. */
-    val itemContainerColor: Color
-        @Composable get() = MaterialTheme.colorScheme.surfaceBright
-
-    /**
-     * Ground that a preference list sits on.
-     *
-     * It is darker than [itemContainerColor] so that rows read as raised entries, which is the
-     * relationship a native Android preference page uses in both light and dark themes.
-     * [ProvidePreferenceLocals] paints it.
-     */
-    val screenContainerColor: Color
-        @Composable get() = MaterialTheme.colorScheme.surfaceContainerLow
-
-    /** Gap that separates two rows, matching a menu's group spacing. */
-    val ItemSpacing = 2.dp
-
-    /** Height every row reaches, so that rows without an icon match rows with one. */
-    val ItemMinHeight = 72.dp
-
-    /** Distance from the group's left edge to a [PreferenceCategory] title. */
-    val CategoryTitleIndent = 8.dp
-
-    /** Arrangement for a nested column of rows, such as the body of an `AnimatedVisibility`. */
-    val itemArrangement: Arrangement.Vertical = Arrangement.spacedBy(ItemSpacing)
-}
-
-/**
- * Container of a single preference row.
- *
- * Every row draws its own surface, so a group reads as separate entries the way a native Android
- * preference group does, rather than as one card cut up by divider lines.
- */
 @Composable
-fun PreferenceItemSurface(content: @Composable () -> Unit) {
-    Surface(
-        modifier = Modifier.heightIn(min = PreferenceGroupDefaults.ItemMinHeight),
-        shape = PreferenceGroupDefaults.itemShape,
-        color = PreferenceGroupDefaults.itemContainerColor,
-        content = content,
-    )
+fun PreferenceDivider() {
+    HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
 }
 
-@Composable
-fun ProvidePreferenceLocals(content: @Composable () -> Unit) {
-    Box(modifier = Modifier.background(PreferenceGroupDefaults.screenContainerColor)) {
-        BaseProvidePreferenceLocals(content = content)
-    }
-}
-
-/**
- * A group of preference rows.
- *
- * The group only clips; it paints nothing, so the gaps between rows show the screen behind them.
- * Clipping is also what gives the first and last row their large outer corners: the intersection
- * of a row's small corner with the group's large one is the large corner. That keeps rows free of
- * any position bookkeeping, which matters because group content is written with conditionals.
- */
 fun LazyListScope.preferenceGroup(
     key: Any? = null,
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     item(key = key) {
-        Column(
+        ElevatedCard(
             modifier = modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp)
-                .clip(PreferenceGroupDefaults.groupShape),
-            verticalArrangement = PreferenceGroupDefaults.itemArrangement,
-            content = content,
-        )
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            shape = RoundedCornerShape(16.dp),
+            elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp),
+        ) {
+            Column(content = content)
+        }
     }
 }
 
@@ -497,7 +378,7 @@ object IconMaskShapes {
     fun credential(): Shape = MaterialShapes.Slanted.toShape()
 
     @Composable
-    fun route(): Shape = MaterialShapes.Cookie4Sided.toShape()
+    fun route(): Shape = MaterialShapes.Triangle.toShape()
 }
 
 @Suppress("MutableCollectionMutableState")
@@ -511,11 +392,27 @@ private fun PreviewCustomPreference() {
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState()),
         ) {
-            PreferenceCategory(text = { Text("Account Settings") })
+            PreferenceCategory(
+                icon = {
+                    Icon(
+                        vectorResource(Res.drawable.settings),
+                        contentDescription = null,
+                    )
+                },
+                text = { Text("Account Settings") },
+            )
 
             Spacer(Modifier.height(16.dp))
 
             var password by remember { mutableStateOf("") }
+            PasswordPreference(
+                value = password,
+                onValueChange = { password = it },
+                enabled = true,
+            )
+
+            Spacer(Modifier.height(16.dp))
+
             var mapValue by remember {
                 mutableStateOf(
                     linkedMapOf(
@@ -527,34 +424,23 @@ private fun PreviewCustomPreference() {
 
             val keys = linkedSetOf("Server", "Port")
 
-            Column(
-                modifier = Modifier.clip(PreferenceGroupDefaults.groupShape),
-                verticalArrangement = PreferenceGroupDefaults.itemArrangement,
-            ) {
-                PasswordPreference(
-                    value = password,
-                    onValueChange = { password = it },
-                    enabled = true,
-                )
-
-                MapPreference(
-                    value = mapValue,
-                    keys = keys,
-                    onValueChange = { mapValue = it },
-                    displayKey = { it },
-                    textToValue = { it },
-                    title = { Text("Connection Settings") },
-                    icon = {
-                        Icon(
-                            vectorResource(Res.drawable.wifi),
-                            contentDescription = null,
-                        )
-                    },
-                    summary = {
-                        Text(mapValue.entries.joinToString { "${it.key}: ${it.value}" })
-                    },
-                )
-            }
+            MapPreference(
+                value = mapValue,
+                keys = keys,
+                onValueChange = { mapValue = it },
+                displayKey = { it },
+                textToValue = { it },
+                title = { Text("Connection Settings") },
+                icon = {
+                    Icon(
+                        vectorResource(Res.drawable.wifi),
+                        contentDescription = null,
+                    )
+                },
+                summary = {
+                    Text(mapValue.entries.joinToString { "${it.key}: ${it.value}" })
+                },
+            )
         }
     }
 }

@@ -5,27 +5,33 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.AppBarRow
 import androidx.compose.material3.CardDefaults
 import fr.husi.compose.material3.Checkbox
+import fr.husi.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.ProvideTextStyle
+import androidx.compose.material3.Scaffold
 import fr.husi.compose.material3.Text
+import androidx.compose.material3.TopAppBarDefaults
+import fr.husi.compose.CapsuleActionButton
+import fr.husi.compose.CapsuleTopBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -36,32 +42,35 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import fr.husi.compose.BoxedVerticalScrollbar
 import fr.husi.compose.SimpleIconButton
 import fr.husi.compose.platformCombinedClickable
+import fr.husi.compose.withNavigation
 import fr.husi.fmt.SingBoxOptions
 import fr.husi.ktx.blankAsNull
 import fr.husi.ktx.emptyAsNull
-import fr.husi.ktx.formatBytes
-import fr.husi.ktx.splitAddress
+import fr.husi.libcore.Libcore
+import fr.husi.repository.resolveRepository
 import fr.husi.resources.Res
-import fr.husi.resources.active
 import fr.husi.resources.add_road
+import fr.husi.resources.arrow_back
+import fr.husi.resources.back
 import fr.husi.resources.cancel
 import fr.husi.resources.chain
 import fr.husi.resources.close
 import fr.husi.resources.closed_time
 import fr.husi.resources.connection_status
+import fr.husi.resources.connection_status_active
 import fr.husi.resources.connection_status_closed
 import fr.husi.resources.create_rule
 import fr.husi.resources.delete_forever
 import fr.husi.resources.destination_address
 import fr.husi.resources.done
 import fr.husi.resources.download
-import fr.husi.resources.download_speed
 import fr.husi.resources.http_host
 import fr.husi.resources.inbound
 import fr.husi.resources.ip_version
@@ -72,13 +81,12 @@ import fr.husi.resources.outbound_rule
 import fr.husi.resources.process
 import fr.husi.resources.protocol
 import fr.husi.resources.source_address
-import fr.husi.resources.speed
 import fr.husi.resources.start_time
 import fr.husi.resources.upload
-import fr.husi.resources.upload_speed
 import fr.husi.ui.RouteSettingsUiState
 import io.github.oikvpqya.compose.fastscroller.material3.defaultMaterialScrollbarStyle
 import io.github.oikvpqya.compose.fastscroller.rememberScrollbarAdapter
+import kotlinx.coroutines.runBlocking
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.vectorResource
@@ -104,97 +112,103 @@ private enum class ConnectionFields {
 }
 
 @Composable
-internal fun ConnectionDetailSheet(
+fun ConnectionDetailScreen(
     modifier: Modifier = Modifier,
-    connection: ConnectionDetailState,
-    resolveProcessInfo: suspend (String?, Int) -> ProcessInfo?,
-    closeConnection: (uuid: String) -> Unit,
-    onDismiss: () -> Unit,
+    uuid: String,
+    viewModel: ConnectionDetailViewModel = viewModel { ConnectionDetailViewModel(uuid) },
+    popup: () -> Unit,
     openRouteSettings: (RouteSettingsUiState) -> Unit,
 ) {
-    val uuid = connection.uuid
-    var isSelecting by remember(uuid) { mutableStateOf(false) }
-    var selectedField by remember(uuid) { mutableStateOf(emptySet<ConnectionFields>()) }
-    val selectField = { field: ConnectionFields, checked: Boolean ->
-        selectedField = if (checked) selectedField + field else selectedField - field
-    }
+    var isSelecting by remember { mutableStateOf(false) }
+    var selectedField by remember { mutableStateOf(emptySet<ConnectionFields>()) }
+    val connection by viewModel.connection.collectAsStateWithLifecycle()
 
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .fillMaxHeight(0.85f),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = uuid,
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    val windowInsets = WindowInsets.safeDrawing
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        topBar = {
+            CapsuleTopBar(
+                title = {
+                    Text(uuid)
+                },
+                navigationIcon = {
+                    if (isSelecting) {
+                        SimpleIconButton(
+                            imageVector = vectorResource(Res.drawable.close),
+                            contentDescription = stringResource(Res.string.cancel),
+                            onClick = {
+                                selectedField = emptySet()
+                                isSelecting = false
+                            },
+                        )
+                    } else {
+                        SimpleIconButton(
+                            imageVector = vectorResource(Res.drawable.arrow_back),
+                            contentDescription = stringResource(Res.string.back),
+                            onClick = popup,
+                        )
+                    }
+                },
+                actions = {
+                    if (isSelecting) {
+                        CapsuleActionButton {
+                            SimpleIconButton(
+                                imageVector = vectorResource(Res.drawable.done),
+                                contentDescription = stringResource(Res.string.ok),
+                                onClick = {
+                                    openRouteSettings(
+                                        createRouteDraft(selectedField, connection),
+                                    )
+                                },
+                            )
+                        }
+                    } else {
+                        CapsuleActionButton {
+                            SimpleIconButton(
+                                imageVector = vectorResource(Res.drawable.add_road),
+                                contentDescription = stringResource(Res.string.create_rule),
+                                onClick = { isSelecting = true },
+                            )
+                        }
+                        CapsuleActionButton {
+                            SimpleIconButton(
+                                imageVector = vectorResource(Res.drawable.delete_forever),
+                                contentDescription = stringResource(Res.string.close),
+                                onClick = {
+                                    viewModel.closeConnection(uuid)
+                                    popup()
+                                },
+                            )
+                        }
+                    }
+                },
+                windowInsets = windowInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+                scrollBehavior = scrollBehavior,
             )
-            if (isSelecting) {
-                SimpleIconButton(
-                    imageVector = vectorResource(Res.drawable.close),
-                    contentDescription = stringResource(Res.string.cancel),
-                    onClick = {
-                        selectedField = emptySet()
-                        isSelecting = false
-                    },
-                )
-                SimpleIconButton(
-                    imageVector = vectorResource(Res.drawable.done),
-                    contentDescription = stringResource(Res.string.ok),
-                    onClick = {
-                        openRouteSettings(createRouteDraft(selectedField, connection))
-                    },
-                )
-            } else {
-                SimpleIconButton(
-                    imageVector = vectorResource(Res.drawable.add_road),
-                    contentDescription = stringResource(Res.string.create_rule),
-                    onClick = { isSelecting = true },
-                )
-                SimpleIconButton(
-                    imageVector = vectorResource(Res.drawable.delete_forever),
-                    contentDescription = stringResource(Res.string.close),
-                    onClick = {
-                        closeConnection(uuid)
-                        onDismiss()
-                    },
-                )
-            }
-        }
-
+        },
+    ) { innerPadding ->
         val listState = rememberLazyListState()
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-        ) {
+        val contentPadding = innerPadding.withNavigation()
+        Row(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxHeight(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                    .fillMaxHeight()
+                    .nestedScroll(scrollBehavior.nestedScrollConnection),
+                contentPadding = contentPadding,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                item("connection") {
-                    ConnectionGroupCard(isShaking = isSelecting) {
-                        ConnectionField(
-                            field = Res.string.connection_status,
-                            isSelecting = isSelecting,
-                        ) {
+                item("status", 0) {
+                    ConnectionDataCard(
+                        field = Res.string.connection_status,
+                        value = {
                             Text(
                                 text = if (connection.isClosed) {
                                     stringResource(Res.string.connection_status_closed)
                                 } else {
-                                    stringResource(Res.string.active)
+                                    stringResource(Res.string.connection_status_active)
                                 },
                                 color = if (connection.isClosed) {
                                     Color.Red
@@ -202,215 +216,231 @@ internal fun ConnectionDetailSheet(
                                     Color.Green
                                 },
                             )
-                        }
-                        ConnectionField(
-                            field = Res.string.inbound,
-                            isSelecting = isSelecting,
-                        ) {
-                            Text(connection.inbound)
-                        }
-                        connection.ipVersion?.let { ipVersion ->
-                            ConnectionField(
-                                field = Res.string.ip_version,
-                                isSelecting = isSelecting,
-                            ) {
-                                Text(ipVersion.toString())
+                        },
+                        isSelecting = isSelecting,
+                        isSelectable = false,
+                    )
+                }
+                item("inbound", 1) {
+                    ConnectionDataCard(
+                        field = Res.string.inbound,
+                        value = { Text(connection.inbound) },
+                        isSelecting = isSelecting,
+                        isSelectable = false,
+                    )
+                }
+                if (connection.ipVersion != null) item("ip_version", 1) {
+                    ConnectionDataCard(
+                        field = Res.string.ip_version,
+                        value = { Text(connection.ipVersion.toString()) },
+                        isSelecting = isSelecting,
+                        isSelectable = false,
+                    )
+                }
+                item("network", 1) {
+                    ConnectionDataCard(
+                        field = Res.string.network,
+                        value = { Text(connection.network) },
+                        isSelecting = isSelecting,
+                        isSelected = ConnectionFields.NETWORK in selectedField,
+                        onSelectedChange = { checked ->
+                            selectedField = selectedField.toMutableSet().apply {
+                                if (checked) {
+                                    add(ConnectionFields.NETWORK)
+                                } else {
+                                    remove(ConnectionFields.NETWORK)
+                                }
                             }
-                        }
-                        ConnectionField(
-                            field = Res.string.network,
+                        },
+                    )
+                }
+                item("upload_total", 1) {
+                    ConnectionDataCard(
+                        field = Res.string.upload,
+                        value = { Text(Libcore.formatBytes(connection.uploadTotal)) },
+                        isSelecting = isSelecting,
+                        isSelectable = false,
+                    )
+                }
+                item("download_total", 1) {
+                    ConnectionDataCard(
+                        field = Res.string.download,
+                        value = { Text(Libcore.formatBytes(connection.downloadTotal)) },
+                        isSelecting = isSelecting,
+                        isSelectable = false,
+                    )
+                }
+                item("start", 1) {
+                    ConnectionDataCard(
+                        field = Res.string.start_time,
+                        value = { Text(connection.startedAt) },
+                        isSelecting = isSelecting,
+                        isSelectable = false,
+                    )
+                }
+                connection.closedAt.emptyAsNull()?.let { closedAt ->
+                    item("closed", 1) {
+                        ConnectionDataCard(
+                            field = Res.string.closed_time,
+                            value = { Text(closedAt) },
                             isSelecting = isSelecting,
-                            isSelectable = true,
-                            isSelected = ConnectionFields.NETWORK in selectedField,
+                            isSelectable = false,
+                        )
+                    }
+                }
+                item("source", 1) {
+                    ConnectionDataCard(
+                        field = Res.string.source_address,
+                        value = { Text(connection.src) },
+                        isSelecting = isSelecting,
+                        isSelected = ConnectionFields.SOURCE in selectedField,
+                        onSelectedChange = { checked ->
+                            selectedField = selectedField.toMutableSet().apply {
+                                if (checked) {
+                                    add(ConnectionFields.SOURCE)
+                                } else {
+                                    remove(ConnectionFields.SOURCE)
+                                }
+                            }
+                        },
+                    )
+                }
+                item("destination", 1) {
+                    ConnectionDataCard(
+                        field = Res.string.destination_address,
+                        value = { Text(connection.dst) },
+                        isSelecting = isSelecting,
+                        isSelected = ConnectionFields.DESTINATION in selectedField,
+                        onSelectedChange = { checked ->
+                            selectedField = selectedField.toMutableSet().apply {
+                                if (checked) {
+                                    add(ConnectionFields.DESTINATION)
+                                } else {
+                                    remove(ConnectionFields.DESTINATION)
+                                }
+                            }
+                        },
+                    )
+                }
+                if (connection.host.isNotBlank()) {
+                    item("host", 1) {
+                        ConnectionDataCard(
+                            field = Res.string.http_host,
+                            value = { Text(connection.host) },
+                            isSelecting = isSelecting,
+                            isSelected = ConnectionFields.HOST in selectedField,
                             onSelectedChange = { checked ->
-                                selectField(ConnectionFields.NETWORK, checked)
+                                selectedField = selectedField.toMutableSet().apply {
+                                    if (checked) {
+                                        add(ConnectionFields.HOST)
+                                    } else {
+                                        remove(ConnectionFields.HOST)
+                                    }
+                                }
                             },
-                        ) {
-                            Text(connection.network)
-                        }
-                        connection.protocol?.let { protocol ->
-                            ConnectionField(
-                                field = Res.string.protocol,
-                                isSelecting = isSelecting,
-                                isSelectable = true,
-                                isSelected = ConnectionFields.PROTOCOL in selectedField,
-                                onSelectedChange = { checked ->
-                                    selectField(ConnectionFields.PROTOCOL, checked)
-                                },
-                            ) {
-                                Text(protocol)
+                        )
+                    }
+                }
+                item("matched_rule", 1) {
+                    ConnectionDataCard(
+                        field = Res.string.outbound_rule,
+                        value = { Text(connection.matchedRule) },
+                        isSelecting = isSelecting,
+                        isSelectable = false,
+                    )
+                }
+                item("outbound", 1) {
+                    ConnectionDataCard(
+                        field = Res.string.outbound,
+                        value = { Text(connection.outbound) },
+                        isSelecting = isSelecting,
+                        isSelectable = false,
+                    )
+                }
+                item("chain", 1) {
+                    ConnectionDataCard(
+                        field = Res.string.chain,
+                        value = { Text(connection.chain) },
+                        isSelecting = isSelecting,
+                        isSelectable = false,
+                    )
+                }
+                if (connection.protocol != null) item("protocol", 1) {
+                    ConnectionDataCard(
+                        field = Res.string.protocol,
+                        value = { Text(connection.protocol!!) },
+                        isSelecting = isSelecting,
+                        isSelected = ConnectionFields.PROTOCOL in selectedField,
+                        onSelectedChange = { checked ->
+                            selectedField = selectedField.toMutableSet().apply {
+                                if (checked) {
+                                    add(ConnectionFields.PROTOCOL)
+                                } else {
+                                    remove(ConnectionFields.PROTOCOL)
+                                }
                             }
-                        }
-                    }
+                        },
+                    )
                 }
-
-                item("traffic") {
-                    ConnectionGroupCard {
-                        ConnectionField(
-                            field = Res.string.upload,
-                            isSelecting = isSelecting,
-                        ) {
-                            Text(connection.uploadTotal.formatBytes())
-                        }
-                        ConnectionField(
-                            field = Res.string.download,
-                            isSelecting = isSelecting,
-                        ) {
-                            Text(connection.downloadTotal.formatBytes())
-                        }
-                        ConnectionField(
-                            field = Res.string.upload_speed,
-                            isSelecting = isSelecting,
-                        ) {
-                            Text(
-                                stringResource(
-                                    Res.string.speed,
-                                    connection.uploadSpeed.formatBytes(),
-                                )
-                            )
-                        }
-                        ConnectionField(
-                            field = Res.string.download_speed,
-                            isSelecting = isSelecting,
-                        ) {
-                            Text(
-                                stringResource(
-                                    Res.string.speed,
-                                    connection.downloadSpeed.formatBytes(),
-                                )
-                            )
-                        }
-                        ConnectionField(
-                            field = Res.string.start_time,
-                            isSelecting = isSelecting,
-                        ) {
-                            Text(connection.startedAt)
-                        }
-                        connection.closedAt.emptyAsNull()?.let { closedAt ->
-                            ConnectionField(
-                                field = Res.string.closed_time,
-                                isSelecting = isSelecting,
-                            ) {
-                                Text(closedAt)
-                            }
-                        }
-                    }
-                }
-
-                item("address") {
-                    ConnectionGroupCard(isShaking = isSelecting) {
-                        ConnectionField(
-                            field = Res.string.source_address,
-                            isSelecting = isSelecting,
-                            isSelectable = true,
-                            isSelected = ConnectionFields.SOURCE in selectedField,
-                            onSelectedChange = { checked ->
-                                selectField(ConnectionFields.SOURCE, checked)
-                            },
-                        ) {
-                            Text(connection.src)
-                        }
-                        ConnectionField(
-                            field = Res.string.destination_address,
-                            isSelecting = isSelecting,
-                            isSelectable = true,
-                            isSelected = ConnectionFields.DESTINATION in selectedField,
-                            onSelectedChange = { checked ->
-                                selectField(ConnectionFields.DESTINATION, checked)
-                            },
-                        ) {
-                            Text(connection.dst)
-                        }
-                        if (connection.host.isNotBlank()) {
-                            ConnectionField(
-                                field = Res.string.http_host,
-                                isSelecting = isSelecting,
-                                isSelectable = true,
-                                isSelected = ConnectionFields.HOST in selectedField,
-                                onSelectedChange = { checked ->
-                                    selectField(ConnectionFields.HOST, checked)
-                                },
-                            ) {
-                                Text(connection.host)
-                            }
-                        }
-                    }
-                }
-
-                item("route") {
-                    ConnectionGroupCard {
-                        ConnectionField(
-                            field = Res.string.outbound_rule,
-                            isSelecting = isSelecting,
-                        ) {
-                            Text(connection.matchedRule)
-                        }
-                        ConnectionField(
-                            field = Res.string.outbound,
-                            isSelecting = isSelecting,
-                        ) {
-                            Text(connection.outbound)
-                        }
-                        ConnectionField(
-                            field = Res.string.chain,
-                            isSelecting = isSelecting,
-                        ) {
-                            Text(connection.chain)
-                        }
-                    }
-                }
-
                 val process = connection.processes?.firstOrNull()
                 val processText = buildProcessText(connection.uid, process)
-                if (processText.isNotEmpty()) item("process") {
+                if (processText.isNotEmpty()) item("process", 1) {
                     val uid = connection.uid
                     var processInfo by remember { mutableStateOf<ProcessInfo?>(null) }
                     LaunchedEffect(Unit) {
-                        processInfo = resolveProcessInfo(process, uid)
+                        processInfo = viewModel.resolveProcessInfo(process, uid)
                     }
                     val processLabel = processInfo?.label.blankAsNull()
                     val openProcessAppInfo = rememberOpenProcessAppInfo(process)
-                    ConnectionGroupCard(isShaking = isSelecting) {
-                        ConnectionField(
-                            field = Res.string.process,
-                            isSelecting = isSelecting,
-                            isSelectable = true,
-                            isSelected = ConnectionFields.PROCESS in selectedField,
-                            onLongClick = openProcessAppInfo,
-                            onSelectedChange = { checked ->
-                                selectField(ConnectionFields.PROCESS, checked)
-                            },
-                        ) {
+                    ConnectionDataCard(
+                        field = Res.string.process,
+                        value = {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
                                     if (processLabel != null) {
-                                        Text(processLabel)
+                                        Text(
+                                            text = processLabel,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                        )
                                     }
-                                    Text(
-                                        text = processText,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
+                                    Text(processText)
                                 }
                                 processInfo?.icon?.let { icon ->
                                     ProcessIcon(
                                         icon = icon,
                                         contentDescription = processLabel
                                             ?: processInfo?.packageName,
-                                        modifier = Modifier.size(32.dp),
+                                        modifier = Modifier.size(40.dp),
                                     )
                                 }
                             }
-                        }
-                    }
+                        },
+                        isSelecting = isSelecting,
+                        isSelected = ConnectionFields.PROCESS in selectedField,
+                        onLongClick = openProcessAppInfo,
+                        onSelectedChange = { checked ->
+                            selectedField = selectedField.toMutableSet().apply {
+                                if (checked) {
+                                    add(ConnectionFields.PROCESS)
+                                } else {
+                                    remove(ConnectionFields.PROCESS)
+                                }
+                            }
+                        },
+                    )
                 }
             }
 
             BoxedVerticalScrollbar(
-                modifier = Modifier.fillMaxHeight(),
+                modifier = Modifier
+                    .padding(contentPadding)
+                    .fillMaxHeight(),
                 adapter = rememberScrollbarAdapter(scrollState = listState),
                 style = defaultMaterialScrollbarStyle().copy(
                     thickness = 12.dp,
@@ -429,10 +459,15 @@ private fun buildProcessText(uid: Int, process: String?): String {
 }
 
 @Composable
-private fun ConnectionGroupCard(
+private fun ConnectionDataCard(
     modifier: Modifier = Modifier,
-    isShaking: Boolean = false,
-    content: @Composable ColumnScope.() -> Unit,
+    field: StringResource,
+    value: @Composable () -> Unit,
+    isSelecting: Boolean = false,
+    isSelected: Boolean = false,
+    isSelectable: Boolean = true,
+    onLongClick: (() -> Unit)? = null,
+    onSelectedChange: (Boolean) -> Unit = {},
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "shake")
     val rotation by infiniteTransition.animateFloat(
@@ -444,80 +479,73 @@ private fun ConnectionGroupCard(
         ),
         label = "rotation",
     )
-    OutlinedCard(
-        modifier = modifier
-            .fillMaxWidth()
-            .graphicsLayer {
-                rotationZ = if (isShaking) rotation else 0f
-            },
-        colors = CardDefaults.outlinedCardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-        ),
-    ) {
-        Column(
-            modifier = Modifier.padding(vertical = 4.dp),
-            content = content,
-        )
-    }
-}
-
-private val FIELD_CHECKBOX_SIZE = 20.dp
-
-@Composable
-private fun ConnectionField(
-    field: StringResource,
-    modifier: Modifier = Modifier,
-    isSelecting: Boolean = false,
-    isSelectable: Boolean = false,
-    isSelected: Boolean = false,
-    onLongClick: (() -> Unit)? = null,
-    onSelectedChange: (Boolean) -> Unit = {},
-    value: @Composable () -> Unit,
-) {
     val onClick = {
-        if (isSelecting && isSelectable) {
+        if (isSelecting) {
             onSelectedChange(!isSelected)
         }
     }
-    val clickModifier = when {
-        onLongClick != null -> Modifier.platformCombinedClickable(
-            onClick = onClick,
-            onLongClick = onLongClick,
-        )
+    val cardModifier = modifier
+        .fillMaxWidth()
+        .padding(horizontal = 16.dp)
+        .graphicsLayer {
+            rotationZ = if (isSelecting && isSelectable) {
+                rotation
+            } else {
+                0f
+            }
+        }
 
-        isSelecting && isSelectable -> Modifier.clickable(onClick = onClick)
-
-        else -> Modifier
-    }
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .then(clickModifier)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (isSelecting) {
-            if (isSelectable) {
+    val cardColors = CardDefaults.outlinedCardColors(
+        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+    )
+    val cardContent: @Composable () -> Unit = {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (isSelecting) {
                 Checkbox(
                     checked = isSelected,
                     onCheckedChange = onSelectedChange,
-                    modifier = Modifier.size(FIELD_CHECKBOX_SIZE),
+                    enabled = isSelectable,
                 )
-            } else {
-                Spacer(Modifier.size(FIELD_CHECKBOX_SIZE))
             }
-            Spacer(Modifier.width(8.dp))
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = stringResource(field),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                SelectionContainer {
+                    ProvideTextStyle(MaterialTheme.typography.bodyLarge) {
+                        value()
+                    }
+                }
+            }
         }
-        Text(
-            text = stringResource(field),
-            modifier = Modifier.width(104.dp),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        SelectionContainer(modifier = Modifier.weight(1f)) {
-            ProvideTextStyle(MaterialTheme.typography.bodyMedium) {
-                value()
-            }
+    }
+    if (onLongClick == null) {
+        OutlinedCard(
+            onClick = onClick,
+            modifier = cardModifier,
+            colors = cardColors,
+        ) {
+            cardContent()
+        }
+    } else {
+        OutlinedCard(
+            modifier = cardModifier.platformCombinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick,
+            ),
+            colors = cardColors,
+        ) {
+            cardContent()
         }
     }
 }
@@ -544,17 +572,15 @@ private fun createRouteDraft(
             }
 
             ConnectionFields.DESTINATION -> {
-                splitAddress(connection.dst)?.let { (dstIp, dstPort) ->
-                    ip = dstIp
-                    port = dstPort
-                }
+                val (dstIp, dstPort) = parseAddress(connection.dst)
+                if (dstIp.isNotBlank()) ip = dstIp
+                if (dstPort.isNotBlank()) port = dstPort
             }
 
             ConnectionFields.SOURCE -> {
-                splitAddress(connection.src)?.let { (srcIp, srcPort) ->
-                    source = srcIp
-                    sourcePort = srcPort
-                }
+                val (srcIp, srcPort) = parseAddress(connection.src)
+                if (srcIp.isNotBlank()) source = srcIp
+                if (srcPort.isNotBlank()) sourcePort = srcPort
             }
 
             ConnectionFields.NETWORK -> {
@@ -592,36 +618,21 @@ private fun createRouteDraft(
     )
 }
 
-@Preview
-@Composable
-private fun PreviewConnectionDetailSheet() {
-    val connection = remember {
-        ConnectionDetailState(
-            uuid = "6f1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8",
-            inbound = "mixed-in",
-            ipVersion = 0,
-            network = "tcp",
-            uploadTotal = 114514,
-            downloadTotal = 1919810,
-            uploadSpeed = 1024,
-            downloadSpeed = 40960,
-            startedAt = "2026-12-31 23:59:59",
-            src = "127.0.0.1:54321",
-            dst = "example.com:443",
-            host = "example.com",
-            matchedRule = "final",
-            outbound = "selector",
-            chain = "selector => 🇭🇰",
-            protocol = "tls",
-            processes = listOf("fr.husi"),
-            uid = 8888,
-        )
+private fun parseAddress(address: String): Pair<String, String> {
+    if (address.isBlank()) return "" to ""
+    return if (address.startsWith("[")) {
+        // IPv6
+        val closeBracket = address.indexOf(']')
+        if (closeBracket == -1) return address to ""
+        val ip = address.substring(1, closeBracket)
+        val port = if (closeBracket + 2 < address.length) {
+            address.substring(closeBracket + 2)
+        } else ""
+        ip to port
+    } else {
+        // IPv4
+        val lastColon = address.lastIndexOf(':')
+        if (lastColon == -1) return address to ""
+        address.take(lastColon) to address.substring(lastColon + 1)
     }
-    ConnectionDetailSheet(
-        connection = connection,
-        resolveProcessInfo = { _, _ -> null },
-        closeConnection = {},
-        onDismiss = {},
-        openRouteSettings = {},
-    )
 }

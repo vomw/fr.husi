@@ -15,7 +15,6 @@ import fr.husi.fmt.SingBoxOptions.TYPE_ANYTLS
 import fr.husi.fmt.SingBoxOptions.TYPE_HTTP
 import fr.husi.fmt.SingBoxOptions.TYPE_HYSTERIA
 import fr.husi.fmt.SingBoxOptions.TYPE_HYSTERIA2
-import fr.husi.fmt.SingBoxOptions.TYPE_MASQUE_CLIENT
 import fr.husi.fmt.SingBoxOptions.TYPE_NAIVE
 import fr.husi.fmt.SingBoxOptions.TYPE_OPENCONNECT
 import fr.husi.fmt.SingBoxOptions.TYPE_OPENVPN_CLIENT
@@ -23,8 +22,6 @@ import fr.husi.fmt.SingBoxOptions.TYPE_SHADOWSOCKS
 import fr.husi.fmt.SingBoxOptions.TYPE_SNELL
 import fr.husi.fmt.SingBoxOptions.TYPE_SOCKS
 import fr.husi.fmt.SingBoxOptions.TYPE_SSH
-import fr.husi.fmt.SingBoxOptions.TYPE_TAILCAT
-import fr.husi.fmt.SingBoxOptions.TYPE_TAILSCALE
 import fr.husi.fmt.SingBoxOptions.TYPE_TROJAN
 import fr.husi.fmt.SingBoxOptions.TYPE_TUIC
 import fr.husi.fmt.SingBoxOptions.TYPE_VLESS
@@ -45,19 +42,16 @@ import fr.husi.fmt.hysteria.parseHysteria2Outbound
 import fr.husi.fmt.internal.ChainBean
 import fr.husi.fmt.internal.ProxySetBean
 import fr.husi.fmt.juicity.JuicityBean
-import fr.husi.fmt.masque.MASQUEBean
-import fr.husi.fmt.masque.buildSingBoxEndpointMASQUEBean
-import fr.husi.fmt.masque.parseMASQUEEndpoint
 import fr.husi.fmt.mieru.MieruBean
 import fr.husi.fmt.naive.NaiveBean
-import fr.husi.fmt.naive.buildSingBoxOutboundNaiveBean
-import fr.husi.fmt.naive.parseNaiveOutbound
 import fr.husi.fmt.openconnect.OpenConnectBean
 import fr.husi.fmt.openconnect.buildSingBoxEndpointOpenConnectBean
 import fr.husi.fmt.openconnect.parseOpenConnectEndpoint
 import fr.husi.fmt.openvpn.OpenVPNBean
 import fr.husi.fmt.openvpn.buildSingBoxEndpointOpenVPNBean
 import fr.husi.fmt.openvpn.parseOpenVPNEndpoint
+import fr.husi.fmt.naive.buildSingBoxOutboundNaiveBean
+import fr.husi.fmt.naive.parseNaiveOutbound
 import fr.husi.fmt.shadowquic.ShadowQUICBean
 import fr.husi.fmt.shadowsocks.ShadowsocksBean
 import fr.husi.fmt.shadowsocks.buildSingBoxOutboundShadowsocksBean
@@ -72,12 +66,6 @@ import fr.husi.fmt.socks.parseSocksOutbound
 import fr.husi.fmt.ssh.SSHBean
 import fr.husi.fmt.ssh.buildSingBoxOutboundSSHBean
 import fr.husi.fmt.ssh.parseSSHOutbound
-import fr.husi.fmt.tailscale.TailcatBean
-import fr.husi.fmt.tailscale.TailscaleBean
-import fr.husi.fmt.tailscale.buildSingBoxEndpointTailscaleBean
-import fr.husi.fmt.tailscale.buildSingBoxOutboundTailcatBean
-import fr.husi.fmt.tailscale.parseTailcatOutbound
-import fr.husi.fmt.tailscale.parseTailscaleEndpoint
 import fr.husi.fmt.trojan.TrojanBean
 import fr.husi.fmt.trusttunnel.TrustTunnelBean
 import fr.husi.fmt.trusttunnel.buildSingBoxOutboundTrustTunnelBean
@@ -101,17 +89,6 @@ import fr.husi.ktx.getObject
 import fr.husi.ktx.getStr
 import fr.husi.ktx.kxs
 import fr.husi.ktx.toJsonStringKxs
-
-// https://github.com/SagerNet/sing-box/commit/24a429ad91db61dd0c1eb4a39d7d9f051f70ef17
-fun migrateDeletedCongestionControl(congestionControl: String): String {
-    return when (congestionControl) {
-        "bbr_standard", "bbr_variant", "bbr_meta_v1", "bbr_quiche",
-        "bbr2", "bbr2_aggressive",
-            -> "bbr"
-
-        else -> congestionControl
-    }
-}
 
 const val ECH_CONFIGS_PEM_HEADER = "-----BEGIN ECH CONFIGS-----"
 const val ECH_CONFIGS_PEM_FOOTER = "-----END ECH CONFIGS-----"
@@ -141,7 +118,6 @@ fun AbstractBean.toJsonStringKxs(): String = when (this) {
     is ProxySetBean -> kxs.encodeToString(this)
     is JuicityBean -> kxs.encodeToString(this)
     is MieruBean -> kxs.encodeToString(this)
-    is MASQUEBean -> kxs.encodeToString(this)
     is NaiveBean -> kxs.encodeToString(this)
     is OpenConnectBean -> kxs.encodeToString(this)
     is OpenVPNBean -> kxs.encodeToString(this)
@@ -151,8 +127,6 @@ fun AbstractBean.toJsonStringKxs(): String = when (this) {
     is SnellBean -> kxs.encodeToString(this)
     is SOCKSBean -> kxs.encodeToString(this)
     is SSHBean -> kxs.encodeToString(this)
-    is TailcatBean -> kxs.encodeToString(this)
-    is TailscaleBean -> kxs.encodeToString(this)
     is TrojanBean -> kxs.encodeToString(this)
     is TrustTunnelBean -> kxs.encodeToString(this)
     is TuicBean -> kxs.encodeToString(this)
@@ -162,55 +136,36 @@ fun AbstractBean.toJsonStringKxs(): String = when (this) {
     else -> error("impossible bean type: ${this.javaClass.simpleName}")
 }
 
-suspend fun buildSingBoxOutbound(bean: AbstractBean): String = when (bean) {
+fun buildSingBoxOutbound(bean: AbstractBean): String = when (bean) {
     is ConfigBean -> bean.config // What if full config?
     is DirectBean -> kxs.encodeToString(buildSingBoxOutboundDirectBean(bean).apply { tag = bean.name })
     is StandardV2RayBean ->
         buildSingBoxOutboundStandardV2RayBean(bean).apply { tag = bean.name }.toJsonStringKxs()
-
     is HysteriaBean ->
         buildSingBoxOutboundHysteriaBean(bean).apply { tag = bean.name }.toJsonStringKxs()
-
     is ShadowsocksBean ->
         kxs.encodeToString(buildSingBoxOutboundShadowsocksBean(bean).apply { tag = bean.name })
-
     is SnellBean ->
         kxs.encodeToString(buildSingBoxOutboundSnellBean(bean).apply { tag = bean.name })
-
     is SOCKSBean -> kxs.encodeToString(buildSingBoxOutboundSocksBean(bean).apply { tag = bean.name })
     is SSHBean -> kxs.encodeToString(buildSingBoxOutboundSSHBean(bean).apply { tag = bean.name })
     is TuicBean -> kxs.encodeToString(buildSingBoxOutboundTuicBean(bean).apply { tag = bean.name })
     is WireGuardBean ->
         kxs.encodeToString(buildSingBoxEndpointWireGuardBean(bean).apply { tag = bean.name })
-
     is OpenConnectBean ->
         kxs.encodeToString(buildSingBoxEndpointOpenConnectBean(bean).apply { tag = bean.name })
-
     is OpenVPNBean ->
         kxs.encodeToString(buildSingBoxEndpointOpenVPNBean(bean).apply { tag = bean.name })
-
-    is MASQUEBean ->
-        kxs.encodeToString(buildSingBoxEndpointMASQUEBean(bean).apply { tag = bean.name })
-
-    is TailscaleBean ->
-        kxs.encodeToString(buildSingBoxEndpointTailscaleBean(bean).apply { tag = bean.name })
-
-    is TailcatBean ->
-        kxs.encodeToString(buildSingBoxOutboundTailcatBean(bean).apply { tag = bean.name })
-
     is AnyTLSBean ->
         kxs.encodeToString(buildSingBoxOutboundAnyTLSBean(bean).apply { tag = bean.name })
-
     is NaiveBean ->
         kxs.encodeToString(buildSingBoxOutboundNaiveBean(bean).apply { tag = bean.name })
-
     is TrustTunnelBean ->
         kxs.encodeToString(buildSingBoxOutboundTrustTunnelBean(bean).apply { tag = bean.name })
-
     else -> error("invalid bean: ${bean.javaClass.simpleName}")
 }
 
-suspend fun buildSingBoxMux(bean: AbstractBean): OutboundMultiplexOptions? {
+fun buildSingBoxMux(bean: AbstractBean): OutboundMultiplexOptions? {
     if (!bean.serverMux) return null
 
     return OutboundMultiplexOptions().apply {
@@ -228,7 +183,7 @@ suspend fun buildSingBoxMux(bean: AbstractBean): OutboundMultiplexOptions? {
             brutal = BrutalOptions().apply {
                 enabled = true
                 up_mbps = -1 // need kernel module
-                down_mbps = DataStore.downloadSpeed.get()
+                down_mbps = DataStore.downloadSpeed
             }
         } else when (bean.serverMuxStrategy) {
             MuxStrategy.MAX_CONNECTIONS -> max_connections = bean.serverMuxNumber
@@ -266,12 +221,6 @@ fun parseOutbound(json: JSONMap): AbstractBean? = when (json["type"].toString())
     TYPE_OPENCONNECT -> parseOpenConnectEndpoint(json)
 
     TYPE_OPENVPN_CLIENT -> parseOpenVPNEndpoint(json)
-
-    TYPE_MASQUE_CLIENT -> parseMASQUEEndpoint(json)
-
-    TYPE_TAILSCALE -> parseTailscaleEndpoint(json)
-
-    TYPE_TAILCAT -> parseTailcatOutbound(json)
 
     TYPE_HYSTERIA -> parseHysteria1Outbound(json)
 
@@ -401,7 +350,6 @@ fun parseBoxTLS(field: JSONMap): OutboundTLSOptions = OutboundTLSOptions().apply
             "alpn" -> alpn = listable<String>(value)
 
             "certificate" -> certificate = listable<String>(value)
-            "certificate_sha256" -> certificate_sha256 = listable<String>(value)
             "certificate_public_key_sha256" -> {
                 certificate_public_key_sha256 = listable<String>(value)
             }

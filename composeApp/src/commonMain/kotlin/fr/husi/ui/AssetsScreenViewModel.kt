@@ -16,11 +16,13 @@ import fr.husi.database.DataStore
 import fr.husi.database.SagerDatabase
 import fr.husi.ktx.Logs
 import fr.husi.ktx.blankAsNull
+import fr.husi.ktx.onIoDispatcher
 import fr.husi.ktx.readableMessage
 import fr.husi.ktx.runOnDefaultDispatcher
+import fr.husi.libcore.Libcore
 import fr.husi.resources.Res
 import fr.husi.resources.route_asset_no_update
-import fr.husi.utils.installBundledRuleSets
+import fr.husi.utils.copyBundledRuleSetAssetsIfNeeded
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -35,7 +37,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.milliseconds
 
 @Immutable
@@ -51,7 +52,7 @@ internal data class AssetItem(
     val version: String,
     val builtIn: Boolean,
     val autoUpdateDelay: Int = 0,
-    val isUpdating: Boolean = false,
+    val progress: Float? = null,
 )
 
 @Immutable
@@ -62,7 +63,7 @@ internal sealed interface AssetsScreenUiEvent {
 @Stable
 internal class AssetsScreenViewModel(
     assetsDir: File,
-    customGeoDir: File,
+    geoDir: File,
 ) : ViewModel() {
 
     companion object {
@@ -76,9 +77,9 @@ internal class AssetsScreenViewModel(
         field = MutableSharedFlow<AssetsScreenUiEvent>()
 
     private lateinit var assetsDir: File
-    private lateinit var customGeoDir: File
+    private lateinit var geoDir: File
 
-    private val firstDownloadStarted = mutableSetOf<String>()
+    private var previousAssetNames = emptySet<String>()
     private var initializedFor: Pair<String, String>? = null
     private var assetsObserveJob: Job? = null
 
@@ -87,32 +88,30 @@ internal class AssetsScreenViewModel(
     private val hiddenAssets = mutableSetOf<String>()
 
     init {
-        initialize(assetsDir, customGeoDir)
+        initialize(assetsDir, geoDir)
     }
 
-    fun initialize(assetsDir: File, customGeoDir: File) {
-        val args = assetsDir.absolutePath to customGeoDir.absolutePath
+    fun initialize(assetsDir: File, geoDir: File) {
+        val args = assetsDir.absolutePath to geoDir.absolutePath
         if (initializedFor == args && assetsObserveJob?.isActive == true) return
         initializedFor = args
         assetsObserveJob?.cancel()
-        firstDownloadStarted.clear()
         this.assetsDir = assetsDir
-        this.customGeoDir = customGeoDir
+        this.geoDir = geoDir
 
         assetsObserveJob = viewModelScope.launch {
             SagerDatabase.assetDao.getAll().collectLatest { assets ->
-                for (asset in assets) {
-                    if (needsFirstDownload(asset) && firstDownloadStarted.add(asset.name)) {
-                        updateSingleAsset(customGeoDir.resolve(asset.name))
-                    }
+                val currentNames = assets.map { it.name }.toSet()
+                val newAssets = currentNames - previousAssetNames
+
+                newAssets.forEach { name ->
+                    updateSingleAsset(geoDir.resolve(name))
                 }
+
+                previousAssetNames = currentNames
                 refreshAssets0(assets)
             }
         }
-    }
-
-    private fun needsFirstDownload(asset: AssetEntity): Boolean {
-        return asset.lastUpdated == 0L && !customGeoDir.resolve(asset.name).isFile
     }
 
     fun refreshAssets() = viewModelScope.launch {
@@ -125,7 +124,7 @@ internal class AssetsScreenViewModel(
         val files = buildList {
             add(assetsDir.resolve("geoip.version.txt"))
             add(assetsDir.resolve("geosite.version.txt"))
-            dbAssets.forEach { add(customGeoDir.resolve(it.name)) }
+            dbAssets.forEach { add(geoDir.resolve(it.name)) }
         }
 
         hiddenAssetsAccess.withLock {
@@ -162,7 +161,7 @@ internal class AssetsScreenViewModel(
             version = version,
             builtIn = builtIn,
             autoUpdateDelay = entity?.autoUpdateDelay ?: 0,
-            isUpdating = false,
+            progress = null,
         )
     }
 
@@ -206,13 +205,14 @@ internal class AssetsScreenViewModel(
     }
 
     fun resetRuleSet() = viewModelScope.launch(Dispatchers.IO) {
-        if (DataStore.rulesProvider.get() != RuleProvider.OFFICIAL) return@launch
+        if (DataStore.rulesProvider != RuleProvider.OFFICIAL) return@launch
         uiState.update { it.copy(process = 0f) }
         try {
+            copyBundledRuleSetAssetsIfNeeded()
             assetsDir.resolve("geoip.version.txt").delete()
             assetsDir.resolve("geosite.version.txt").delete()
-            installBundledRuleSets()
-            DataStore.routeAssetsLastUpdated.set(currentEpochSeconds())
+            Libcore.extractAssets()
+            DataStore.routeAssetsLastUpdated = currentEpochSeconds()
             RouteAssetUpdater.reconfigureUpdater()
         } catch (e: Exception) {
             Logs.e(e)
@@ -237,28 +237,33 @@ internal class AssetsScreenViewModel(
     private suspend fun updateSingleAsset0(asset: File) {
         val entity = SagerDatabase.assetDao.get(asset.name) ?: return
 
-        setUpdating(asset, isUpdating = true)
-        try {
-            entity.version = updateSingleRouteAsset(entity, assetsDir)
-        } finally {
-            setUpdating(asset, isUpdating = false)
-        }
-        entity.lastUpdated = currentEpochSeconds()
-        SagerDatabase.assetDao.update(entity)
-    }
-
-    private fun setUpdating(asset: File, isUpdating: Boolean) {
         uiState.update { state ->
             state.copy(
                 assets = state.assets.map {
                     if (it.file == asset) {
-                        it.copy(isUpdating = isUpdating)
+                        it.copy(progress = 0f)
                     } else {
                         it
                     }
                 },
             )
         }
+
+        entity.version = updateSingleRouteAsset(entity, assetsDir) { progress ->
+            uiState.update { state ->
+                state.copy(
+                    assets = state.assets.map {
+                        if (it.file == asset) {
+                            it.copy(progress = progress)
+                        } else {
+                            it
+                        }
+                    },
+                )
+            }
+        }
+        entity.lastUpdated = currentEpochSeconds()
+        SagerDatabase.assetDao.update(entity)
     }
 
     fun undoableRemove(fileName: String) = viewModelScope.launch {
@@ -304,12 +309,12 @@ internal class AssetsScreenViewModel(
             hiddenAssets.clear()
             pending
         }
-        withContext(Dispatchers.IO) {
+        onIoDispatcher {
             for (fileName in toDelete) {
                 val file = if (fileName.endsWith(".version.txt")) {
                     assetsDir.resolve(fileName)
                 } else {
-                    customGeoDir.resolve(fileName)
+                    geoDir.resolve(fileName)
                 }
                 file.delete()
                 if (!fileName.endsWith(".version.txt")) {

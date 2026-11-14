@@ -17,37 +17,44 @@ import fr.husi.fmt.trojan.parseTrojan
 import fr.husi.fmt.trusttunnel.parseTrustTunnel
 import fr.husi.fmt.tuic.parseTuic
 import fr.husi.fmt.v2ray.parseV2Ray
-import okio.ByteString.Companion.decodeBase64
-import okio.ByteString.Companion.encodeUtf8
-import okio.ByteString.Companion.toByteString
 import java.io.ByteArrayOutputStream
 import java.util.zip.Deflater
 import java.util.zip.Inflater
+import kotlin.io.encoding.Base64
 
 fun String.b64EncodeUrlSafe(): String {
-    return encodeUtf8().base64Url()
+    return toByteArray().b64EncodeUrlSafe()
 }
 
 fun ByteArray.b64EncodeUrlSafe(): String {
-    return toByteString().base64Url()
+    return Base64.UrlSafe.encode(this)
 }
 
 // v2rayN Style
 fun ByteArray.b64EncodeOneLine(): String {
-    return toByteString().base64()
+    return Base64.encode(this)
 }
 
 fun String.b64EncodeOneLine(): String {
-    return encodeUtf8().base64()
+    return toByteArray().b64EncodeOneLine()
 }
 
-/**
- * Accepts both the standard and the URL-safe alphabet, optional padding,
- * and whitespace such as MIME line breaks.
- */
+val DefaultTolerate = Base64.withPadding(Base64.PaddingOption.ABSENT_OPTIONAL)
+val MimeTolerate = Base64.Mime.withPadding(Base64.PaddingOption.ABSENT_OPTIONAL)
+val URLSafeTolerate = Base64.UrlSafe.withPadding(Base64.PaddingOption.ABSENT_OPTIONAL)
+
 fun String.b64Decode(): ByteArray {
-    val decoded = decodeBase64() ?: throw IllegalStateException("decode base64: invalid input")
-    return decoded.toByteArray()
+    val errors = mutableListOf<String>()
+    // If someone make url safe with mime, go away!
+    // Mime ignores invalid chars(`-`/`_`), so put it at last.
+    for (decoder in listOf(DefaultTolerate, URLSafeTolerate, MimeTolerate)) {
+        try {
+            return decoder.decode(this)
+        } catch (e: Exception) {
+            errors += e.readableMessage
+        }
+    }
+    throw IllegalStateException(errors.joinToString(separator = ", ", prefix = "decode base64: "))
 }
 
 fun String.b64DecodeToString(): String {
@@ -272,4 +279,8 @@ fun <T : Serializable> T.applyDefaultValues(): T {
 
 fun String.substringBetween(after: String, before: String): String {
     return substringAfter(after).substringBefore(before)
+}
+
+fun formatTime(millis: Long): String {
+    return formatDate(millis)
 }

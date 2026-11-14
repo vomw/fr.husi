@@ -3,15 +3,22 @@ package fr.husi.bg
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Service
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.RemoteCallbackList
+import android.os.RemoteException
+import android.service.quicksettings.TileService
 import androidx.core.content.getSystemService
 import fr.husi.Action
+import fr.husi.AlertType
+import fr.husi.aidl.IServiceControlStub
+import fr.husi.aidl.IServiceObserver
+import fr.husi.aidl.SpeedDisplayData
 import fr.husi.bg.proto.ProxyInstance
 import fr.husi.database.DataStore
 import fr.husi.database.ProxyEntity
@@ -19,24 +26,26 @@ import fr.husi.database.SagerDatabase
 import fr.husi.ktx.Logs
 import fr.husi.ktx.broadcastReceiver
 import fr.husi.ktx.hasPermission
+import fr.husi.ktx.onMainDispatcher
 import fr.husi.ktx.readableMessage
 import fr.husi.ktx.runOnDefaultDispatcher
 import fr.husi.ktx.runOnMainDispatcher
 import fr.husi.ktx.showToast
 import fr.husi.plugin.PluginNotFoundException
-import fr.husi.repository.resolveAndroidRepository
 import fr.husi.repository.resolveRepository
 import fr.husi.resources.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.net.UnknownHostException
-import kotlin.time.Duration.Companion.milliseconds
+import fr.husi.aidl.ServiceStatus as AidlServiceStatus
 
 class BaseService {
 
@@ -57,19 +66,15 @@ class BaseService {
 
         override suspend fun init(profile: ProxyEntity) {
             proxy = ProxyInstance(profile, service).also {
-                it.init()
+                it.init(service is VpnService)
             }
         }
 
         override suspend fun start(onFatal: suspend (Throwable) -> Unit) {
             val proxy = proxy ?: return
-            // Plugin processes are supervised by the Go pool; reverse-bind the
-            // fatal callback so a crashing plugin still stops the runner.
-            resolveAndroidRepository().boxService?.setPluginFatalHandler { message ->
-                Logs.w(message)
-                runOnDefaultDispatcher {
-                    onFatal(Exception(message))
-                }
+            proxy.processes = GuardedProcessPool {
+                Logs.w(it)
+                onFatal(it)
             }
             proxy.launch()
         }
@@ -81,11 +86,9 @@ class BaseService {
 
         override fun resetNetwork() {
             val proxy = proxy
-            if (proxy != null && proxy.isInitialized() &&
-                resolveAndroidRepository().boxService?.hasInstance() == true
-            ) {
+            if (proxy != null && proxy.isInitialized()) {
                 runCatching {
-                    resolveAndroidRepository().boxService?.resetNetwork()
+                    resolveRepository().boxService?.resetNetwork()
                 }
             }
         }
@@ -108,21 +111,19 @@ class BaseService {
                 PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED -> {
                     val powerManager = (service as Context).getSystemService<PowerManager>()!!
                     val proxy = proxy
-                    if (proxy != null && proxy.isInitialized() &&
-                        resolveAndroidRepository().boxService?.hasInstance() == true
-                    ) {
+                    if (proxy != null && proxy.isInitialized()) {
                         if (powerManager.isDeviceIdleMode) {
-                            resolveAndroidRepository().boxService?.pause()
+                            resolveRepository().boxService?.pause()
                         } else {
-                            resolveAndroidRepository().boxService?.wake()
+                            resolveRepository().boxService?.wake()
                         }
                     }
                 }
 
                 Action.RESET_UPSTREAM_CONNECTIONS -> runOnDefaultDispatcher {
-                    withTimeoutOrNull(1000.milliseconds) {
+                    withTimeoutOrNull(1000L) {
                         resetNetwork()
-                        withContext(Dispatchers.Main) {
+                        onMainDispatcher {
                             collapseStatusBar(ctx)
                             showToast(resolveRepository().getString(Res.string.have_reset_network))
                         }
@@ -145,8 +146,7 @@ class BaseService {
 
         var closeReceiverRegistered = false
 
-        /** Lifecycle-only binder so BIND_AUTO_CREATE still starts/keeps :bg alive. */
-        val binder = Binder()
+        val binder = Binder(this)
         var connectingJob: Job? = null
 
         fun changeState(s: ServiceState, message: String? = null) {
@@ -154,11 +154,86 @@ class BaseService {
             state = s
             DataStore.serviceState = s
             BackendState.updateState(s, proxy?.displayProfileName)
-            ServiceEventPublisher.publishState(s, proxy?.displayProfileName)
+            binder.notifyState()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                val context = service as Context
+                TileService.requestListeningState(
+                    context,
+                    ComponentName(context, fr.husi.bg.TileService::class.java),
+                )
+            }
         }
 
         fun resetNetwork() {
             backend.resetNetwork()
+        }
+    }
+
+    class Binder(private var data: Data? = null) : IServiceControlStub(), CoroutineScope,
+        AutoCloseable {
+        override val coroutineContext = Dispatchers.Main.immediate + Job()
+        private val observers = RemoteCallbackList<IServiceObserver>()
+
+        override fun getStatus(): AidlServiceStatus {
+            return currentStatus()
+        }
+
+        override fun registerObserver(observer: IServiceObserver?) {
+            if (observer == null) return
+            observers.register(observer)
+            try {
+                observer.onState(currentStatus())
+            } catch (_: RemoteException) {
+            }
+        }
+
+        override fun unregisterObserver(observer: IServiceObserver?) {
+            if (observer == null) return
+            observers.unregister(observer)
+        }
+
+        fun notifyState() {
+            val status = currentStatus()
+            notifyObservers { it.onState(status) }
+        }
+
+        fun notifyAlert(type: Int, message: String) {
+            notifyObservers { it.onAlert(type, message) }
+        }
+
+        fun notifySpeed(speed: SpeedDisplayData) {
+            notifyObservers { it.onSpeed(speed) }
+        }
+
+        override fun close() {
+            observers.kill()
+            cancel()
+            data = null
+        }
+
+        private fun currentStatus(): AidlServiceStatus {
+            val data = data ?: return AidlServiceStatus()
+            val state = data.state
+            return AidlServiceStatus(
+                state = state.ordinal,
+                profileName = data.proxy?.displayProfileName,
+                started = state.started,
+                connected = state.connected,
+            )
+        }
+
+        private fun notifyObservers(block: (IServiceObserver) -> Unit) = launch {
+            val count = observers.beginBroadcast()
+            try {
+                for (index in 0 until count) {
+                    try {
+                        block(observers.getBroadcastItem(index))
+                    } catch (_: RemoteException) {
+                    }
+                }
+            } finally {
+                observers.finishBroadcast()
+            }
         }
     }
 
@@ -175,7 +250,7 @@ class BaseService {
         }
 
         fun reload() {
-            if (DataStore.selectedProxy.getBlocking() == 0L) {
+            if (DataStore.selectedProxy == 0L) {
                 stopRunner(false, runBlocking { resolveRepository().getString(Res.string.profile_empty) })
                 return
             }
@@ -207,7 +282,7 @@ class BaseService {
             data.backend.start { throwable ->
                 stopRunner(false, throwable.readableMessage)
             }
-            if (resolveAndroidRepository().boxService?.needWIFIState() == true) {
+            if (resolveRepository().boxService?.needWIFIState() == true) {
                 val wifiPermission = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
                     Manifest.permission.ACCESS_FINE_LOCATION
                 } else {
@@ -215,7 +290,7 @@ class BaseService {
                 }
                 this as Context
                 if (!hasPermission(wifiPermission)) {
-                    ServiceEventPublisher.publishAlert(ServiceAlert.NeedWifiPermission)
+                    data.binder.notifyAlert(AlertType.NEED_WIFI_PERMISSION, "")
                 }
             }
         }
@@ -251,8 +326,6 @@ class BaseService {
             if (data.state == ServiceState.Stopping) return
             this as Service
             OpenConnectAuthWatcher.stop(this)
-            OpenVPNAuthWatcher.stop(this)
-            TailscaleNotificationWatcher.stop(this)
             data.notification.destroy()
             data.notification = NoopServiceNotifier
 
@@ -273,7 +346,7 @@ class BaseService {
                 // change the state
                 data.changeState(ServiceState.Stopped, msg)
                 if (!msg.isNullOrBlank()) {
-                    ServiceEventPublisher.publishAlert(ServiceAlert.Common(msg))
+                    data.binder.notifyAlert(AlertType.COMMON, msg)
                 }
                 // stop the service if nothing has bound to it
                 if (restart) startRunner() else {
@@ -299,7 +372,7 @@ class BaseService {
                 wakeLock = null
             }
 
-            if (DataStore.acquireWakeLock.get()) {
+            if (DataStore.acquireWakeLock) {
                 acquireWakeLock()
                 data.notification.onWakeLock(true)
             } else {
@@ -314,14 +387,14 @@ class BaseService {
             val data = data
             if (data.state != ServiceState.Stopped) return Service.START_NOT_STICKY
             data.notification = createNotifier("")
-            val profile = runBlocking { SagerDatabase.proxyDao.getById(DataStore.selectedProxy.getBlocking()) }
+            val profile = runBlocking { SagerDatabase.proxyDao.getById(DataStore.selectedProxy) }
             this as Context
             if (profile == null) { // gracefully shutdown: https://stackoverflow.com/q/47337857/2245107
                 stopRunner(false, runBlocking { resolveRepository().getString(Res.string.profile_empty) })
                 return Service.START_NOT_STICKY
             }
 
-            setBootReceiverEnabled(DataStore.persistAcrossReboot.getBlocking())
+            setBootReceiverEnabled(DataStore.persistAcrossReboot)
             if (!data.closeReceiverRegistered) {
                 val filter = IntentFilter().apply {
                     addAction(Action.RELOAD)
@@ -358,13 +431,11 @@ class BaseService {
                     Executable.killAll()    // clean up old processes
                     preInit()
                     data.backend.init(profile)
-                    DataStore.currentProfile.set(profile.id)
+                    DataStore.currentProfile = profile.id
 
                     startProcesses()
                     data.changeState(ServiceState.Connected)
                     OpenConnectAuthWatcher.start(this@Interface)
-                    OpenVPNAuthWatcher.start(this@Interface)
-                    TailscaleNotificationWatcher.start(this@Interface)
 
                     lateInit()
                 } catch (_: CancellationException) { // if the job was cancelled, it is canceller's responsibility to call stopRunner
@@ -372,12 +443,12 @@ class BaseService {
                     Logs.e(e)
                     stopRunner(false, resolveRepository().getString(Res.string.invalid_server))
                 } catch (e: PluginNotFoundException) {
-                    withContext(Dispatchers.Main) {
+                    onMainDispatcher {
                         showToast(e.readableMessage)
                     }
                     Logs.w(e)
                     stopRunner(false, e.readableMessage)
-                    ServiceEventPublisher.publishAlert(ServiceAlert.MissingPlugin(e.plugin))
+                    data.binder.notifyAlert(AlertType.MISSING_PLUGIN, e.plugin)
                 } catch (exc: Throwable) {
                     if (exc.javaClass.name.endsWith("proxyerror")) {
                         // error from golang

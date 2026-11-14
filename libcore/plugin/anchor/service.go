@@ -6,6 +6,8 @@ import (
 	"net"
 	"regexp"
 
+	"libcore/plugin/pluginoption"
+
 	"github.com/sagernet/sing-box/adapter"
 	boxService "github.com/sagernet/sing-box/adapter/service"
 	"github.com/sagernet/sing-box/common/listener"
@@ -14,13 +16,10 @@ import (
 	"github.com/sagernet/sing/common"
 	E "github.com/sagernet/sing/common/exceptions"
 	N "github.com/sagernet/sing/common/network"
-	"github.com/sagernet/sing/common/x/list"
 	"github.com/sagernet/sing/service"
 
 	"github.com/xchacha20-poly1305/anchor"
 	"github.com/xchacha20-poly1305/anchor/anchorservice"
-	"github.com/xchacha20-poly1305/husi/libcore/v2/plugin/pluginoption"
-	"go4.org/netipx"
 )
 
 func RegisterService(registry *boxService.Registry) {
@@ -76,11 +75,6 @@ func NewService(ctx context.Context, logger log.ContextLogger, tag string, optio
 		listener:       anchorListener,
 		networkManager: service.FromContext[adapter.NetworkManager](ctx),
 	}
-	// StartedService has no pre-Start hook for Network().Initialize, so force
-	// needWIFIState here during box.New.
-	if s.networkManager != nil {
-		s.networkManager.Initialize([]adapter.RuleSet{fakeWifiRuleSet{}})
-	}
 	anchorService := anchorservice.New(
 		ctx,
 		logger,
@@ -94,56 +88,23 @@ func NewService(ctx context.Context, logger log.ContextLogger, tag string, optio
 	return s, nil
 }
 
-// fakeWifiRuleSet is a no-op RuleSet whose metadata reports ContainsWIFIRule,
-// so NetworkManager.Initialize sets needWIFIState.
-var _ adapter.RuleSet = fakeWifiRuleSet{}
-
-type fakeWifiRuleSet struct{}
-
-func (f fakeWifiRuleSet) Name() string { return f.String() }
-
-func (f fakeWifiRuleSet) StartContext(ctx context.Context, startContext *adapter.HTTPStartContext) error {
-	return nil
-}
-
-func (f fakeWifiRuleSet) Metadata() adapter.RuleSetMetadata {
-	return adapter.RuleSetMetadata{ContainsWIFIRule: true}
-}
-
-func (f fakeWifiRuleSet) ExtractIPSet() []*netipx.IPSet { return nil }
-func (f fakeWifiRuleSet) IncRef()                       {}
-func (f fakeWifiRuleSet) DecRef()                       {}
-func (f fakeWifiRuleSet) Cleanup()                      {}
-func (f fakeWifiRuleSet) RegisterCallback(callback adapter.RuleSetUpdateCallback) *list.Element[adapter.RuleSetUpdateCallback] {
-	return nil
-}
-
-func (f fakeWifiRuleSet) UnregisterCallback(element *list.Element[adapter.RuleSetUpdateCallback]) {
-}
-func (f fakeWifiRuleSet) Close() error                                { return nil }
-func (f fakeWifiRuleSet) Match(metadata *adapter.InboundContext) bool { return false }
-func (f fakeWifiRuleSet) String() string                              { return "fakeWifiRuleSet" }
-
-func (s *Service) Start(stage adapter.StartStage, scope *adapter.Scope) error {
+func (s *Service) Start(stage adapter.StartStage) error {
 	if stage != adapter.StartStateStart {
 		return nil
 	}
-	scope.Add(s.listener.Close)
-	err := s.anchor.Start()
-	if err != nil {
-		return err
-	}
-	scope.Add(s.anchor.Close)
-	return nil
+	return s.anchor.Start()
+}
+
+func (s *Service) Close() error {
+	return common.Close(
+		common.PtrOrNil(s.anchor),
+		common.PtrOrNil(s.listener),
+	)
 }
 
 func (s *Service) shouldReject(source net.Addr, deviceName string) bool {
 	s.logger.InfoContext(s.ctx, "response from ", source, "(", deviceName, ")")
-	network := s.networkManager
-	if network == nil {
-		return false
-	}
-	switch network.DefaultNetworkInterface().Type {
+	switch s.networkManager.DefaultNetworkInterface().Type {
 	case C.InterfaceTypeWIFI:
 	case C.InterfaceTypeEthernet:
 		return false
@@ -153,7 +114,7 @@ func (s *Service) shouldReject(source net.Addr, deviceName string) bool {
 	if len(s.expressions) == 0 {
 		return false // Dangerous
 	}
-	ssid := network.WIFIState().SSID
+	ssid := s.networkManager.WIFIState().SSID
 	if ssid == "" {
 		return true
 	}

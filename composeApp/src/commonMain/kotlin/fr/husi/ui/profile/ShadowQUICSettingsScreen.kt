@@ -1,6 +1,7 @@
 package fr.husi.ui.profile
 
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -10,14 +11,11 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.util.fastCoerceAtLeast
 import fr.husi.compose.IconMaskColors
 import fr.husi.compose.IconMaskShapes
-import fr.husi.compose.ListPreference
 import fr.husi.compose.MaskedIcon
 import fr.husi.compose.MultilineTextField
 import fr.husi.compose.PasswordPreference
 import fr.husi.compose.PreferenceCategory
-import fr.husi.compose.SliderPreference
-import fr.husi.compose.SwitchPreference
-import fr.husi.compose.TextFieldPreference
+import fr.husi.compose.PreferenceDivider
 import fr.husi.compose.UIntegerTextField
 import fr.husi.compose.material3.Text
 import fr.husi.compose.preferenceGroup
@@ -67,10 +65,15 @@ import fr.husi.resources.udp_over_stream
 import fr.husi.resources.username
 import fr.husi.resources.wb_sunny
 import fr.husi.ui.NavRoutes
+import me.zhanghai.compose.preference.ListPreference
 import me.zhanghai.compose.preference.ListPreferenceType
+import me.zhanghai.compose.preference.SliderPreference
+import me.zhanghai.compose.preference.SwitchPreference
+import me.zhanghai.compose.preference.TextFieldPreference
 import org.jetbrains.compose.resources.stringResource
 import kotlin.math.roundToInt
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ShadowQUICSettingsScreen(
     profileId: Long,
@@ -138,6 +141,7 @@ private fun LazyListScope.shadowQuicSettings(
             summary = { Text(contentOrUnset(uiState.address)) },
             valueToText = { it },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = uiState.port,
             onValueChange = { viewModel.setPort(it) },
@@ -151,10 +155,11 @@ private fun LazyListScope.shadowQuicSettings(
             },
             summary = { Text(contentOrUnset(uiState.port)) },
             valueToText = { it.toString() },
-            textField = { state, onOk ->
-                UIntegerTextField(state, onOk)
+            textField = { value, onValueChange, onOk ->
+                UIntegerTextField(value, onValueChange, onOk)
             },
         )
+        PreferenceDivider()
         fun subProtocolText(subProtocol: Int) = when (subProtocol) {
             ShadowQUICBean.SUB_PROTOCOL_SHADOW_QUIC -> Res.string.action_shadowquic
             ShadowQUICBean.SUB_PROTOCOL_SUNNY_QUIC -> Res.string.action_sunnyquic
@@ -181,6 +186,7 @@ private fun LazyListScope.shadowQuicSettings(
             type = ListPreferenceType.DROPDOWN_MENU,
             valueToText = { AnnotatedString(stringResource(subProtocolText(it))) },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = uiState.username,
             onValueChange = { viewModel.setUsername(it) },
@@ -192,10 +198,12 @@ private fun LazyListScope.shadowQuicSettings(
             summary = { Text(contentOrUnset(uiState.username)) },
             valueToText = { it },
         )
+        PreferenceDivider()
         PasswordPreference(
             value = uiState.password,
             onValueChange = { viewModel.setPassword(it) },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = uiState.alpn,
             onValueChange = { viewModel.setAlpn(it) },
@@ -207,6 +215,7 @@ private fun LazyListScope.shadowQuicSettings(
             summary = { Text(contentOrUnset(uiState.alpn)) },
             valueToText = { it },
         )
+        PreferenceDivider()
         ListPreference(
             value = uiState.congestionControl,
             values = congestionControls,
@@ -222,6 +231,7 @@ private fun LazyListScope.shadowQuicSettings(
             type = ListPreferenceType.DROPDOWN_MENU,
             valueToText = { AnnotatedString(it) },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = uiState.sni,
             onValueChange = { viewModel.setSni(it) },
@@ -233,6 +243,7 @@ private fun LazyListScope.shadowQuicSettings(
             summary = { Text(contentOrUnset(uiState.sni)) },
             valueToText = { it },
         )
+        PreferenceDivider()
         SwitchPreference(
             value = uiState.zeroRTT,
             onValueChange = { viewModel.setZeroRTT(it) },
@@ -245,6 +256,7 @@ private fun LazyListScope.shadowQuicSettings(
                 )
             },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = uiState.initialMtu,
             onValueChange = { viewModel.setInitialMtu(it) },
@@ -258,10 +270,11 @@ private fun LazyListScope.shadowQuicSettings(
             },
             summary = { Text(contentOrUnset(uiState.initialMtu)) },
             valueToText = { it.toString() },
-            textField = { state, onOk ->
-                UIntegerTextField(state, onOk)
+            textField = { value, onValueChange, onOk ->
+                UIntegerTextField(value, onValueChange, onOk)
             },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = uiState.minMtu,
             onValueChange = { viewModel.setMinMtu(it) },
@@ -275,10 +288,11 @@ private fun LazyListScope.shadowQuicSettings(
             },
             summary = { Text(contentOrUnset(uiState.minMtu)) },
             valueToText = { it.toString() },
-            textField = { state, onOk ->
-                UIntegerTextField(state, onOk)
+            textField = { value, onValueChange, onOk ->
+                UIntegerTextField(value, onValueChange, onOk)
             },
         )
+        PreferenceDivider()
         SwitchPreference(
             value = uiState.udpOverStream,
             onValueChange = { viewModel.setUdpOverStream(it) },
@@ -287,6 +301,7 @@ private fun LazyListScope.shadowQuicSettings(
                 MaskedIcon(Res.drawable.nat, IconMaskColors.IconLightPink, IconMaskShapes.route())
             },
         )
+        PreferenceDivider()
         SwitchPreference(
             value = uiState.gso,
             onValueChange = { viewModel.setGso(it) },
@@ -295,6 +310,7 @@ private fun LazyListScope.shadowQuicSettings(
                 MaskedIcon(Res.drawable.segment, IconMaskColors.IconWarmGray)
             },
         )
+        PreferenceDivider()
         TextFieldPreference(
             value = uiState.keepAliveInterval,
             onValueChange = { viewModel.setKeepAliveInterval(it) },
@@ -305,10 +321,11 @@ private fun LazyListScope.shadowQuicSettings(
             },
             summary = { Text(contentOrUnset(uiState.keepAliveInterval)) },
             valueToText = { it.toString() },
-            textField = { state, onOk ->
-                UIntegerTextField(state, onOk)
+            textField = { value, onValueChange, onOk ->
+                UIntegerTextField(value, onValueChange, onOk)
             },
         )
+        PreferenceDivider()
         SwitchPreference(
             value = uiState.mtuDiscovery,
             onValueChange = { viewModel.setMtuDiscovery(it) },
@@ -318,6 +335,7 @@ private fun LazyListScope.shadowQuicSettings(
             },
         )
         if (uiState.subProtocol == ShadowQUICBean.SUB_PROTOCOL_SHADOW_QUIC) {
+            PreferenceDivider()
             SwitchPreference(
                 value = uiState.blackholeDetection,
                 onValueChange = { viewModel.setBlackholeDetection(it) },
@@ -350,10 +368,11 @@ private fun LazyListScope.shadowQuicSettings(
                 },
                 summary = { Text(contentOrUnset(uiState.extraPaths)) },
                 valueToText = { it },
-                textField = { state, onOk ->
-                    MultilineTextField(state, onOk)
+                textField = { value, onValueChange, onOk ->
+                    MultilineTextField(value, onValueChange, onOk)
                 },
             )
+            PreferenceDivider()
             TextFieldPreference(
                 value = uiState.certificates,
                 onValueChange = { viewModel.setCertificates(it) },
@@ -368,10 +387,11 @@ private fun LazyListScope.shadowQuicSettings(
                 },
                 summary = { Text(contentOrUnset(uiState.certificates)) },
                 valueToText = { it },
-                textField = { state, onOk ->
-                    MultilineTextField(state, onOk)
+                textField = { value, onValueChange, onOk ->
+                    MultilineTextField(value, onValueChange, onOk)
                 },
             )
+            PreferenceDivider()
             val maxPathsFloat = uiState.maxPaths.toFloat()
             val currentPathCount = uiState.extraPaths.lines().count { it.isNotBlank() }
             var previewValue by remember { mutableFloatStateOf(maxPathsFloat) }

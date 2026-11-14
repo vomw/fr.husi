@@ -29,18 +29,6 @@
       "/.github/workflows/.*.yml$/"
     ]
   },
-  "customManagers": [
-    {
-      "customType": "regex",
-      "description": "Toolchain and asset versions annotated with `# renovate:` comments",
-      "managerFilePatterns": [
-        "/^buildScript/init/version\\.sh$/"
-      ],
-      "matchStrings": [
-        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\n[A-Z_]+=\"(?<currentValue>[^\"]+)\""
-      ]
-    }
-  ],
   "packageRules": [
     {
       "matchManagers": [
@@ -52,16 +40,6 @@
       ]
     },
     {
-      "description": "setup-go reads go-version from env.GO_VERSION, which buildScript/init/version.sh owns and the custom manager tracks",
-      "matchManagers": [
-        "github-actions"
-      ],
-      "matchPackageNames": [
-        "actions/go-versions"
-      ],
-      "enabled": false
-    },
-    {
       "matchManagers": [
         "gomod"
       ],
@@ -72,10 +50,11 @@
         "gomod"
       ],
       "matchPackageNames": [
+        "github.com/sagernet/sing-box",
         "github.com/exclavenetwork/sing-juicity",
-        "github.com/sagernet/gomobile",
         "github.com/xchacha20-poly1305/TLS-scribe",
         "github.com/xchacha20-poly1305/anchor",
+        "github.com/xchacha20-poly1305/anja",
         "github.com/xchacha20-poly1305/libping",
         "github.com/xchacha20-poly1305/sing-trusttunnel"
       ],
@@ -90,14 +69,6 @@
     {
       "matchManagers": [
         "gradle"
-      ],
-      "addLabels": [
-        "java"
-      ]
-    },
-    {
-      "matchManagers": [
-        "gradle-wrapper"
       ],
       "addLabels": [
         "java"
@@ -159,8 +130,7 @@
         "com.google.accompanist{/,}**",
         "me.zhanghai.compose.preference{/,}**",
         "io.github.oikvpqya.compose.fastscroller{/,}**",
-        "io.github.vinceglb{/,}**",
-        "io.github.xchacha20-poly1305{/,}**"
+        "io.github.vinceglb{/,}**"
       ],
       "groupName": "Compose Ecosystem",
       "groupSlug": "compose-ecosystem"
@@ -170,11 +140,10 @@
         "gradle"
       ],
       "matchPackageNames": [
+        "com.esotericsoftware:kryo",
         "com.jakewharton:process-phoenix",
         "org.ini4j:ini4j",
-        "com.github.ajalt.clikt{/,}**",
-        "com.google.zxing{/,}**",
-        "dev.chrisbanes.haze{/,}**"
+        "com.github.ajalt.clikt{/,}**"
       ],
       "groupName": "Utility Libraries",
       "groupSlug": "utility-libraries"
@@ -185,8 +154,7 @@
       ],
       "matchPackageNames": [
         "org.gradle.toolchains.foojay-resolver-convention",
-        "com.mikepenz{/,}**",
-        "com.codingfeline.buildkonfig"
+        "com.mikepenz{/,}**"
       ],
       "groupName": "Build Plugins & Tooling",
       "groupSlug": "build-plugins-tooling"
@@ -216,10 +184,12 @@
       "matchManagers": [
         "gradle"
       ],
-      "groupName": "Desktop Nucleus Framework",
-      "groupSlug": "nucleus-framework",
+      "groupName": "Desktop Native Integration",
+      "groupSlug": "desktop-native-integration",
       "matchPackageNames": [
-        "dev.nucleusframework{/,}**"
+        "io.github.kdroidfilter{/,}**",
+        "com.github.hypfvieh{/,}**",
+        "net.java.dev.jna{/,}**"
       ]
     },
     {
@@ -234,65 +204,10 @@
       ]
     },
     {
-      "description": "Protobuf runtime, protoc, and the Gradle plugin stay pinned; make proto owns the schema and generated stubs",
-      "matchPackageNames": [
-        "com.google.protobuf",
-        "com.google.protobuf{/,}**",
-        "google.golang.org/protobuf",
-        "google.golang.org/protobuf/**"
-      ],
-      "enabled": false
-    },
-    {
-      "matchManagers": [
-        "custom.regex"
-      ],
-      "semanticCommitType": "build",
-      "addLabels": [
-        "toolchain"
-      ]
-    },
-    {
-      "matchManagers": [
-        "custom.regex"
-      ],
-      "matchDepNames": [
-        "goreleaser/nfpm"
-      ],
-      "extractVersion": "^v(?<version>.+)$"
-    },
-    {
-      "description": "Tags look like jbr-release-25.0.4.1b635.70; JAVA_VERSION follows the feature version. Regex versioning compares at most five numbers (build and revision), so the optional fourth feature component is left out: the build branch (635) and its release counter (70) are what change between JBR releases",
-      "matchManagers": [
-        "custom.regex"
-      ],
-      "matchDepNames": [
-        "JetBrains/JetBrainsRuntime"
-      ],
-      "extractVersion": "^jbr-release-(?<version>.+)$",
-      "versioning": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)(\\.\\d+)?b(?<build>\\d+)\\.(?<revision>\\d+)$"
-    },
-    {
-      "description": "Date-tagged rule sets (YYYYMMDD, geosite appends HHMMSS as it tags several times a day). Split the date into fields so Renovate does not read the whole tag as one semver major and skip it for exceeding maxMajorIncrement",
-      "matchManagers": [
-        "custom.regex"
-      ],
-      "matchDepNames": [
-        "Dreamacro/maxmind-geoip",
-        "v2fly/domain-list-community"
-      ],
-      "versioning": "regex:^(?<major>\\d{4})(?<minor>\\d{2})(?<patch>\\d{2})(?<build>\\d{6})?$",
-      "groupName": "Geo Assets",
-      "groupSlug": "geo-assets",
-      "schedule": [
-        "* 0-5 * * 1"
-      ]
-    },
-    {
       "matchPackageNames": [
         "/.*/"
       ],
-      "allowedVersions": "!/[-+][Ss][Nn][Aa][Pp][Ss][Hh][Oo][Tt]/"
+      "allowedVersions": "!/.*-[Ss][Nn][Aa][Pp][Ss][Hh][Oo][Tt](\\+.*)?$/"
     },
     {
       "matchPackageNames": [
@@ -307,7 +222,7 @@
       "matchPackageNames": [
         "org.jetbrains.compose**"
       ],
-      "allowedVersions": "!/([-+][Ss][Nn][Aa][Pp][Ss][Hh][Oo][Tt]|\\+dev\\d+$)/"
+      "allowedVersions": "!/(-[Ss][Nn][Aa][Pp][Ss][Hh][Oo][Tt](\\+.*)?|\\+dev\\d+)$/"
     },
     {
       "matchManagers": [
@@ -316,7 +231,7 @@
       "matchPackageNames": [
         "org.jetbrains.kotlinx:kotlinx-datetime"
       ],
-      "allowedVersions": "!/([-+][Ss][Nn][Aa][Pp][Ss][Hh][Oo][Tt]|-compat$)/"
+      "allowedVersions": "!/(-[Ss][Nn][Aa][Pp][Ss][Hh][Oo][Tt](\\+.*)?|-compat)$/"
     }
   ]
 }

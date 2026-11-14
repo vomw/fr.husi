@@ -1,78 +1,78 @@
 package fr.husi.ktx
 
-import fr.husi.proto.daemon.LogLevel
-import java.io.File
+import fr.husi.libcore.Libcore
 
-/**
- * Prints every message to stderr. Once [openFile] has run, messages at or above the configured
- * level also go to the log file that bug reports attach.
- */
 actual object Logs {
-
-    @Volatile
-    private var file: LogFile? = null
-
-    /** Starts [logFile] afresh and writes messages at or above [level] to it from now on. */
-    fun openFile(logFile: File, level: Int) {
-        file?.close()
-        file = LogFile(logFile, LogLevel.forNumber(level) ?: LogLevel.WARN, truncate = true)
-    }
-
-    actual fun clearFile() {
-        file?.clear()
-    }
 
     private fun mkTag(): String {
         val stackTrace = Thread.currentThread().stackTrace
         return stackTrace[4].className.substringAfterLast(".")
     }
 
-    private fun log(level: LogLevel, tag: String, message: String) {
-        System.err.print("${level.name} [$tag] $message\n")
-        file?.write(level, tag, message)
-    }
-
-    private fun withStackTrace(message: String, exception: Throwable) =
-        "$message\n${exception.stackTraceToString()}"
-
     actual fun d(message: String) {
-        log(LogLevel.DEBUG, mkTag(), message)
+        val tag = mkTag()
+        Libcore.logDebug("[$tag] $message")
+        System.err.println("D [$tag] $message")
     }
 
     actual fun d(message: String, exception: Throwable) {
-        log(LogLevel.DEBUG, mkTag(), withStackTrace(message, exception))
+        val tag = mkTag()
+        val full = "$message\n${exception.stackTraceToString()}"
+        Libcore.logDebug("[$tag] $full")
+        System.err.println("D [$tag] $full")
     }
 
     actual fun i(message: String) {
-        log(LogLevel.INFO, mkTag(), message)
+        val tag = mkTag()
+        Libcore.logInfo("[$tag] $message")
+        System.err.println("I [$tag] $message")
     }
 
     actual fun i(message: String, exception: Throwable) {
-        log(LogLevel.INFO, mkTag(), withStackTrace(message, exception))
+        val tag = mkTag()
+        val full = "$message\n${exception.stackTraceToString()}"
+        Libcore.logInfo("[$tag] $full")
+        System.err.println("I [$tag] $full")
     }
 
     actual fun w(message: String) {
-        log(LogLevel.WARN, mkTag(), message)
+        val tag = mkTag()
+        Libcore.logWarning("[$tag] $message")
+        System.err.println("W [$tag] $message")
     }
 
     actual fun w(message: String, exception: Throwable) {
-        log(LogLevel.WARN, mkTag(), withStackTrace(message, exception))
+        val tag = mkTag()
+        val full = "$message\n${exception.stackTraceToString()}"
+        Libcore.logWarning("[$tag] $full")
+        System.err.println("W [$tag] $full")
     }
 
     actual fun w(exception: Throwable) {
-        log(LogLevel.WARN, mkTag(), exception.stackTraceToString())
+        val tag = mkTag()
+        val full = exception.stackTraceToString()
+        Libcore.logWarning("[$tag] $full")
+        System.err.println("W [$tag] $full")
     }
 
     actual fun e(message: String) {
-        log(LogLevel.ERROR, mkTag(), message)
+        val tag = mkTag()
+        Libcore.logError("[$tag] $message")
+        System.err.println("E [$tag] $message")
     }
 
     actual fun e(message: String, exception: Throwable) {
-        log(LogLevel.ERROR, mkTag(), withStackTrace(message, exception))
+        val tag = mkTag()
+        val full = "$message\n${exception.stackTraceToString()}"
+        Libcore.logError("[$tag] $full")
+        System.err.println("E [$tag] $full")
     }
 
     actual fun e(exception: Throwable) {
-        log(LogLevel.ERROR, mkTag(), exception.stackTraceToString())
+        val tag = mkTag()
+        val full = exception.stackTraceToString()
+        Libcore.logError("[$tag] $full")
+        System.err.println("E [$tag] $full")
     }
 
 }

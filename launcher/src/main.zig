@@ -19,6 +19,179 @@ const husi_package_name = config.package_name;
 const husi_config_dir_name = "husi";
 const husi_exit_restart = 50;
 
+/// `prepare` returns a boolean about wheather restart or not.
+const PlatformPrivilege = switch (native_os) {
+    .linux => struct {
+        const posix = std.posix;
+        const linux = std.os.linux;
+
+        const CAP_VERSION_3: u32 = 0x20080522;
+        const CAP_DAC_READ_SEARCH = 2;
+        const CAP_NET_BIND_SERVICE = 10;
+        const CAP_NET_ADMIN = 12;
+        const CAP_NET_RAW = 13;
+        const CAP_SETPCAP = 8;
+        const CAP_SYS_PTRACE = 19;
+
+        const PR_CAP_AMBIENT = 47;
+        const PR_CAP_AMBIENT_RAISE = 2;
+
+        const CapHeader = extern struct {
+            version: u32,
+            pid: c_int,
+        };
+
+        const CapData = extern struct {
+            effective: u32,
+            permitted: u32,
+            inheritable: u32,
+        };
+
+        fn parseResult(result: u64) !void {
+            switch (posix.errno(result)) {
+                .SUCCESS => {},
+                else => |err| return posix.unexpectedErrno(err),
+            }
+        }
+
+        fn capget(header: *CapHeader, data: *[2]CapData) !void {
+            const result = linux.syscall2(.capget, @intFromPtr(header), @intFromPtr(data));
+            try parseResult(result);
+        }
+
+        fn capset(header: *const CapHeader, data: *const [2]CapData) !void {
+            const result = linux.syscall2(.capset, @intFromPtr(header), @intFromPtr(data));
+            try parseResult(result);
+        }
+
+        fn setInheritableCaps(caps: []const c_int) !void {
+            var header = CapHeader{
+                .version = CAP_VERSION_3,
+                .pid = 0,
+            };
+            var data = [2]CapData{
+                .{ .effective = 0, .permitted = 0, .inheritable = 0 },
+                .{ .effective = 0, .permitted = 0, .inheritable = 0 },
+            };
+
+            try capget(&header, &data);
+
+            for (caps) |cap| {
+                const index: u32 = @intCast(@as(u32, @bitCast(cap)) / 32);
+                const bit: u32 = @as(u32, 1) << @intCast(@as(u32, @bitCast(cap)) % 32);
+
+                if (index >= 2) {
+                    std.debug.print("unsupported capability index: {d}\n", .{cap});
+                    return error.UnsupportedCap;
+                }
+                if ((data[index].permitted & bit) == 0) {
+                    std.debug.print("missing permitted capability: {d}\n", .{cap});
+                    return error.MissingPermittedCap;
+                }
+                data[index].inheritable |= bit;
+            }
+
+            try capset(&header, &data);
+        }
+
+        fn raiseAmbientCaps(caps: []const c_int) !void {
+            for (caps) |cap| {
+                const result = linux.prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_RAISE, @intCast(cap), 0, 0);
+                try parseResult(result);
+            }
+        }
+
+        fn dropSetpcap() !void {
+            var header = CapHeader{ .version = CAP_VERSION_3, .pid = 0 };
+            var data = [2]CapData{
+                .{ .effective = 0, .permitted = 0, .inheritable = 0 },
+                .{ .effective = 0, .permitted = 0, .inheritable = 0 },
+            };
+
+            try capget(&header, &data);
+
+            const index: u32 = @as(u32, CAP_SETPCAP) / 32;
+            const bit: u32 = @as(u32, 1) << @intCast(@as(u32, CAP_SETPCAP) % 32);
+
+            data[index].effective &= ~bit;
+            data[index].permitted &= ~bit;
+            data[index].inheritable &= ~bit;
+
+            try capset(&header, &data);
+        }
+
+        fn prepare(io: Io, allocator: mem.Allocator) !bool {
+            _ = io;
+            _ = allocator;
+
+            const ambient_caps = [_]c_int{
+                CAP_NET_ADMIN,
+                CAP_NET_RAW,
+                CAP_NET_BIND_SERVICE,
+                CAP_SYS_PTRACE,
+                CAP_DAC_READ_SEARCH,
+            };
+
+            try setInheritableCaps(&ambient_caps);
+            try raiseAmbientCaps(&ambient_caps);
+            try dropSetpcap();
+            return false;
+        }
+    },
+    .macos => struct {
+        const c = std.c;
+
+        fn isPrivileged(io: Io, exe_path: []const u8) bool {
+            const file = Io.Dir.openFileAbsolute(io, exe_path, .{}) catch return false;
+            defer file.close(io);
+            var stat: c.Stat = undefined;
+            if (c.fstat(file.handle, &stat) != 0) return false;
+            const S_ISUID = 0o4000;
+            return stat.uid == 0 and stat.gid == 0 and (stat.mode & S_ISUID) != 0;
+        }
+
+        fn runElevated(io: Io, allocator: mem.Allocator, command: []const u8) !void {
+            const script = try std.fmt.allocPrint(allocator, "do shell script \"{s}\" with administrator privileges", .{command});
+            defer allocator.free(script);
+
+            var child = try process.spawn(io, .{
+                .argv = &.{ "osascript", "-e", script },
+                .stdin = .ignore,
+                .stdout = .ignore,
+                .stderr = .ignore,
+            });
+
+            const term = try child.wait(io);
+            switch (term) {
+                .exited => |code| {
+                    if (code == 0) return;
+                },
+                else => {},
+            }
+            return error.ElevationFailed;
+        }
+
+        fn prepare(io: Io, allocator: mem.Allocator) !bool {
+            const exe_path = try findSelfExePath(io);
+            if (isPrivileged(io, exe_path)) return false;
+
+            const command = try std.fmt.allocPrint(allocator, "chown root:wheel {s} && chmod u+s {s}", .{ exe_path, exe_path });
+            defer allocator.free(command);
+            try runElevated(io, allocator, command);
+            return true;
+        }
+    },
+    .windows => struct {
+        // Already got via mainfest
+        fn prepare(io: Io, allocator: mem.Allocator) !bool {
+            _ = io;
+            _ = allocator;
+            return false;
+        }
+    },
+    else => unreachable,
+};
+
 var self_exe_buf: [Io.Dir.max_path_bytes]u8 = undefined;
 var self_path: ?[]const u8 = null;
 
@@ -144,7 +317,6 @@ fn resolveMacOSAppBundleOptions(io: Io, allocator: mem.Allocator, runtime: Runti
 }
 
 const UserConfigPaths = struct {
-    config_dir: []u8,
     java_opts_path: []u8,
     app_args_path: []u8,
 };
@@ -203,14 +375,13 @@ fn resolveUserConfigPaths(allocator: mem.Allocator, env_map: *process.Environ.Ma
     defer allocator.free(config_base);
 
     const config_dir = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ config_base, husi_config_dir_name });
-    errdefer allocator.free(config_dir);
+    defer allocator.free(config_dir);
 
     const java_opts_path = try std.fmt.allocPrint(allocator, "{s}/desktop-java-opts.conf", .{config_dir});
     errdefer allocator.free(java_opts_path);
     const app_args_path = try std.fmt.allocPrint(allocator, "{s}/desktop-app-args.conf", .{config_dir});
 
     return UserConfigPaths{
-        .config_dir = config_dir,
         .java_opts_path = java_opts_path,
         .app_args_path = app_args_path,
     };
@@ -219,9 +390,9 @@ fn resolveUserConfigPaths(allocator: mem.Allocator, env_map: *process.Environ.Ma
 fn resolveMacOSJavaHome(io: Io, allocator: mem.Allocator) !?[]const u8 {
     if (native_os != .macos) return null;
 
-    const java_version_requirement = "21+";
+    const java_version = "21";
     const result = process.run(allocator, io, .{
-        .argv = &.{ "/usr/libexec/java_home", "-v", java_version_requirement },
+        .argv = &.{ "/usr/libexec/java_home", "-v", java_version },
     }) catch |err| switch (err) {
         error.FileNotFound => return null,
         else => |e| return e,
@@ -266,161 +437,15 @@ fn resolveJavaHomeCommand(io: Io, allocator: mem.Allocator, java_home: []const u
     return null;
 }
 
-/// $java --version
-/// openjdk 21.0.12 2026-07-21
-/// OpenJDK Runtime Environment (build 21.0.12+8)
-/// OpenJDK 64-Bit Server VM (build 21.0.12+8, mixed mode, sharing)
-fn parseJavaMajorVersion(output: []const u8) ?u32 {
-    const marker = "version \"";
-    const indexOfMarker = mem.indexOf(u8, output, marker) orelse return null;
-    const start = indexOfMarker + marker.len;
-    var end = start;
-    while (end < output.len and std.ascii.isDigit(output[end])) {
-        end += 1;
-    }
-    if (end == start) return null;
-    return std.fmt.parseInt(u32, output[start..end], 10) catch null;
-}
-
-fn probeJavaVersionLine(io: Io, allocator: mem.Allocator, java_command: []const u8) !?[]const u8 {
-    // `javaw.exe -version` opens a message box instead of printing; probe with
-    // the sibling `java.exe`.
-    const probe_command = if (native_os == .windows and mem.endsWith(u8, java_command, "javaw.exe"))
-        try std.fmt.allocPrint(allocator, "{s}java.exe", .{java_command[0 .. java_command.len - "javaw.exe".len]})
-    else
-        java_command;
-
-    const result = process.run(allocator, io, .{
-        .argv = &.{ probe_command, "-version" },
-    }) catch return null;
-    defer allocator.free(result.stdout);
-
-    switch (result.term) {
-        .exited => |code| {
-            if (code != 0) {
-                allocator.free(result.stderr);
-                return null;
-            }
-        },
-        else => {
-            allocator.free(result.stderr);
-            return null;
-        },
-    }
-
-    // `java -version` traditionally prints to stderr.
-    return result.stderr;
-}
-
-fn readSmallFile(io: Io, path: []const u8, buf: []u8) ?[]const u8 {
-    const file = Io.Dir.openFileAbsolute(io, path, .{}) catch return null;
-    defer file.close(io);
-    const len = file.readPositionalAll(io, buf, 0) catch return null;
-    return buf[0..len];
-}
-
-fn writeSmallFile(io: Io, path: []const u8, content: []const u8) !void {
-    const file = try Io.Dir.createFileAbsolute(io, path, .{ .truncate = true });
-    defer file.close(io);
-    var buf: [512]u8 = undefined;
-    var writer = file.writer(io, &buf);
-    try writer.interface.writeAll(content);
-    try writer.interface.flush();
-}
-
-/// Appends JDK 25+ AOT cache options (JEP 514): reuses a cache trained on a
-/// previous run when it matches the current JVM and jar, otherwise trains one.
-/// Skipped when HUSI_DISABLE_AOT_CACHE is set or the user configured any
-/// -XX:AOT option themselves. Never fails the launch.
-fn appendAotCacheOptions(
-    io: Io,
-    allocator: mem.Allocator,
-    env_map: *process.Environ.Map,
-    java_command: []const u8,
-    jar_path: []const u8,
-    config_dir: []const u8,
-    java_opts: *ArrayList([]u8),
-) !void {
-    if (env_map.get("HUSI_DISABLE_AOT_CACHE") != null) return;
-
-    for (java_opts.items) |opt| {
-        if (mem.startsWith(u8, opt, "-XX:AOT")) return;
-    }
-    for ([_][]const u8{ "JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS" }) |env_name| {
-        if (env_map.get(env_name)) |value| {
-            if (mem.indexOf(u8, value, "-XX:AOT") != null) return;
-        }
-    }
-
-    const version_line_raw = (try probeJavaVersionLine(io, allocator, java_command)) orelse return;
-    defer allocator.free(version_line_raw);
-    const major = parseJavaMajorVersion(version_line_raw) orelse return;
-    if (major < 25) return;
-
-    const jar_file = Io.Dir.openFileAbsolute(io, jar_path, .{}) catch return;
-    const jar_stat = stat_block: {
-        defer jar_file.close(io);
-        break :stat_block jar_file.stat(io) catch return;
-    };
-
-    // The cache is only valid for the exact JVM build and jar it was trained
-    // on; a mismatched key triggers retraining.
-    const version_line = mem.trim(u8, version_line_raw, &std.ascii.whitespace);
-    const key = try std.fmt.allocPrint(allocator, "{s}|{d}|{d}", .{
-        version_line,
-        jar_stat.size,
-        jar_stat.mtime.nanoseconds,
-    });
-
-    const aot_dir = try std.fmt.allocPrint(allocator, "{s}/aot", .{config_dir});
-    defer allocator.free(aot_dir);
-    const cache_path = try std.fmt.allocPrint(allocator, "{s}/{s}.aot", .{ aot_dir, husi_package_name });
-    const key_path = try std.fmt.allocPrint(allocator, "{s}.key", .{cache_path});
-    defer allocator.free(key_path);
-
-    var key_buf: [1024]u8 = undefined;
-    const stored_key = readSmallFile(io, key_path, &key_buf);
-    if (stored_key != null and mem.eql(u8, stored_key.?, key) and fileExists(io, cache_path)) {
-        try java_opts.append(allocator, try std.fmt.allocPrint(allocator, "-XX:AOTCache={s}", .{cache_path}));
-        return;
-    }
-
-    // On a fresh install the config dir may not exist yet either.
-    for ([_][]const u8{ config_dir, aot_dir }) |dir| {
-        Io.Dir.createDirAbsolute(io, dir, .default_dir) catch |err| switch (err) {
-            error.PathAlreadyExists => {},
-            else => return,
-        };
-    }
-    Io.Dir.deleteFileAbsolute(io, cache_path) catch {};
-    writeSmallFile(io, key_path, key) catch return;
-    // This run doubles as the training run; the JVM writes the cache on exit.
-    try java_opts.append(allocator, try std.fmt.allocPrint(allocator, "-XX:AOTCacheOutput={s}", .{cache_path}));
-}
-
-fn resolveBundledRuntime(io: Io, allocator: mem.Allocator, runtime: RuntimePaths) !?[]const u8 {
-    for ([_][]const u8{ runtime.launcher_dir, runtime.app_root }) |root| {
-        const runtime_home = try Io.Dir.path.join(allocator, &.{ root, "runtime" });
-        defer allocator.free(runtime_home);
-        if (try resolveJavaHomeCommand(io, allocator, runtime_home)) |bin| {
-            return bin;
-        }
-    }
-    return null;
-}
-
-fn selectJavaCommand(io: Io, allocator: mem.Allocator, env_map: *process.Environ.Map, runtime: RuntimePaths) ![]const u8 {
-    if (env_map.get("JAVA")) |java_env| {
-        if (java_env.len > 0) {
-            return allocator.dupe(u8, java_env);
-        }
-    }
-    if (try resolveBundledRuntime(io, allocator, runtime)) |bin| {
-        return bin;
-    }
+fn selectJavaCommand(io: Io, allocator: mem.Allocator, env_map: *process.Environ.Map) ![]const u8 {
     if (env_map.get("JAVA_HOME")) |java_home| {
         if (try resolveJavaHomeCommand(io, allocator, java_home)) |bin| {
             return bin;
+        }
+    }
+    if (env_map.get("JAVA")) |java_env| {
+        if (java_env.len > 0) {
+            return allocator.dupe(u8, java_env);
         }
     }
     if (try resolveMacOSJavaHome(io, allocator)) |java_bin| {
@@ -429,38 +454,21 @@ fn selectJavaCommand(io: Io, allocator: mem.Allocator, env_map: *process.Environ
     return allocator.dupe(u8, "java");
 }
 
-// `std.process.Init` would cost ~400 kB RSS for the whole lifetime: a 256 kB
-// alternate signal stack plus SmpAllocator slabs holding the environment map.
-// Take `Init.Minimal` instead and build a single-threaded runtime.
-// The signal stack only serves the segfault handler, which exists only with
-// runtime safety, so release builds drop it.
-pub const std_options: std.Options = .{
-    .signal_stack_size = if (std.debug.runtime_safety) (std.Options{}).signal_stack_size else null,
-};
-
-pub fn main(init: process.Init.Minimal) !u8 {
-    // Only the one-time setup below allocates from the arena; it never grows
-    // afterwards, however many times the app restarts.
-    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
-    defer arena.deinit();
+pub fn main(init: std.process.Init) !u8 {
+    const io = init.io;
+    const arena = init.arena;
     const allocator = arena.allocator();
 
-    // `Threaded` allocates scratch memory on every spawn, so it must not share
-    // the arena: restarts would accumulate that scratch memory forever.
-    // `page_allocator` hands every freed block back to the OS.
-    var threaded: Io.Threaded = .init(std.heap.page_allocator, .{
-        .async_limit = .nothing,
-        .concurrent_limit = .nothing,
-        .argv0 = .init(init.args),
-        .environ = init.environ,
-    });
-    defer threaded.deinit();
-    const io = threaded.io();
-
-    var environ_map = init.environ.createMap(allocator) catch |err| {
-        std.debug.print("parse environment failed: {}\n", .{err});
-        return 1;
+    const relaunch_required = PlatformPrivilege.prepare(io, allocator) catch |err| onFailed: {
+        std.debug.print("WARN: prepare_launch_environment failed: {}\n", .{err});
+        break :onFailed false;
     };
+    if (relaunch_required) {
+        const args = try init.minimal.args.toSlice(allocator);
+        return process.replace(io, .{
+            .argv = args,
+        });
+    }
 
     const runtime = resolveRuntimePaths(io, allocator) catch |err| {
         std.debug.print("resolve_runtime_paths failed: {}\n", .{err});
@@ -470,7 +478,7 @@ pub fn main(init: process.Init.Minimal) !u8 {
     const java_opts_template = try std.fmt.allocPrint(allocator, "{s}/desktop-java-opts.conf.template", .{runtime.launcher_dir});
     const app_args_template = try std.fmt.allocPrint(allocator, "{s}/desktop-app-args.conf.template", .{runtime.launcher_dir});
 
-    const user_config = resolveUserConfigPaths(allocator, &environ_map) catch |err| {
+    const user_config = resolveUserConfigPaths(allocator, init.environ_map) catch |err| {
         std.debug.print("resolve_user_config_paths failed: {}\n", .{err});
         return 1;
     };
@@ -491,13 +499,9 @@ pub fn main(init: process.Init.Minimal) !u8 {
         };
     }
 
-    const java_command = selectJavaCommand(io, allocator, &environ_map, runtime) catch |err| {
+    const java_command = selectJavaCommand(io, allocator, init.environ_map) catch |err| {
         std.debug.print("select_java_command failed: {}\n", .{err});
         return 1;
-    };
-
-    appendAotCacheOptions(io, allocator, &environ_map, java_command, runtime.jar_path, user_config.config_dir, &java_opts) catch |err| {
-        std.debug.print("WARN: append_aot_cache_options failed: {}\n", .{err});
     };
 
     // java [java_opts...] -jar <jar> [app_args...] [passthrough args...]
@@ -517,7 +521,7 @@ pub fn main(init: process.Init.Minimal) !u8 {
     try child_argv.append(allocator, runtime.jar_path);
     for (app_args.items) |arg| try child_argv.append(allocator, arg);
 
-    var args_iterator = try process.Args.iterateAllocator(init.args, allocator);
+    var args_iterator = try process.Args.iterateAllocator(init.minimal.args, allocator);
     defer args_iterator.deinit();
     _ = args_iterator.skip();
     while (args_iterator.next()) |arg| {
@@ -786,81 +790,9 @@ test "resolveUserConfigPaths: produces expected paths" {
     try env_map.put("XDG_CONFIG_HOME", "/tmp/testconfig");
 
     const paths = try resolveUserConfigPaths(allocator, &env_map);
-    defer allocator.free(paths.config_dir);
     defer allocator.free(paths.java_opts_path);
     defer allocator.free(paths.app_args_path);
 
-    try testing.expectEqualStrings("/tmp/testconfig/husi", paths.config_dir);
     try testing.expectEqualStrings("/tmp/testconfig/husi/desktop-java-opts.conf", paths.java_opts_path);
     try testing.expectEqualStrings("/tmp/testconfig/husi/desktop-app-args.conf", paths.app_args_path);
-}
-
-test "parseJavaMajorVersion: modern openjdk output" {
-    try testing.expectEqual(@as(?u32, 25), parseJavaMajorVersion("openjdk version \"25.0.4\" 2026-07-21\nOpenJDK Runtime Environment"));
-}
-
-test "parseJavaMajorVersion: single-component version" {
-    try testing.expectEqual(@as(?u32, 21), parseJavaMajorVersion("openjdk version \"21\" 2023-09-19"));
-}
-
-test "parseJavaMajorVersion: legacy 1.8 style" {
-    try testing.expectEqual(@as(?u32, 1), parseJavaMajorVersion("java version \"1.8.0_392\""));
-}
-
-test "parseJavaMajorVersion: garbage returns null" {
-    try testing.expectEqual(@as(?u32, null), parseJavaMajorVersion("command not found"));
-    try testing.expectEqual(@as(?u32, null), parseJavaMajorVersion("version \"\""));
-}
-
-fn makeBundledRuntime(io: Io, allocator: mem.Allocator, root: []const u8) ![]u8 {
-    const bin_dir = try Io.Dir.path.join(allocator, &.{ root, "runtime", "bin" });
-    defer allocator.free(bin_dir);
-    const runtime_dir = Io.Dir.path.dirname(bin_dir).?;
-    try Io.Dir.createDirAbsolute(io, runtime_dir, .default_dir);
-    try Io.Dir.createDirAbsolute(io, bin_dir, .default_dir);
-
-    const java_name = if (native_os == .windows) "javaw.exe" else "java";
-    const java_path = try Io.Dir.path.join(allocator, &.{ bin_dir, java_name });
-    const file = try Io.Dir.createFileAbsolute(io, java_path, .{ .truncate = true });
-    file.close(io);
-    return java_path;
-}
-
-test "resolveBundledRuntime: finds the runtime next to the launcher" {
-    const allocator = testing.allocator;
-    const io = testing.io;
-    var tmp_dir = testing.tmpDir(.{});
-    defer tmp_dir.cleanup();
-
-    const root = try tmpDirPath(io, tmp_dir, allocator, "");
-    defer allocator.free(root);
-    const expected = try makeBundledRuntime(io, allocator, root);
-    defer allocator.free(expected);
-
-    const paths = RuntimePaths{
-        .launcher_dir = root,
-        .app_root = root,
-        .jar_path = root,
-    };
-    const result = try resolveBundledRuntime(io, allocator, paths);
-    try testing.expect(result != null);
-    defer allocator.free(result.?);
-    try testing.expectEqualStrings(expected, result.?);
-}
-
-test "resolveBundledRuntime: no bundled runtime returns null" {
-    const allocator = testing.allocator;
-    const io = testing.io;
-    var tmp_dir = testing.tmpDir(.{});
-    defer tmp_dir.cleanup();
-
-    const root = try tmpDirPath(io, tmp_dir, allocator, "");
-    defer allocator.free(root);
-
-    const paths = RuntimePaths{
-        .launcher_dir = root,
-        .app_root = root,
-        .jar_path = root,
-    };
-    try testing.expect(try resolveBundledRuntime(io, allocator, paths) == null);
 }

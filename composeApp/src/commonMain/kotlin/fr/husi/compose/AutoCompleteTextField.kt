@@ -1,12 +1,10 @@
 package fr.husi.compose
 
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.MenuDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -18,13 +16,15 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.util.fastCoerceAtLeast
 import androidx.compose.ui.util.fastCoerceAtMost
 import fr.husi.compose.material3.Text
 
 @Composable
 fun <T> AutoCompleteTextField(
-    state: TextFieldState,
+    value: TextFieldValue,
+    onValueChange: (TextFieldValue) -> Unit,
     onOk: () -> Unit,
     suggestions: List<T>,
     onChooseSuggestion: (T) -> Unit,
@@ -35,26 +35,27 @@ fun <T> AutoCompleteTextField(
 ) {
     // Suggestions are for typing, so an untouched field starts without them, even if its initial
     // value already has something to suggest.
-    var dismissedText by remember(state) { mutableStateOf(state.text.toString()) }
+    var allowExpanded by remember { mutableStateOf(false) }
     var selectedIndex by remember { mutableIntStateOf(0) }
-    val text = state.text.toString()
-    val expanded = enabled && text != dismissedText && suggestions.isNotEmpty()
-    LaunchedEffect(text) {
-        selectedIndex = 0
-    }
+    val expanded = enabled && allowExpanded && suggestions.isNotEmpty()
 
     ExposedDropdownMenuBox(
         expanded = expanded,
         onExpandedChange = { expand ->
             // Typing is what opens the menu, so only closing is honored here.
             if (!expand) {
-                dismissedText = state.text.toString()
+                allowExpanded = false
             }
         },
         modifier = modifier,
     ) {
         MultilineTextField(
-            state = state,
+            value = value,
+            onValueChange = {
+                allowExpanded = true
+                selectedIndex = 0
+                onValueChange(it)
+            },
             onOk = onOk,
             modifier = Modifier
                 // Hijack key event before menu anchor to prevent the original logic,
@@ -81,9 +82,9 @@ fun <T> AutoCompleteTextField(
 
                         Key.Tab -> {
                             if (keyEvent.type == KeyEventType.KeyDown) {
+                                allowExpanded = false
                                 val index = selectedIndex.takeIf { it in suggestions.indices } ?: 0
                                 onChooseSuggestion(suggestions[index])
-                                dismissedText = state.text.toString()
                             }
                             true
                         }
@@ -99,7 +100,7 @@ fun <T> AutoCompleteTextField(
 
         ExposedDropdownMenu(
             expanded = expanded,
-            onDismissRequest = { dismissedText = state.text.toString() },
+            onDismissRequest = { allowExpanded = false },
             containerColor = MenuDefaults.groupStandardContainerColor,
             shape = MenuDefaults.standaloneGroupShape,
         ) {
@@ -107,8 +108,8 @@ fun <T> AutoCompleteTextField(
                 suggestions = suggestions,
                 selectedIndex = selectedIndex,
                 onChooseSuggestion = { suggestion ->
+                    allowExpanded = false
                     onChooseSuggestion(suggestion)
-                    dismissedText = state.text.toString()
                 },
                 itemContent = { Text(displaySuggestion(it)) },
             )

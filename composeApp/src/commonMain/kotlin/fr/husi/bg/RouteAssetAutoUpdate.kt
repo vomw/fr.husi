@@ -32,8 +32,8 @@ object RouteAssetAutoUpdatePlanner {
 
     suspend fun plan(): RouteAssetAutoUpdatePlan? {
         return plan(
-            globalAutoUpdateDelayMinutes = DataStore.routeAssetsAutoUpdateDelay.get(),
-            globalLastUpdatedSeconds = DataStore.routeAssetsLastUpdated.get(),
+            globalAutoUpdateDelayMinutes = DataStore.routeAssetsAutoUpdateDelay,
+            globalLastUpdatedSeconds = DataStore.routeAssetsLastUpdated,
             assets = loadAutoUpdateAssets(),
             nowSeconds = currentEpochSeconds(),
         )
@@ -61,7 +61,7 @@ object RouteAssetAutoUpdatePlanner {
 
     suspend fun loadAutoUpdateAssets(): List<AssetEntity> {
         return SagerDatabase.assetDao.getAll().first()
-            .filter { AutoUpdateInterval(it.autoUpdateDelay).isEnabled }
+            .filter { it.autoUpdateDelay > 0 }
     }
 }
 
@@ -70,12 +70,7 @@ object RouteAssetAutoUpdateRunner {
     suspend fun run(nowSeconds: Long = currentEpochSeconds()) {
         val repository = resolveRepository()
 
-        if (isManagedAssetsDue(
-                DataStore.routeAssetsAutoUpdateDelay.get(),
-                DataStore.routeAssetsLastUpdated.get(),
-                nowSeconds,
-            )
-        ) {
+        if (isManagedAssetsDue(DataStore.routeAssetsAutoUpdateDelay, DataStore.routeAssetsLastUpdated, nowSeconds)) {
             runCatching {
                 Logs.d("auto update: updating managed route assets")
                 updateManagedRouteAssets(
@@ -111,19 +106,20 @@ object RouteAssetAutoUpdateRunner {
         globalLastUpdatedSeconds: Long,
         nowSeconds: Long,
     ): Boolean {
-        val candidate = managedRouteAssetCandidate(
+        if (globalAutoUpdateDelayMinutes <= 0) return false
+        return managedRouteAssetCandidate(
             globalAutoUpdateDelayMinutes = globalAutoUpdateDelayMinutes,
             globalLastUpdatedSeconds = globalLastUpdatedSeconds,
             nowSeconds = nowSeconds,
-        ) ?: return false
-        return candidate.secondsUntilDue <= 0L
+        ).secondsUntilDue <= 0L
     }
 
     fun dueAssets(
         assets: List<AssetEntity>,
         nowSeconds: Long,
     ): List<AssetEntity> {
-        return assets.mapNotNull { customRouteAssetCandidate(it, nowSeconds) }
+        return assets.filter { it.autoUpdateDelay > 0 }
+            .map { customRouteAssetCandidate(it, nowSeconds) }
             .filter { it.secondsUntilDue <= 0L }
             .map(CustomRouteAssetAutoUpdateCandidate::asset)
     }
@@ -136,13 +132,19 @@ private fun routeAssetAutoUpdateCandidates(
     nowSeconds: Long,
 ): List<RouteAssetAutoUpdateCandidate> {
     return buildList {
-        managedRouteAssetCandidate(
-            globalAutoUpdateDelayMinutes = globalAutoUpdateDelayMinutes,
-            globalLastUpdatedSeconds = globalLastUpdatedSeconds,
-            nowSeconds = nowSeconds,
-        )?.let(::add)
+        if (globalAutoUpdateDelayMinutes > 0) {
+            add(
+                managedRouteAssetCandidate(
+                    globalAutoUpdateDelayMinutes = globalAutoUpdateDelayMinutes,
+                    globalLastUpdatedSeconds = globalLastUpdatedSeconds,
+                    nowSeconds = nowSeconds,
+                ),
+            )
+        }
         for (asset in assets) {
-            customRouteAssetCandidate(asset, nowSeconds)?.let(::add)
+            if (asset.autoUpdateDelay > 0) {
+                add(customRouteAssetCandidate(asset, nowSeconds))
+            }
         }
     }
 }
@@ -151,14 +153,13 @@ private fun managedRouteAssetCandidate(
     globalAutoUpdateDelayMinutes: Int,
     globalLastUpdatedSeconds: Long,
     nowSeconds: Long,
-): ManagedRouteAssetAutoUpdateCandidate? {
-    val interval = AutoUpdateInterval(globalAutoUpdateDelayMinutes)
-    if (!interval.isEnabled) return null
-
+): ManagedRouteAssetAutoUpdateCandidate {
+    val repeatIntervalMinutes = effectiveRouteAssetDelayMinutes(globalAutoUpdateDelayMinutes)
     return ManagedRouteAssetAutoUpdateCandidate(
-        repeatIntervalMinutes = interval.minutes,
-        secondsUntilDue = interval.secondsUntilDue(
+        repeatIntervalMinutes = repeatIntervalMinutes,
+        secondsUntilDue = routeAssetSecondsUntilDue(
             lastUpdatedSeconds = globalLastUpdatedSeconds,
+            repeatIntervalMinutes = repeatIntervalMinutes,
             nowSeconds = nowSeconds,
         ),
     )
@@ -167,18 +168,31 @@ private fun managedRouteAssetCandidate(
 private fun customRouteAssetCandidate(
     asset: AssetEntity,
     nowSeconds: Long,
-): CustomRouteAssetAutoUpdateCandidate? {
-    val interval = AutoUpdateInterval(asset.autoUpdateDelay)
-    if (!interval.isEnabled) return null
-
+): CustomRouteAssetAutoUpdateCandidate {
+    val repeatIntervalMinutes = effectiveRouteAssetDelayMinutes(asset.autoUpdateDelay)
     return CustomRouteAssetAutoUpdateCandidate(
         asset = asset,
-        repeatIntervalMinutes = interval.minutes,
-        secondsUntilDue = interval.secondsUntilDue(
+        repeatIntervalMinutes = repeatIntervalMinutes,
+        secondsUntilDue = routeAssetSecondsUntilDue(
             lastUpdatedSeconds = asset.lastUpdated,
+            repeatIntervalMinutes = repeatIntervalMinutes,
             nowSeconds = nowSeconds,
         ),
     )
+}
+
+private fun effectiveRouteAssetDelayMinutes(autoUpdateDelayMinutes: Int): Int {
+    return autoUpdateDelayMinutes.coerceAtLeast(1)
+}
+
+private fun routeAssetSecondsUntilDue(
+    lastUpdatedSeconds: Long,
+    repeatIntervalMinutes: Int,
+    nowSeconds: Long,
+): Long {
+    val elapsedSeconds = nowSeconds - lastUpdatedSeconds
+    val delaySeconds = repeatIntervalMinutes.toLong() * 60L
+    return (delaySeconds - elapsedSeconds).coerceAtLeast(0L)
 }
 
 expect object RouteAssetUpdater {

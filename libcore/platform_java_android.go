@@ -1,5 +1,3 @@
-//go:build android
-
 package libcore
 
 // PlatformInterface also named "iif".
@@ -7,12 +5,14 @@ type PlatformInterface interface {
 	LocalDNSTransport() LocalDNSTransport
 	AutoDetectInterfaceControl(fd int32) bool
 	OpenTun() (int32, error)
+	UseProcFS() bool
 	FindConnectionOwner(ipProtocol int32, sourceAddress string, sourcePort int32, destinationAddress string, destinationPort int32) (*ConnectionOwner, error)
 	ReadWIFIState() WIFIState
 	StartDefaultInterfaceMonitor(listener InterfaceUpdateListener) error
 	CloseDefaultInterfaceMonitor(listener InterfaceUpdateListener) error
 	GetInterfaces() (NetworkInterfaceIterator, error)
-	// TailscaleHostname is the device name a Tailscale endpoint registers with when its
-	// hostname is unset.
-	TailscaleHostname() string
+
+	OnGroupSelectedChange(group, old, now string)
+	OnDeepLink(deepLink string)
+	OnTask(taskID string)
 }

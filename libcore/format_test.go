@@ -3,20 +3,20 @@ package libcore
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/xchacha20-poly1305/husi/libcore/v2/pb/husi/v1"
 )
 
 func TestGenerateSchema(t *testing.T) {
-	tests := map[husiv1.SchemaKind][]string{
-		husiv1.SchemaKind_SCHEMA_KIND_CONFIG:   {`"log"`, `"outbounds"`},
-		husiv1.SchemaKind_SCHEMA_KIND_OUTBOUND: {`"direct"`},
-		husiv1.SchemaKind_SCHEMA_KIND_DNS_RULE: {`"domain"`},
+	tests := map[string]func() (string, error){
+		"config":   GenerateConfigSchema,
+		"outbound": GenerateOutboundSchema,
+		"DNS rule": GenerateDNSRuleSchema,
 	}
-	for kind, wantContents := range tests {
-		t.Run(kind.String(), func(t *testing.T) {
-			content, err := generateSchema(kind)
+	for name, generate := range tests {
+		t.Run(name, func(t *testing.T) {
+			content, err := generate()
 			if !assert.NoError(t, err) {
 				return
 			}
@@ -25,9 +25,6 @@ func TestGenerateSchema(t *testing.T) {
 			if assert.NoError(t, json.Unmarshal([]byte(content), &generated)) {
 				assert.Contains(t, generated, "$defs")
 				assert.Contains(t, content, `"$ref"`)
-			}
-			for _, want := range wantContents {
-				assert.Contains(t, content, want)
 			}
 		})
 	}
@@ -96,72 +93,13 @@ func Test_FormatConfig(t *testing.T) {
 
 	for _, test := range tt {
 		t.Run(test.name, func(t *testing.T) {
-			formatted, err := formatConfig(test.config)
+			formatted, err := FormatConfig(test.config)
 			if test.wantErr {
 				assert.Error(t, err)
 				return
 			}
 			if assert.NoError(t, err) {
 				assert.NotEmpty(t, formatted)
-			}
-		})
-	}
-}
-
-func Test_FormatConfig_KeepComments(t *testing.T) {
-	tt := []struct {
-		name   string
-		config string
-		want   string
-	}{
-		{
-			name: "Line",
-			config: `{
-// ntp
-"ntp": {"server": "time.apple.com"}
-}`,
-			want: "// ntp",
-		},
-		{
-			name: "Hash",
-			config: `{
-# ntp
-"ntp": {"server": "time.apple.com"}
-}`,
-			want: "# ntp",
-		},
-		{
-			name: "Block",
-			config: `{
-/* ntp */
-"ntp": {"server": "time.apple.com"}
-}`,
-			want: "/* ntp */",
-		},
-		{
-			name: "Trailing",
-			config: `{
-"ntp": {"server": "time.apple.com"} // ntp
-}`,
-			want: "// ntp",
-		},
-		{
-			name: "Nested",
-			config: `{
-"outbounds": [
-// direct
-{"type": "direct", "tag": "direct"}
-]
-}`,
-			want: "// direct",
-		},
-	}
-
-	for _, test := range tt {
-		t.Run(test.name, func(t *testing.T) {
-			formatted, err := formatConfig(test.config)
-			if assert.NoError(t, err) {
-				assert.Contains(t, formatted, test.want)
 			}
 		})
 	}
@@ -202,12 +140,103 @@ func Test_CheckConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := checkConfig(tt.config)
+			err := CheckConfig(tt.config)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
 			}
+		})
+	}
+}
+
+func Test_ParseDuration(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		want    int64
+		wantErr bool
+	}{
+		{
+			name:    "valid duration",
+			raw:     "30s",
+			want:    int64(30 * time.Second),
+			wantErr: false,
+		},
+		{
+			name:    "valid duration with milliseconds",
+			raw:     "30.5s",
+			want:    int64(30500 * time.Millisecond),
+			wantErr: false,
+		},
+		{
+			name:    "valid duration with microseconds",
+			raw:     "30.000005s",
+			want:    int64(30000005 * time.Microsecond),
+			wantErr: false,
+		},
+
+		{
+			name:    "valid duration with nanoseconds",
+			raw:     "30.000000005s",
+			want:    int64(30000000005 * time.Nanosecond),
+			wantErr: false,
+		},
+
+		{
+			name:    "zero duration",
+			raw:     "0s",
+			want:    0,
+			wantErr: false,
+		},
+		{
+			name:    "negative duration",
+			raw:     "-30s",
+			want:    int64(-30 * time.Second),
+			wantErr: false,
+		},
+		{
+			name:    "invalid duration",
+			raw:     "invalid",
+			want:    0,
+			wantErr: true,
+		},
+		{
+			name:    "empty duration",
+			raw:     "",
+			want:    0,
+			wantErr: true,
+		},
+
+		{
+			name:    "minutes",
+			raw:     "1m",
+			want:    int64(time.Minute),
+			wantErr: false,
+		},
+		{
+			name:    "hours",
+			raw:     "1h",
+			want:    int64(time.Hour),
+			wantErr: false,
+		},
+
+		{
+			name:    "days",
+			raw:     "24h", // One day
+			want:    int64(24 * time.Hour),
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseDuration(tt.raw)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }

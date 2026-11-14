@@ -9,9 +9,11 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
+import com.esotericsoftware.kryo.io.ByteBufferInput
+import com.esotericsoftware.kryo.io.ByteBufferOutput
 import fr.husi.ProtocolProvider
 import fr.husi.fmt.AbstractBean
-import fr.husi.fmt.BeanConverters
+import fr.husi.fmt.KryoConverters
 import fr.husi.fmt.Serializable
 import fr.husi.fmt.anytls.AnyTLSBean
 import fr.husi.fmt.anytls.toUri
@@ -30,7 +32,6 @@ import fr.husi.fmt.internal.ProxySetBean
 import fr.husi.fmt.juicity.JuicityBean
 import fr.husi.fmt.juicity.buildJuicityConfig
 import fr.husi.fmt.juicity.toUri
-import fr.husi.fmt.masque.MASQUEBean
 import fr.husi.fmt.mieru.MieruBean
 import fr.husi.fmt.mieru.buildMieruConfig
 import fr.husi.fmt.mieru.toUri
@@ -48,8 +49,6 @@ import fr.husi.fmt.socks.SOCKSBean
 import fr.husi.fmt.socks.toUri
 import fr.husi.fmt.ssh.SSHBean
 import fr.husi.fmt.toUniversalLink
-import fr.husi.fmt.tailscale.TailcatBean
-import fr.husi.fmt.tailscale.TailscaleBean
 import fr.husi.fmt.trojan.TrojanBean
 import fr.husi.fmt.trusttunnel.TrustTunnelBean
 import fr.husi.fmt.trusttunnel.toUri
@@ -61,8 +60,6 @@ import fr.husi.fmt.v2ray.toUriVMessVLESSTrojan
 import fr.husi.fmt.wireguard.WireGuardBean
 import fr.husi.fmt.openconnect.OpenConnectBean
 import fr.husi.fmt.openvpn.OpenVPNBean
-import fr.husi.io.BinaryInput
-import fr.husi.io.BinaryOutput
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.runBlocking
@@ -95,9 +92,6 @@ data class ProxyEntity(
     var wgBean: WireGuardBean? = null,
     var openConnectBean: OpenConnectBean? = null,
     var openVPNBean: OpenVPNBean? = null,
-    var masqueBean: MASQUEBean? = null,
-    var tailscaleBean: TailscaleBean? = null,
-    var tailcatBean: TailcatBean? = null,
     var shadowTLSBean: ShadowTLSBean? = null,
     var directBean: DirectBean? = null,
     var anyTLSBean: AnyTLSBean? = null,
@@ -134,9 +128,6 @@ data class ProxyEntity(
         const val TYPE_SNELL = 28
         const val TYPE_OPENCONNECT = 29
         const val TYPE_OPENVPN = 30
-        const val TYPE_MASQUE = 31
-        const val TYPE_TAILSCALE = 32
-        const val TYPE_TAILCAT = 33
         const val TYPE_CONFIG = 998
         const val TYPE_NEKO = 999 // Deleted
 
@@ -171,7 +162,7 @@ data class ProxyEntity(
     override fun initializeDefaultValues() {
     }
 
-    override fun serializeToBuffer(output: BinaryOutput) {
+    override fun serializeToBuffer(output: ByteBufferOutput) {
         output.writeInt(1)
 
         output.writeLong(id)
@@ -184,14 +175,14 @@ data class ProxyEntity(
         output.writeInt(ping)
         output.writeString(error)
 
-        val data = BeanConverters.serialize(requireBean())
+        val data = KryoConverters.serialize(requireBean())
         output.writeVarInt(data.size, true)
         output.writeBytes(data)
 
         output.writeBoolean(dirty)
     }
 
-    override fun deserializeFromBuffer(input: BinaryInput) {
+    override fun deserializeFromBuffer(input: ByteBufferInput) {
         val version = input.readInt()
 
         id = input.readLong()
@@ -206,7 +197,7 @@ data class ProxyEntity(
             // useless uuid
             input.readString()
         }
-        error = input.readNullableString()
+        error = input.readString()
         putByteArray(input.readBytes(input.readVarInt(true)))
 
         dirty = input.readBoolean()
@@ -215,33 +206,30 @@ data class ProxyEntity(
 
     fun putByteArray(byteArray: ByteArray) {
         when (type) {
-            TYPE_SOCKS -> socksBean = BeanConverters.socksDeserialize(byteArray)
-            TYPE_HTTP -> httpBean = BeanConverters.httpDeserialize(byteArray)
-            TYPE_SS -> ssBean = BeanConverters.shadowsocksDeserialize(byteArray)
-            TYPE_SNELL -> snellBean = BeanConverters.snellDeserialize(byteArray)
-            TYPE_VMESS -> vmessBean = BeanConverters.vmessDeserialize(byteArray)
-            TYPE_VLESS -> vlessBean = BeanConverters.vlessDeserialize(byteArray)
-            TYPE_TROJAN -> trojanBean = BeanConverters.trojanDeserialize(byteArray)
-            TYPE_MIERU -> mieruBean = BeanConverters.mieruDeserialize(byteArray)
-            TYPE_NAIVE -> naiveBean = BeanConverters.naiveDeserialize(byteArray)
-            TYPE_HYSTERIA -> hysteriaBean = BeanConverters.hysteriaDeserialize(byteArray)
-            TYPE_SSH -> sshBean = BeanConverters.sshDeserialize(byteArray)
-            TYPE_WG -> wgBean = BeanConverters.wireguardDeserialize(byteArray)
-            TYPE_OPENCONNECT -> openConnectBean = BeanConverters.openConnectDeserialize(byteArray)
-            TYPE_OPENVPN -> openVPNBean = BeanConverters.openVPNDeserialize(byteArray)
-            TYPE_MASQUE -> masqueBean = BeanConverters.masqueDeserialize(byteArray)
-            TYPE_TAILSCALE -> tailscaleBean = BeanConverters.tailscaleDeserialize(byteArray)
-            TYPE_TAILCAT -> tailcatBean = BeanConverters.tailcatDeserialize(byteArray)
-            TYPE_TUIC -> tuicBean = BeanConverters.tuicDeserialize(byteArray)
-            TYPE_JUICITY -> juicityBean = BeanConverters.juicityDeserialize(byteArray)
-            TYPE_DIRECT -> directBean = BeanConverters.directDeserialize(byteArray)
-            TYPE_SHADOWTLS -> shadowTLSBean = BeanConverters.shadowTLSDeserialize(byteArray)
-            TYPE_ANYTLS -> anyTLSBean = BeanConverters.anyTLSDeserialize(byteArray)
-            TYPE_SHADOWQUIC -> shadowQUICBean = BeanConverters.shadowQUICDeserialize(byteArray)
-            TYPE_PROXY_SET -> proxySetBean = BeanConverters.proxySetDeserialize(byteArray)
-            TYPE_TRUST_TUNNEL -> trustTunnelBean = BeanConverters.trustTunnelDeserialize(byteArray)
-            TYPE_CHAIN -> chainBean = BeanConverters.chainDeserialize(byteArray)
-            TYPE_CONFIG -> configBean = BeanConverters.configDeserialize(byteArray)
+            TYPE_SOCKS -> socksBean = KryoConverters.socksDeserialize(byteArray)
+            TYPE_HTTP -> httpBean = KryoConverters.httpDeserialize(byteArray)
+            TYPE_SS -> ssBean = KryoConverters.shadowsocksDeserialize(byteArray)
+            TYPE_SNELL -> snellBean = KryoConverters.snellDeserialize(byteArray)
+            TYPE_VMESS -> vmessBean = KryoConverters.vmessDeserialize(byteArray)
+            TYPE_VLESS -> vlessBean = KryoConverters.vlessDeserialize(byteArray)
+            TYPE_TROJAN -> trojanBean = KryoConverters.trojanDeserialize(byteArray)
+            TYPE_MIERU -> mieruBean = KryoConverters.mieruDeserialize(byteArray)
+            TYPE_NAIVE -> naiveBean = KryoConverters.naiveDeserialize(byteArray)
+            TYPE_HYSTERIA -> hysteriaBean = KryoConverters.hysteriaDeserialize(byteArray)
+            TYPE_SSH -> sshBean = KryoConverters.sshDeserialize(byteArray)
+            TYPE_WG -> wgBean = KryoConverters.wireguardDeserialize(byteArray)
+            TYPE_OPENCONNECT -> openConnectBean = KryoConverters.openConnectDeserialize(byteArray)
+            TYPE_OPENVPN -> openVPNBean = KryoConverters.openVPNDeserialize(byteArray)
+            TYPE_TUIC -> tuicBean = KryoConverters.tuicDeserialize(byteArray)
+            TYPE_JUICITY -> juicityBean = KryoConverters.juicityDeserialize(byteArray)
+            TYPE_DIRECT -> directBean = KryoConverters.directDeserialize(byteArray)
+            TYPE_SHADOWTLS -> shadowTLSBean = KryoConverters.shadowTLSDeserialize(byteArray)
+            TYPE_ANYTLS -> anyTLSBean = KryoConverters.anyTLSDeserialize(byteArray)
+            TYPE_SHADOWQUIC -> shadowQUICBean = KryoConverters.shadowQUICDeserialize(byteArray)
+            TYPE_PROXY_SET -> proxySetBean = KryoConverters.proxySetDeserialize(byteArray)
+            TYPE_TRUST_TUNNEL -> trustTunnelBean = KryoConverters.trustTunnelDeserialize(byteArray)
+            TYPE_CHAIN -> chainBean = KryoConverters.chainDeserialize(byteArray)
+            TYPE_CONFIG -> configBean = KryoConverters.configDeserialize(byteArray)
         }
     }
 
@@ -249,7 +237,7 @@ data class ProxyEntity(
     fun displayAddress() = requireBean().displayAddress()
     fun displayNameForService(): String {
         val profileName = displayName()
-        val groupName = if (DataStore.showGroupInNotification.getBlocking()) runBlocking {
+        val groupName = if (DataStore.showGroupInNotification) runBlocking {
             SagerDatabase.groupDao.getById(groupId).firstOrNull()?.displayName()
         } else {
             null
@@ -273,9 +261,6 @@ data class ProxyEntity(
             TYPE_WG -> wgBean
             TYPE_OPENCONNECT -> openConnectBean
             TYPE_OPENVPN -> openVPNBean
-            TYPE_MASQUE -> masqueBean
-            TYPE_TAILSCALE -> tailscaleBean
-            TYPE_TAILCAT -> tailcatBean
             TYPE_TUIC -> tuicBean
             TYPE_JUICITY -> juicityBean
             TYPE_DIRECT -> directBean
@@ -307,9 +292,6 @@ data class ProxyEntity(
         TYPE_CHAIN -> false
         TYPE_CONFIG -> false
         TYPE_SNELL -> false
-        TYPE_MASQUE -> false
-        TYPE_TAILSCALE -> false
-        TYPE_TAILCAT -> false
         TYPE_SHADOWQUIC -> shadowQUICBean!!.subProtocol == ShadowQUICBean.SUB_PROTOCOL_SHADOW_QUIC
         else -> true
     }
@@ -349,18 +331,18 @@ data class ProxyEntity(
 
     private val exportName get() = "${requireBean().displayName()}.json"
 
-    suspend fun exportConfig(): Pair<String, String> {
+    fun exportConfig(): Pair<String, String> {
         return with(requireBean()) {
             StringBuilder().apply {
                 val config = buildConfig(this@ProxyEntity, forExport = true)
-                append(config.configJson)
+                append(config.config)
 
-                if (!config.metadata.externalIndex.all { it.chain.isEmpty() }) {
+                if (!config.externalIndex.all { it.chain.isEmpty() }) {
                     name = "profiles.txt"
                 }
 
-                val logLevel = DataStore.logLevel.get()
-                for ((chain) in config.metadata.externalIndex) {
+                val logLevel = DataStore.logLevel
+                for ((chain) in config.externalIndex) {
                     chain.entries.forEach { (port, profile) ->
                         when (val bean = profile.requireBean()) {
                             is MieruBean -> {
@@ -394,9 +376,9 @@ data class ProxyEntity(
         } to exportName
     }
 
-    suspend fun exportOutbound(): Pair<String, String> = buildSingBoxOutbound(requireBean()) to exportName
+    fun exportOutbound(): Pair<String, String> = buildSingBoxOutbound(requireBean()) to exportName
 
-    suspend fun needExternal(): Boolean {
+    fun needExternal(): Boolean {
         return when (type) {
             TYPE_MIERU -> true
             TYPE_SHADOWQUIC -> true
@@ -405,8 +387,7 @@ data class ProxyEntity(
 
             TYPE_JUICITY -> {
                 // https://github.com/juicity/juicity/issues/140
-                !DataStore.enableFakeDns.get() &&
-                    DataStore.providerJuicity.get() != ProtocolProvider.CORE
+                !DataStore.enableFakeDns && DataStore.providerJuicity != ProtocolProvider.CORE
             }
 
             TYPE_NAIVE -> {
@@ -420,7 +401,7 @@ data class ProxyEntity(
                 if (bean.tunnelTimeout > 0 || bean.idleTimeout > 0) {
                     return true
                 }
-                DataStore.providerNaive.get() == ProtocolProvider.PLUGIN
+                DataStore.providerNaive == ProtocolProvider.PLUGIN
             }
 
             else -> false
@@ -441,9 +422,6 @@ data class ProxyEntity(
         wgBean = null
         openConnectBean = null
         openVPNBean = null
-        masqueBean = null
-        tailscaleBean = null
-        tailcatBean = null
         tuicBean = null
         juicityBean = null
         directBean = null
@@ -527,21 +505,6 @@ data class ProxyEntity(
                 openVPNBean = bean
             }
 
-            is MASQUEBean -> {
-                type = TYPE_MASQUE
-                masqueBean = bean
-            }
-
-            is TailscaleBean -> {
-                type = TYPE_TAILSCALE
-                tailscaleBean = bean
-            }
-
-            is TailcatBean -> {
-                type = TYPE_TAILCAT
-                tailcatBean = bean
-            }
-
             is TuicBean -> {
                 type = TYPE_TUIC
                 tuicBean = bean
@@ -603,17 +566,14 @@ data class ProxyEntity(
         @Query("select * from proxy_entities")
         suspend fun getAll(): List<ProxyEntity>
 
-        @Query("SELECT id FROM proxy_entities WHERE groupId = :groupId ORDER BY userOrder, id")
+        @Query("SELECT id FROM proxy_entities WHERE groupId = :groupId ORDER BY userOrder")
         suspend fun getIdsByGroup(groupId: Long): List<Long>
 
-        @Query("SELECT * FROM proxy_entities WHERE groupId = :groupId ORDER BY userOrder, id")
+        @Query("SELECT * FROM proxy_entities WHERE groupId = :groupId ORDER BY userOrder")
         fun getByGroup(groupId: Long): Flow<List<ProxyEntity>>
 
         @Query("SELECT * FROM proxy_entities WHERE id in (:proxyIds)")
         suspend fun getEntities(proxyIds: List<Long>): List<ProxyEntity>
-
-        @Query("SELECT * FROM proxy_entities WHERE type = :type ORDER BY groupId, userOrder, id")
-        suspend fun getByType(type: Int): List<ProxyEntity>
 
         @Query("SELECT COUNT(*) FROM proxy_entities WHERE groupId = :groupId")
         fun countByGroup(groupId: Long): Flow<Long>
@@ -662,7 +622,7 @@ data class ProxyEntity(
 
         /**
          * Though UI disallow edit config when it is running,
-         * but like chain members still can be edited when running.
+         * but like chain and front/landing proxy still can be edited when running.
          * This can just update the traffic of a proxy entity when not influence other settings.
          */
         @Query(

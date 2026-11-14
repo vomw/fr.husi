@@ -6,8 +6,8 @@ pluginManagement {
         maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
     }
     plugins {
-        id("org.jetbrains.kotlin.plugin.compose") version "2.4.21"
-        id("org.jetbrains.compose") version "1.12.2"
+        id("org.jetbrains.kotlin.plugin.compose") version "2.4.10"
+        id("org.jetbrains.compose") version "1.11.1"
     }
 }
 
@@ -35,12 +35,6 @@ when {
 
 include(":androidApp")
 include(":composeApp")
-include(":proto")
 include(":library:DragDropSwipeLazyColumn")
-include(":library:ComposePreference")
-project(":library:ComposePreference").apply {
-    projectDir = file("library/ComposePreference/preference")
-    buildFileName = "husi.gradle.kts"
-}
 
 rootProject.name = "husi"

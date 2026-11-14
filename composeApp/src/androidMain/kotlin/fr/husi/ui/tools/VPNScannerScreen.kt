@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -37,8 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.accompanist.drawablepainter.rememberDrawablePainter
-import dev.chrisbanes.haze.hazeSource
-import dev.chrisbanes.haze.rememberHazeState
+import fr.husi.compose.CapsuleActionButton
 import fr.husi.compose.CapsuleTopBar
 import fr.husi.compose.KeyValueLine
 import fr.husi.compose.SimpleIconButton
@@ -52,18 +52,19 @@ import fr.husi.resources.back
 import fr.husi.resources.cached
 import fr.husi.resources.refresh
 import fr.husi.resources.scan_vpn_app
-import fr.husi.resources.unknown
 import fr.husi.resources.vpn_app_type
 import fr.husi.resources.vpn_app_type_other
 import fr.husi.resources.vpn_core_path
 import fr.husi.resources.vpn_core_type
+import fr.husi.resources.vpn_core_type_unknown
 import fr.husi.resources.vpn_golang_version
-import fr.husi.ui.PreviewContainer
+import fr.husi.ui.ensurePreviewRepository
 import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.vectorResource
 
 private const val TYPE_ITEM_CARD = 0
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal actual fun VPNScannerScreen(
     modifier: Modifier,
@@ -77,7 +78,6 @@ internal actual fun VPNScannerScreen(
 
     val windowInsets = WindowInsets.safeDrawing
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
-    val hazeState = rememberHazeState()
 
     LaunchedEffect(Unit) {
         viewModel.scanVPN(context.packageManager)
@@ -94,7 +94,6 @@ internal actual fun VPNScannerScreen(
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             CapsuleTopBar(
-                hazeState = hazeState,
                 navigationIcon = {
                     SimpleIconButton(
                         imageVector = vectorResource(Res.drawable.arrow_back),
@@ -118,11 +117,7 @@ internal actual fun VPNScannerScreen(
             )
         },
     ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .hazeSource(hazeState),
-        ) {
+        Column(modifier = Modifier.fillMaxSize()) {
             uiState.progress?.let {
                 LinearWavyProgressIndicator(
                     progress = { it },
@@ -200,7 +195,7 @@ internal actual fun VPNScannerScreen(
                             KeyValueLine(
                                 key = stringResource(Res.string.vpn_core_type),
                                 value = it.vpnType.coreType?.coreType
-                                    ?: stringResource(Res.string.unknown),
+                                    ?: stringResource(Res.string.vpn_core_type_unknown),
                             )
                             it.vpnType.coreType?.corePath?.blankAsNull()?.let { corePath ->
                                 KeyValueLine(
@@ -225,9 +220,9 @@ internal actual fun VPNScannerScreen(
 @Preview
 @Composable
 private fun PreviewVPNScannerScreen() {
-    PreviewContainer {
-        VPNScannerScreen(
-            onBackPress = {},
-        )
-    }
+    ensurePreviewRepository()
+
+    VPNScannerScreen(
+        onBackPress = {},
+    )
 }

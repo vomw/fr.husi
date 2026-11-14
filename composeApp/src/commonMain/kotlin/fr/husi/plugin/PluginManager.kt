@@ -1,8 +1,10 @@
 package fr.husi.plugin
 
+import fr.husi.ExpectedException
 import java.io.FileNotFoundException
 
-class PluginNotFoundException(val plugin: String) : FileNotFoundException(plugin)
+class PluginNotFoundException(val plugin: String) : FileNotFoundException(plugin),
+    ExpectedException
 
 data class PluginInitResult(
     val path: String,

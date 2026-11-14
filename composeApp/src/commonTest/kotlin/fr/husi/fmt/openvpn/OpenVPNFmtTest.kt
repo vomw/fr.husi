@@ -10,12 +10,11 @@ import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.test.assertFailsWith
-import kotlinx.coroutines.test.runTest
 
 class OpenVPNFmtTest {
 
     @Test
-    fun `endpoint maps transport authentication and TLS material`() = runTest {
+    fun `endpoint maps transport authentication and TLS material`() {
         val endpoint = buildSingBoxEndpointOpenVPNBean(OpenVPNBean().apply {
             serverAddress = "vpn.example.com"
             serverPort = 443
@@ -320,46 +319,22 @@ class OpenVPNFmtTest {
     }
 
     @Test
-    fun `parseOpenVPNConfig discards unpaired client certificate`() {
-        val bean = parseOpenVPNConfig(
-            """
-            remote vpn.example.com 443
-            client-cert-not-required
-            <ca>
-            test-ca
-            </ca>
-            <cert>
-            test-client-cert
-            </cert>
-            <auth-user-pass>
-            test-user
-            test-password
-            </auth-user-pass>
-            """.trimIndent(),
-        )
+    fun `parseOpenVPNConfig rejects unpaired client certificate`() {
+        val error = assertFailsWith<IllegalStateException> {
+            parseOpenVPNConfig(
+                """
+                remote vpn.example.com 443
+                <ca>
+                test-ca
+                </ca>
+                <cert>
+                test-client-cert
+                </cert>
+                """.trimIndent(),
+            )
+        }
 
-        assertEquals("", bean.clientCertificate)
-        assertEquals("", bean.clientKey)
-        assertEquals("test-user", bean.username)
-        assertEquals("test-password", bean.password)
-    }
-
-    @Test
-    fun `parseOpenVPNConfig discards unpaired client key`() {
-        val bean = parseOpenVPNConfig(
-            """
-            remote vpn.example.com 443
-            <ca>
-            test-ca
-            </ca>
-            <key>
-            test-client-key
-            </key>
-            """.trimIndent(),
-        )
-
-        assertEquals("", bean.clientCertificate)
-        assertEquals("", bean.clientKey)
+        assertEquals("OpenVPN client certificate and private key must be provided together.", error.message)
     }
 
     @Test

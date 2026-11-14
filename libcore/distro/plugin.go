@@ -1,17 +1,18 @@
 package distro
 
 import (
-	"github.com/sagernet/sing-box/adapter/outbound"
+	_ "libcore/combinedapi"
+	"libcore/plugin/http"
+	"libcore/plugin/juicity"
+	"libcore/plugin/trusttunnel"
+	"libcore/plugin/vless"
 
-	"github.com/xchacha20-poly1305/husi/libcore/v2/plugin/balancer"
-	"github.com/xchacha20-poly1305/husi/libcore/v2/plugin/juicity"
-	"github.com/xchacha20-poly1305/husi/libcore/v2/plugin/trusttunnel"
-	"github.com/xchacha20-poly1305/husi/libcore/v2/plugin/vless"
+	"github.com/sagernet/sing-box/adapter/outbound"
 )
 
 func registerPluginsOutbound(registry *outbound.Registry) {
+	http.RegisterOutbound(registry)
 	juicity.RegisterOutbound(registry)
 	vless.RegisterOutbound(registry)
 	trusttunnel.RegisterOutbound(registry)
-	balancer.RegisterOutbound(registry)
 }

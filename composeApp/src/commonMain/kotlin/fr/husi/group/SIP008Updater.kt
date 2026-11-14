@@ -19,6 +19,7 @@
 
 package fr.husi.group
 
+import fr.husi.database.DataStore
 import fr.husi.database.ProxyGroup
 import fr.husi.database.SubscriptionBean
 import fr.husi.fmt.AbstractBean
@@ -26,11 +27,9 @@ import fr.husi.fmt.shadowsocks.ShadowsocksBean
 import fr.husi.fmt.shadowsocks.pluginToLocal
 import fr.husi.ktx.Logs
 import fr.husi.ktx.applyDefaultValues
+import fr.husi.ktx.generateUserAgent
 import fr.husi.ktx.kxs
-import fr.husi.net.HttpFetchRequest
-import fr.husi.net.buildUserAgent
-import fr.husi.net.localSocks5Proxy
-import fr.husi.net.resolveHttpFetcher
+import fr.husi.libcore.resolveHttpClientFactory
 import fr.husi.repository.resolveRepository
 import fr.husi.resources.Res
 import fr.husi.resources.no_proxies_found_in_subscription
@@ -93,16 +92,22 @@ object SIP008Updater : GroupUpdater() {
                 ?: error(repository.getString(Res.string.no_proxies_found_in_subscription))
         } else {
 
-            val request = HttpFetchRequest(
-                url = subscription.link,
-                userAgent = buildUserAgent(subscription.customUserAgent),
+            val response = resolveHttpClientFactory().newHttpClient().apply {
+                if (DataStore.serviceState.connected) {
+                    useSocks5(
+                        DataStore.mixedPort,
+                        DataStore.inboundUsername,
+                        DataStore.inboundPassword,
+                    )
+                }
                 // Strict !!!
-                restrictedTls = true,
-                socks5 = localSocks5Proxy(),
-            )
-            val response = resolveHttpFetcher().fetchText(request)
+                restrictedTLS()
+            }.newRequest().apply {
+                setURL(subscription.link)
+                setUserAgent(generateUserAgent(subscription.customUserAgent))
+            }.execute()
 
-            sip008Response = kxs.decodeFromString(response.content)
+            sip008Response = kxs.decodeFromString(response.contentString)
         }
 
         subscription.bytesUsed = sip008Response.bytesUsed ?: -1

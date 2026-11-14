@@ -2,11 +2,9 @@ package fr.husi.ui
 
 import android.app.Activity
 import android.content.ComponentName
-import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.appcompat.app.AppCompatDelegate
-import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -17,16 +15,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.os.LocaleListCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import fr.husi.DEFAULT_HTTP_BYPASS
+import fr.husi.Key
 import fr.husi.LauncherIcon
 import fr.husi.compose.HostTextField
-import fr.husi.compose.collectAsStateWithLifecycle
 import fr.husi.compose.IconMaskColors
-import fr.husi.compose.IconMaskShapes
 import fr.husi.compose.MaskedIcon
-import fr.husi.compose.SwitchPreference
+import fr.husi.compose.PreferenceDivider
 import fr.husi.compose.TextButton
-import fr.husi.compose.TextFieldPreference
-import fr.husi.compose.TwoTargetSwitchPreference
 import fr.husi.compose.ValidatedTextField
 import fr.husi.compose.material3.Text
 import fr.husi.database.DataStore
@@ -35,20 +32,15 @@ import fr.husi.ktx.getColour
 import fr.husi.resources.Res
 import fr.husi.resources.acquire_wake_lock
 import fr.husi.resources.acquire_wake_lock_summary
-import fr.husi.resources.app_registration
-import fr.husi.resources.append_http_proxy
-import fr.husi.resources.append_http_proxy_sum
+import fr.husi.resources.allow_apps_bypass_vpn
 import fr.husi.resources.apps
 import fr.husi.resources.auto_connect
 import fr.husi.resources.auto_connect_summary
-import fr.husi.resources.bolt
 import fr.husi.resources.cancel
 import fr.husi.resources.data_usage
 import fr.husi.resources.developer_board
 import fr.husi.resources.disable_process_text
 import fr.husi.resources.domain
-import fr.husi.resources.enable_tasker
-import fr.husi.resources.enable_tasker_summary
 import fr.husi.resources.format_align_left
 import fr.husi.resources.hide_launcher_icon
 import fr.husi.resources.hide_launcher_icon_confirm
@@ -68,22 +60,25 @@ import fr.husi.resources.proxied_apps
 import fr.husi.resources.proxied_apps_summary
 import fr.husi.resources.route_opt_bypass_lan
 import fr.husi.resources.show_group_in_notification
+import fr.husi.resources.transform
 import fr.husi.resources.update_proxy_apps_when_install
 import fr.husi.resources.visibility_off
 import fr.husi.resources.vpn_session_name
 import fr.husi.resources.vpn_session_name_summary
-import fr.husi.tasker.TaskerActivity
-import fr.husi.tasker.TaskerReceiver
-import fr.husi.ui.settings.appUpdateSettings
 import kotlinx.coroutines.flow.flowOf
+import me.zhanghai.compose.preference.SwitchPreference
+import me.zhanghai.compose.preference.TextFieldPreference
+import me.zhanghai.compose.preference.TwoTargetSwitchPreference
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
-internal actual fun AutoConnectPreference(showMessage: (String) -> Unit) {
-    val value by DataStore.persistAcrossReboot.collectAsStateWithLifecycle()
+internal actual fun AutoConnectPreference() {
+    val value by DataStore.configurationStore
+        .booleanFlow(Key.PERSIST_ACROSS_REBOOT, false)
+        .collectAsStateWithLifecycle(false)
     SwitchPreference(
         value = value,
-        onValueChange = { DataStore.persistAcrossReboot.setBlocking(it) },
+        onValueChange = { DataStore.persistAcrossReboot = it },
         title = { Text(stringResource(Res.string.auto_connect)) },
         icon = {
             MaskedIcon(
@@ -93,14 +88,6 @@ internal actual fun AutoConnectPreference(showMessage: (String) -> Unit) {
         },
         summary = { Text(stringResource(Res.string.auto_connect_summary)) },
     )
-}
-
-@Composable
-internal actual fun PlatformDaemonSettingsGroup(showMessage: (String) -> Unit) {
-}
-
-internal actual fun LazyListScope.platformAppUpdateSettings() {
-    appUpdateSettings()
 }
 
 @Composable
@@ -123,11 +110,14 @@ internal actual fun rememberApplyNightMode(): (Int) -> Unit {
 
 @Composable
 internal actual fun PlatformGeneralOptions(needReload: () -> Unit) {
-    val value by DataStore.vpnSessionName.collectAsStateWithLifecycle()
+    PreferenceDivider()
+    val value by DataStore.configurationStore
+        .stringFlow(Key.VPN_SESSION_NAME, "")
+        .collectAsStateWithLifecycle("")
     TextFieldPreference(
         value = value,
         onValueChange = {
-            DataStore.vpnSessionName.setBlocking(it)
+            DataStore.vpnSessionName = it
             needReload()
         },
         title = { Text(stringResource(Res.string.vpn_session_name)) },
@@ -140,9 +130,10 @@ internal actual fun PlatformGeneralOptions(needReload: () -> Unit) {
             Text(text)
         },
         valueToText = { it },
-    ) { state, onOk ->
+    ) { value, onValueChange, onOk ->
         ValidatedTextField(
-            state = state,
+            value = value,
+            onValueChange = onValueChange,
             onOk = onOk,
             validator = { text ->
                 if (text.lines().size > 1) {
@@ -154,11 +145,28 @@ internal actual fun PlatformGeneralOptions(needReload: () -> Unit) {
         )
     }
 
-    val showGroupValue by DataStore.showGroupInNotification.collectAsStateWithLifecycle()
+    val bypassValue by DataStore.configurationStore
+        .booleanFlow(Key.ALLOW_APPS_BYPASS_VPN, false)
+        .collectAsStateWithLifecycle(false)
+    SwitchPreference(
+        value = bypassValue,
+        onValueChange = {
+            DataStore.allowAppsBypassVpn = it
+            needReload()
+        },
+        title = { Text(stringResource(Res.string.allow_apps_bypass_vpn)) },
+        icon = {
+            MaskedIcon(Res.drawable.transform, color = IconMaskColors.IconCyan)
+        },
+    )
+
+    val showGroupValue by DataStore.configurationStore
+        .booleanFlow(Key.SHOW_GROUP_IN_NOTIFICATION, false)
+        .collectAsStateWithLifecycle(false)
     SwitchPreference(
         value = showGroupValue,
         onValueChange = {
-            DataStore.showGroupInNotification.setBlocking(it)
+            DataStore.showGroupInNotification = it
             needReload()
         },
         title = { Text(stringResource(Res.string.show_group_in_notification)) },
@@ -170,11 +178,13 @@ internal actual fun PlatformGeneralOptions(needReload: () -> Unit) {
 
 @Composable
 internal actual fun PlatformRouteOptions(needReload: () -> Unit, isVpnMode: Boolean) {
-    val value by DataStore.bypassLan.collectAsStateWithLifecycle()
+    val value by DataStore.configurationStore
+        .booleanFlow(Key.BYPASS_LAN, true)
+        .collectAsStateWithLifecycle(true)
     SwitchPreference(
         value = value,
         onValueChange = {
-            DataStore.bypassLan.setBlocking(it)
+            DataStore.bypassLan = it
             needReload()
         },
         title = { Text(stringResource(Res.string.route_opt_bypass_lan)) },
@@ -189,11 +199,13 @@ internal actual fun PlatformRouteOptions(needReload: () -> Unit, isVpnMode: Bool
 
 @Composable
 internal actual fun ProxyAppsPreferences(openAppManager: () -> Unit) {
-    val value by DataStore.proxyApps.collectAsStateWithLifecycle()
+    val value by DataStore.configurationStore
+        .booleanFlow(Key.PROXY_APPS, false)
+        .collectAsStateWithLifecycle(false)
     TwoTargetSwitchPreference(
         value = value,
         onValueChange = {
-            DataStore.proxyApps.setBlocking(it)
+            DataStore.proxyApps = it
             if (it) {
                 openAppManager()
             }
@@ -205,15 +217,18 @@ internal actual fun ProxyAppsPreferences(openAppManager: () -> Unit) {
         summary = { Text(stringResource(Res.string.proxied_apps_summary)) },
         onClick = {
             if (!value) {
-                DataStore.proxyApps.setBlocking(true)
+                DataStore.proxyApps = true
             }
             openAppManager()
         },
     )
-    val updateValue by DataStore.updateProxyAppsWhenInstall.collectAsStateWithLifecycle()
+    val updateValue by DataStore.configurationStore
+        .booleanFlow(Key.UPDATE_PROXY_APPS_WHEN_INSTALL, false)
+        .collectAsStateWithLifecycle(false)
+    PreferenceDivider()
     SwitchPreference(
         value = updateValue,
-        onValueChange = { DataStore.updateProxyAppsWhenInstall.setBlocking(it) },
+        onValueChange = { DataStore.updateProxyAppsWhenInstall = it },
         title = { Text(stringResource(Res.string.update_proxy_apps_when_install)) },
         icon = {
             MaskedIcon(
@@ -222,14 +237,18 @@ internal actual fun ProxyAppsPreferences(openAppManager: () -> Unit) {
             )
         },
     )
+    PreferenceDivider()
 }
 
 @Composable
 internal actual fun PlatformSecurityOptions() {
-    val value by DataStore.privacyMode.collectAsStateWithLifecycle()
+    PreferenceDivider()
+    val value by DataStore.configurationStore
+        .booleanFlow(Key.PRIVACY_MODE, false)
+        .collectAsStateWithLifecycle(false)
     SwitchPreference(
         value = value,
-        onValueChange = { DataStore.privacyMode.setBlocking(it) },
+        onValueChange = { DataStore.privacyMode = it },
         title = { Text(stringResource(Res.string.privacy_mode)) },
         icon = {
             MaskedIcon(Res.drawable.privacy, color = IconMaskColors.IconCoral)
@@ -240,11 +259,14 @@ internal actual fun PlatformSecurityOptions() {
 
 @Composable
 internal actual fun MeteredNetworkPreference(needReload: () -> Unit) {
-    val value by DataStore.meteredNetwork.collectAsStateWithLifecycle()
+    PreferenceDivider()
+    val value by DataStore.configurationStore
+        .booleanFlow(Key.METERED_NETWORK, false)
+        .collectAsStateWithLifecycle(false)
     SwitchPreference(
         value = value,
         onValueChange = {
-            DataStore.meteredNetwork.setBlocking(it)
+            DataStore.meteredNetwork = it
             needReload()
         },
         title = { Text(stringResource(Res.string.metered)) },
@@ -259,31 +281,14 @@ internal actual fun MeteredNetworkPreference(needReload: () -> Unit) {
 }
 
 @Composable
-internal actual fun PlatformAppendHttpProxyPreferences(needReload: () -> Unit) {
-    val appendHttpProxyValue by DataStore.appendHttpProxy.collectAsStateWithLifecycle()
-    SwitchPreference(
-        value = appendHttpProxyValue,
-        onValueChange = {
-            DataStore.appendHttpProxy.setBlocking(it)
-            needReload()
-        },
-        title = { Text(stringResource(Res.string.append_http_proxy)) },
-        icon = {
-            MaskedIcon(
-                Res.drawable.app_registration,
-                color = IconMaskColors.IconLightGreen,
-            )
-        },
-        summary = {
-            Text(stringResource(Res.string.append_http_proxy_sum))
-        },
-    )
-
-    val value by DataStore.httpProxyBypass.collectAsStateWithLifecycle()
+internal actual fun HttpProxyBypassPreference(enabled: Boolean, needReload: () -> Unit) {
+    val value by DataStore.configurationStore
+        .stringFlow(Key.HTTP_PROXY_BYPASS, DEFAULT_HTTP_BYPASS)
+        .collectAsStateWithLifecycle(DEFAULT_HTTP_BYPASS)
     TextFieldPreference(
         value = value,
         onValueChange = {
-            DataStore.httpProxyBypass.setBlocking(it)
+            DataStore.httpProxyBypass = it
             needReload()
         },
         title = { Text(stringResource(Res.string.http_proxy_bypass)) },
@@ -292,19 +297,22 @@ internal actual fun PlatformAppendHttpProxyPreferences(needReload: () -> Unit) {
             MaskedIcon(Res.drawable.domain, color = IconMaskColors.IconCyan)
         },
         valueToText = { it },
-        enabled = appendHttpProxyValue,
-    ) { state, onOk ->
-        HostTextField(state, onOk)
+        enabled = enabled,
+    ) { value, onValueChange, onOk ->
+        HostTextField(value, onValueChange, onOk)
     }
 }
 
 @Composable
 internal actual fun PlatformMiscOptions(needReload: () -> Unit) {
-    val value by DataStore.acquireWakeLock.collectAsStateWithLifecycle()
+    PreferenceDivider()
+    val value by DataStore.configurationStore
+        .booleanFlow(Key.ACQUIRE_WAKE_LOCK, true)
+        .collectAsStateWithLifecycle(true)
     SwitchPreference(
         value = value,
         onValueChange = {
-            DataStore.acquireWakeLock.setBlocking(it)
+            DataStore.acquireWakeLock = it
             needReload()
         },
         title = { Text(stringResource(Res.string.acquire_wake_lock)) },
@@ -349,31 +357,27 @@ internal actual fun rememberAppLanguageController(defaultTag: String): AppLangua
     }
 }
 
-private const val PROCESS_TEXT_ALIAS = "fr.husi.ui.ProcessTextActivityAlias"
-
-private fun Context.setComponentEnabled(component: ComponentName, enabled: Boolean) {
-    packageManager.setComponentEnabledSetting(
-        component,
-        if (enabled) {
-            PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-        } else {
-            PackageManager.COMPONENT_ENABLED_STATE_DISABLED
-        },
-        PackageManager.DONT_KILL_APP,
-    )
-}
-
 @Composable
 internal actual fun DisableProcessTextPreference() {
-    val value by DataStore.disableProcessText.collectAsStateWithLifecycle()
+    val value by DataStore.configurationStore
+        .booleanFlow(Key.DISABLE_PROCESS_TEXT, false)
+        .collectAsStateWithLifecycle(false)
     val context = LocalContext.current
     SwitchPreference(
         value = value,
-        onValueChange = { disabled ->
-            DataStore.disableProcessText.setBlocking(disabled)
-            context.setComponentEnabled(
-                ComponentName(context, PROCESS_TEXT_ALIAS),
-                !disabled,
+        onValueChange = {
+            DataStore.disableProcessText = it
+            context.packageManager.setComponentEnabledSetting(
+                ComponentName(
+                    context,
+                    "fr.husi.ui.ProcessTextActivityAlias",
+                ),
+                if (it) {
+                    PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+                } else {
+                    PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                },
+                PackageManager.DONT_KILL_APP,
             )
         },
         title = { Text(stringResource(Res.string.disable_process_text)) },
@@ -387,44 +391,18 @@ internal actual fun DisableProcessTextPreference() {
 }
 
 @Composable
-internal actual fun EnableTaskerPreference() {
-    val value by DataStore.enableTasker.collectAsStateWithLifecycle()
-    val context = LocalContext.current
-    SwitchPreference(
-        value = value,
-        onValueChange = { enabled ->
-            DataStore.enableTasker.setBlocking(enabled)
-            context.setComponentEnabled(
-                ComponentName(context, TaskerReceiver::class.java),
-                enabled,
-            )
-            context.setComponentEnabled(
-                ComponentName(context, TaskerActivity::class.java),
-                enabled,
-            )
-        },
-        title = { Text(stringResource(Res.string.enable_tasker)) },
-        icon = {
-            MaskedIcon(
-                Res.drawable.bolt,
-                color = IconMaskColors.IconLavender,
-                shape = IconMaskShapes.risk(),
-            )
-        },
-        summary = { Text(stringResource(Res.string.enable_tasker_summary)) },
-    )
-}
-
-@Composable
 internal actual fun HideLauncherIconPreference() {
-    val value by DataStore.hideLauncherIcon.collectAsStateWithLifecycle()
+    val value by DataStore.configurationStore
+        .booleanFlow(Key.HIDE_LAUNCHER_ICON, false)
+        .collectAsStateWithLifecycle(false)
     var showConfirm by rememberSaveable { mutableStateOf(false) }
 
     fun setHidden(hidden: Boolean) {
-        DataStore.hideLauncherIcon.setBlocking(hidden)
+        DataStore.hideLauncherIcon = hidden
         LauncherIcon.hidden = hidden
     }
 
+    PreferenceDivider()
     SwitchPreference(
         value = value,
         onValueChange = { hide ->

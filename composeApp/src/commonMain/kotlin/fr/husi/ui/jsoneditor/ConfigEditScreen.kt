@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalMaterial3ExpressiveApi::class)
+
 package fr.husi.ui.jsoneditor
 
 import androidx.compose.foundation.clickable
@@ -24,15 +26,16 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.input.OutputTransformation
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FloatingToolbarDefaults
 import androidx.compose.material3.FloatingToolbarDefaults.ScreenOffset
 import androidx.compose.material3.HorizontalFloatingToolbar
@@ -41,13 +44,14 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -79,6 +83,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
@@ -86,13 +91,13 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.viewmodel.compose.viewModel
-import dev.chrisbanes.haze.hazeSource
-import dev.chrisbanes.haze.rememberHazeState
 import fr.husi.compose.AutoCompleteSuggestionList
 import fr.husi.compose.BackHandler
 import fr.husi.compose.BoxedVerticalScrollbar
+import fr.husi.compose.CapsuleActionButton
 import fr.husi.compose.CapsuleTopBar
 import fr.husi.compose.SimpleIconButton
+import fr.husi.compose.SwipeableSnackbarHost
 import fr.husi.compose.TextButton
 import fr.husi.compose.TooltipIconButton
 import fr.husi.compose.fadingEdge
@@ -100,6 +105,7 @@ import fr.husi.compose.material3.Icon
 import fr.husi.compose.material3.IconButton
 import fr.husi.compose.material3.Text
 import fr.husi.keyevent.isTypeControlPressed
+import fr.husi.repository.resolveRepository
 import fr.husi.resources.Res
 import fr.husi.resources.action_format
 import fr.husi.resources.action_test_config
@@ -122,8 +128,6 @@ import fr.husi.resources.undo
 import fr.husi.resources.unsaved_changes_prompt
 import fr.husi.resources.warning
 import fr.husi.results.LocalResultEventBus
-import fr.husi.ui.LocalSnackbarEmitter
-import fr.husi.ui.StringOrRes
 import fr.husi.results.ResultEventBus
 import io.github.oikvpqya.compose.fastscroller.material3.defaultMaterialScrollbarStyle
 import io.github.oikvpqya.compose.fastscroller.rememberScrollbarAdapter
@@ -156,7 +160,7 @@ private fun RepeatableIconButton(
                 coroutineScope {
                     awaitEachGesture {
                         awaitFirstDown()
-                        val job = this@coroutineScope.launch {
+                        val job = launch {
                             onClick()
                             delay(initialDelay)
                             while (true) {
@@ -353,7 +357,7 @@ private fun BoxScope.ConfigSchemaCompletionBar(
 }
 
 /**
- * Sends the edited config as a String result. Nothing is sent when the user leaves without saving.
+ * Result definition: String? ( null means user cancel, otherwise is the edited config )
  */
 @Composable
 fun ConfigEditScreen(
@@ -388,19 +392,23 @@ private fun ConfigEditScreenContent(
 ) {
     val resultBus = LocalResultEventBus.current
     var alert by remember { mutableStateOf<String?>(null) }
-    val snackbar = LocalSnackbarEmitter.current
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) {
         viewModel.uiEvent.collect { uiEvent ->
             when (uiEvent) {
                 is ConfigEditUiEvent.Finish -> {
-                    resultBus.sendResult<String>(resultKey, uiEvent.text)
+                    resultBus.sendResult<String?>(resultKey, uiEvent.text)
                     onBack()
                 }
 
                 is ConfigEditUiEvent.Alert -> alert = uiEvent.message
 
-                is ConfigEditUiEvent.SnackBar -> snackbar.show(StringOrRes.Res(uiEvent.id))
+                is ConfigEditUiEvent.SnackBar -> snackbarHostState.showSnackbar(
+                    message = resolveRepository().getString(uiEvent.id),
+                    actionLabel = resolveRepository().getString(Res.string.ok),
+                    duration = SnackbarDuration.Short,
+                )
             }
         }
     }
@@ -408,11 +416,13 @@ private fun ConfigEditScreenContent(
     val uiState by viewModel.uiState.collectAsState()
 
     var showBackDialog by remember { mutableStateOf(false) }
-    val isDirty by remember(viewModel, initialText) {
-        derivedStateOf { viewModel.textFieldState.text.toString() != initialText }
-    }
-    BackHandler(enabled = isDirty) {
-        showBackDialog = true
+    BackHandler(enabled = true) {
+        if (viewModel.textFieldState.text.toString() != initialText) {
+            showBackDialog = true
+        } else {
+            resultBus.sendResult<String?>(resultKey, null)
+            onBack()
+        }
     }
 
     LaunchedEffect(viewModel) {
@@ -426,10 +436,29 @@ private fun ConfigEditScreenContent(
     val coroutineScope = rememberCoroutineScope()
     val windowInsets = WindowInsets.safeDrawing
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
-    val hazeState = rememberHazeState()
 
     val colorScheme = MaterialTheme.colorScheme
-    val syntaxStyles = remember(colorScheme) { ConfigJsonSyntaxStyles(colorScheme) }
+    val syntaxStyles = remember(colorScheme) {
+        mapOf(
+            ConfigJsonTokenType.STRING to SpanStyle(color = Color(0xFFE6DB74)),
+            ConfigJsonTokenType.NUMBER to SpanStyle(color = Color(0xFF66D9EE)),
+            ConfigJsonTokenType.BOOLEAN to SpanStyle(color = Color(0xFFFA2772)),
+            ConfigJsonTokenType.NULL to SpanStyle(color = Color(0xFFA7E22E)),
+            ConfigJsonTokenType.PUNCTUATION to SpanStyle(
+                color = colorScheme.onSurface.copy(alpha = 0.7f),
+            ),
+            ConfigJsonTokenType.INVALID to SpanStyle(color = colorScheme.error),
+        )
+    }
+
+    val outputTransformation = remember(syntaxStyles) {
+        OutputTransformation {
+            val text = asCharSequence().toString()
+            for (token in configJsonEngine.document(text).tokens) {
+                addStyle(syntaxStyles.getValue(token.type), token.start, token.end)
+            }
+        }
+    }
 
     Scaffold(
         modifier = modifier
@@ -437,17 +466,13 @@ private fun ConfigEditScreenContent(
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             CapsuleTopBar(
-                hazeState = hazeState,
                 navigationIcon = {
                     SimpleIconButton(
                         imageVector = vectorResource(Res.drawable.close),
                         contentDescription = stringResource(Res.string.close),
                     ) {
-                        if (isDirty) {
-                            showBackDialog = true
-                        } else {
-                            onBack()
-                        }
+                        resultBus.sendResult<String?>(resultKey, null)
+                        onBack()
                     }
                 },
                 title = { Text(stringResource(Res.string.edit_config)) },
@@ -465,13 +490,12 @@ private fun ConfigEditScreenContent(
                 scrollBehavior = scrollBehavior,
             )
         },
-
+        snackbarHost = { SwipeableSnackbarHost(snackbarHostState) },
     ) { innerPadding ->
         var completionHostPosition by remember { mutableStateOf<Offset?>(null) }
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .hazeSource(hazeState)
                 .onGloballyPositioned { completionHostPosition = it.positionInRoot() },
         ) {
             val density = LocalDensity.current
@@ -492,25 +516,11 @@ private fun ConfigEditScreenContent(
             var editorPosition by remember { mutableStateOf<Offset?>(null) }
             var cursorRect by remember { mutableStateOf<Rect?>(null) }
             var editorFocused by remember { mutableStateOf(false) }
-            var lineHeightPx by remember { mutableIntStateOf(0) }
             val editorMinHeight = (
                     with(density) { editorHeightPx.toDp() } - extraHeight
                     ).coerceAtLeast(0.dp)
             val focusRequester = remember { FocusRequester() }
             val verticalScrollState = rememberScrollState()
-            val topPaddingPx = with(density) { innerPadding.calculateTopPadding().roundToPx() }
-            val highlightLines = remember(topPaddingPx) {
-                derivedStateOf {
-                    highlightedLineRange(
-                        scrollOffsetPx = verticalScrollState.value - topPaddingPx,
-                        viewportHeightPx = editorHeightPx,
-                        lineHeightPx = lineHeightPx,
-                    )
-                }
-            }
-            val outputTransformation = remember(syntaxStyles, highlightLines) {
-                configJsonOutputTransformation(syntaxStyles) { highlightLines.value }
-            }
             Row(
                 modifier = Modifier
                     .fillMaxSize()
@@ -576,22 +586,14 @@ private fun ConfigEditScreenContent(
                         lineLimits = TextFieldLineLimits.MultiLine(),
                         outputTransformation = outputTransformation,
                         onTextLayout = { getResult ->
-                            val layout = getResult()
-                            if (layout != null && layout.lineCount > 0) {
-                                lineHeightPx =
-                                    (layout.getLineBottom(0) - layout.getLineTop(0)).toInt()
-                            }
-                            cursorRect =
-                                layout?.getCursorRect(viewModel.textFieldState.selection.end)
+                            cursorRect = getResult()?.getCursorRect(viewModel.textFieldState.selection.end)
                         },
                     )
                     Spacer(modifier = Modifier.height(extraHeight))
                 }
 
                 BoxedVerticalScrollbar(
-                    modifier = Modifier
-                        .padding(top = innerPadding.calculateTopPadding())
-                        .fillMaxHeight(),
+                    modifier = Modifier.fillMaxHeight(),
                     adapter = rememberScrollbarAdapter(scrollState = verticalScrollState),
                     style = defaultMaterialScrollbarStyle().copy(
                         thickness = 12.dp,
@@ -634,6 +636,7 @@ private fun ConfigEditScreenContent(
         },
         dismissButton = {
             TextButton(stringResource(Res.string.no)) {
+                resultBus.sendResult<String?>(resultKey, null)
                 onBack()
             }
         },

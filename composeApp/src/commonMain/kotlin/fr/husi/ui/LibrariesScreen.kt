@@ -10,8 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.selection.SelectionContainer
-import dev.chrisbanes.haze.hazeSource
-import dev.chrisbanes.haze.rememberHazeState
 import fr.husi.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -56,7 +54,6 @@ fun LibrariesScreen(
 ) {
     val windowInsets = WindowInsets.safeDrawing
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
-    val hazeState = rememberHazeState()
     val listState = rememberLazyListState()
     var showLibraryDialog by remember { mutableStateOf<Library?>(null) }
     val uriHandler = LocalUriHandler.current
@@ -69,7 +66,6 @@ fun LibrariesScreen(
         modifier = Modifier.fillMaxSize(),
         topBar = {
             SimpleTopAppBar(
-                hazeState = hazeState,
                 title = { Text(stringResource(Res.string.oss_licenses)) },
                 navigationIcon = {
                     SimpleIconButton(
@@ -84,9 +80,7 @@ fun LibrariesScreen(
         },
     ) { innerPadding ->
         Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .hazeSource(hazeState),
+            modifier = Modifier.fillMaxSize(),
         ) {
             val contentPadding = innerPadding.withNavigation()
             LibrariesContainer(

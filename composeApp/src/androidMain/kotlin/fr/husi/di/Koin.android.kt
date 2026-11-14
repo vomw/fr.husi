@@ -1,24 +1,14 @@
 package fr.husi.di
 
-import fr.husi.bg.ServiceEventMirror
 import fr.husi.compose.material3.PlatformMaterialApi
 import fr.husi.compose.material3.TvPlatformMaterialApi
 import fr.husi.compose.material3.standardPlatformMaterialApi
 import fr.husi.compose.theme.PlatformThemeApi
 import fr.husi.compose.theme.TvPlatformThemeApi
 import fr.husi.compose.theme.standardPlatformThemeApi
-import fr.husi.net.BackgroundProcessHttpFetcher
-import fr.husi.net.BackgroundProcessWebDAVClient
-import fr.husi.net.GrpcHttpFetcher
-import fr.husi.net.GrpcWebDAVClient
-import fr.husi.net.HttpFetcher
-import fr.husi.net.WebDAVClient
 import fr.husi.repository.AndroidRepository
 import fr.husi.repository.Repository
 import fr.husi.repository.resolveRepository
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import org.koin.core.module.Module
 import org.koin.dsl.module
 
@@ -43,23 +33,6 @@ internal actual fun platformRepositoryModule(repository: Repository): Module = m
         ?: error("Android platform requires AndroidRepository, got ${repository::class.qualifiedName}")
     single<AndroidRepository> { androidRepository }
     single<Repository> { get<AndroidRepository>() }
-    if (repository.isMainProcess) {
-        single {
-            ServiceEventMirror(
-                coreClient = get(),
-                scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
-            )
-        }
-    }
 }
 
-private val androidHttpModule = module {
-    single<HttpFetcher> { BackgroundProcessHttpFetcher(GrpcHttpFetcher(coreClient = get())) }
-    single<WebDAVClient> { BackgroundProcessWebDAVClient(GrpcWebDAVClient(coreClient = get())) }
-}
-
-internal actual fun platformKoinModules(): List<Module> =
-    listOf(androidNavigationModule, androidHttpModule)
-
-internal actual fun coreClientBasePath(repository: Repository): String =
-    (repository as AndroidRepository).context.filesDir.path
+internal actual fun platformKoinModules(): List<Module> = listOf(androidNavigationModule)

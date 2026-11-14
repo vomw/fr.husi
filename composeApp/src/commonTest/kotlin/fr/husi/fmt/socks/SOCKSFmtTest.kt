@@ -4,7 +4,6 @@ import fr.husi.fmt.FmtTestConstant
 import fr.husi.ktx.JSONMap
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlinx.coroutines.test.runTest
 
 class SOCKSFmtTest {
 
@@ -58,7 +57,7 @@ class SOCKSFmtTest {
     }
 
     @Test
-    fun `buildSingBoxOutboundSocksBean should map type server port and credentials`() = runTest {
+    fun `buildSingBoxOutboundSocksBean should map type server port and credentials`() {
         val bean = SOCKSBean().apply {
             serverAddress = "example.com"
             serverPort = 1080
@@ -78,7 +77,7 @@ class SOCKSFmtTest {
     }
 
     @Test
-    fun `buildSingBoxOutboundSocksBean should set version 4 for socks4`() = runTest {
+    fun `buildSingBoxOutboundSocksBean should set version 4 for socks4`() {
         val bean = SOCKSBean().apply {
             serverAddress = "example.com"
             serverPort = 1080

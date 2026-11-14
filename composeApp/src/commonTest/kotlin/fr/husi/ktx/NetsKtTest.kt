@@ -4,9 +4,7 @@ import fr.husi.fmt.SingBoxOptions
 import java.net.InetAddress
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNull
-import kotlin.test.assertTrue
 
 class NetsKtTest {
 
@@ -48,60 +46,5 @@ class NetsKtTest {
 
         assertEquals(ipv4Address, addresses.selectByNetworkStrategy(SingBoxOptions.STRATEGY_IPV4_ONLY))
         assertNull(listOf(ipv6Address).selectByNetworkStrategy(SingBoxOptions.STRATEGY_IPV4_ONLY))
-    }
-
-    @Test
-    fun `isLoopbackHost accepts localhost and loopback literals`() {
-        assertTrue("localhost".isLoopbackHost())
-        assertTrue("LocalHost".isLoopbackHost())
-        assertTrue("127.0.0.1".isLoopbackHost())
-        assertTrue("127.8.8.8".isLoopbackHost())
-        assertTrue("::1".isLoopbackHost())
-        assertTrue("[::1]".isLoopbackHost())
-    }
-
-    @Test
-    fun `isLoopbackHost rejects other hosts without resolving them`() {
-        assertFalse("example.com".isLoopbackHost())
-        assertFalse("8.8.8.8".isLoopbackHost())
-        assertFalse("face.fee".isLoopbackHost())
-    }
-
-    @Test
-    fun `splitAddress unwraps a bracketed IPv6 host`() {
-        assertEquals("2001:db8::1" to "443", splitAddress("[2001:db8::1]:443"))
-        assertEquals("example.com" to "443", splitAddress("example.com:443"))
-        assertEquals("example.com" to "443,1000-2000", splitAddress("example.com:443,1000-2000"))
-    }
-
-    @Test
-    fun `splitAddress rejects addresses without a port`() {
-        assertNull(splitAddress("example.com"))
-        assertNull(splitAddress("example.com:"))
-        assertNull(splitAddress(":443"))
-        assertNull(splitAddress("[2001:db8::1]"))
-        assertNull(splitAddress("2001:db8::1"))
-    }
-
-    @Test
-    fun `joinAddress brackets an IPv6 host`() {
-        assertEquals("[2001:db8::1]:443", joinAddress("2001:db8::1", 443))
-        assertEquals("[2001:db8::1]:443", joinAddress("[2001:db8::1]", 443))
-        assertEquals("example.com:443,1000-2000", joinAddress("example.com", "443,1000-2000"))
-    }
-
-    @Test
-    fun `toPortOrNull accepts only 1 to 65535`() {
-        assertEquals(443, "443".toPortOrNull())
-        assertNull("0".toPortOrNull())
-        assertNull("65536".toPortOrNull())
-        assertNull("http".toPortOrNull())
-    }
-
-    @Test
-    fun `blurAddress keeps brackets around a blurred IPv6 host`() {
-        assertEquals("[2001:***]:4***", "[2001:db8::1]:443".blurAddress())
-        assertEquals("1.*.*.*:4***", "1.2.3.4:443".blurAddress())
-        assertEquals("e***.com", "example.com".blurAddress())
     }
 }

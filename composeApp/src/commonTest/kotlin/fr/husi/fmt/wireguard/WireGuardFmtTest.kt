@@ -5,7 +5,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
-import kotlinx.coroutines.test.runTest
 
 class WireGuardFmtTest {
 
@@ -31,7 +30,7 @@ class WireGuardFmtTest {
     }
 
     @Test
-    fun `buildSingBoxEndpointWireGuardBean should map all fields`() = runTest {
+    fun `buildSingBoxEndpointWireGuardBean should map all fields`() {
         val bean = WireGuardBean().apply {
             serverAddress = "vpn.example.com"
             serverPort = 51820
@@ -61,7 +60,7 @@ class WireGuardFmtTest {
     }
 
     @Test
-    fun `buildSingBoxEndpointWireGuardBean should omit listen_port when zero`() = runTest {
+    fun `buildSingBoxEndpointWireGuardBean should omit listen_port when zero`() {
         val bean = WireGuardBean().apply {
             serverAddress = "example.com"
             serverPort = 51820

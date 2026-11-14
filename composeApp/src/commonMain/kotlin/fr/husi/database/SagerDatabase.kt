@@ -6,7 +6,7 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.RoomDatabaseConstructor
 import androidx.room.TypeConverters
-import fr.husi.fmt.BeanConverters
+import fr.husi.fmt.KryoConverters
 
 @Database(
     entities = [
@@ -15,9 +15,8 @@ import fr.husi.fmt.BeanConverters
         RuleEntity::class,
         AssetEntity::class,
         PluginEntity::class,
-        RemoteServerEntity::class,
     ],
-    version = 25,
+    version = 21,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3, spec = SagerDatabase_Migration_2_3::class),
@@ -38,13 +37,9 @@ import fr.husi.fmt.BeanConverters
         AutoMigration(from = 18, to = 19),
         AutoMigration(from = 19, to = 20),
         AutoMigration(from = 20, to = 21),
-        AutoMigration(from = 21, to = 22),
-        AutoMigration(from = 22, to = 23, spec = SagerDatabase_Migration_22_23::class),
-        AutoMigration(from = 23, to = 24),
-        AutoMigration(from = 24, to = 25),
     ],
 )
-@TypeConverters(value = [BeanConverters::class])
+@TypeConverters(value = [KryoConverters::class])
 @ConstructedBy(SagerDatabaseConstructor::class)
 abstract class SagerDatabase : RoomDatabase() {
 
@@ -57,7 +52,6 @@ abstract class SagerDatabase : RoomDatabase() {
         val rulesDao get() = instance.rulesDao()
         val assetDao get() = instance.assetDao()
         val pluginDao get() = instance.pluginDao()
-        val remoteServerDao get() = instance.remoteServerDao()
 
     }
 
@@ -66,7 +60,6 @@ abstract class SagerDatabase : RoomDatabase() {
     abstract fun rulesDao(): RuleEntity.Dao
     abstract fun assetDao(): AssetEntity.Dao
     abstract fun pluginDao(): PluginEntity.Dao
-    abstract fun remoteServerDao(): RemoteServerEntity.Dao
 
 }
 

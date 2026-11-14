@@ -1,12 +1,11 @@
 package fr.husi.fmt.hysteria
 
+import com.esotericsoftware.kryo.io.ByteBufferInput
+import com.esotericsoftware.kryo.io.ByteBufferOutput
 import fr.husi.fmt.AbstractBean
-import fr.husi.fmt.BeanConverters
+import fr.husi.fmt.KryoConverters
 import fr.husi.fmt.ValidateResult
-import fr.husi.io.BinaryInput
-import fr.husi.io.BinaryOutput
-import fr.husi.ktx.joinAddress
-import fr.husi.platform.PlatformInfo
+import fr.husi.ktx.wrapIPV6Host
 import fr.husi.resources.Res
 import fr.husi.resources.warn_hysteria_legacy
 import fr.husi.resources.warn_insecure
@@ -59,7 +58,6 @@ class HysteriaBean : AbstractBean() {
     var authPayload: String = ""
     var sni: String = ""
     var certificates: String = ""
-    var certificateSha256: String = ""
     var certPublicKeySha256: String = ""
     var disableSNI: Boolean = false
 
@@ -96,7 +94,6 @@ class HysteriaBean : AbstractBean() {
     var initialPacketSize: Int = 0
 
     override val canMapping get() = protocol != PROTOCOL_FAKETCP
-    override val canSelfProtect get() = PlatformInfo.isAndroid || PlatformInfo.isLinux
 
     override fun initializeDefaultValues() {
         super.initializeDefaultValues()
@@ -115,8 +112,8 @@ class HysteriaBean : AbstractBean() {
         return ValidateResult.Secure.Continue
     }
 
-    override fun serialize(output: BinaryOutput) {
-        output.writeInt(10)
+    override fun serialize(output: ByteBufferOutput) {
+        output.writeInt(9)
         super.serialize(output)
 
         output.writeInt(protocolVersion)
@@ -169,12 +166,9 @@ class HysteriaBean : AbstractBean() {
 
         // version 9
         output.writeBoolean(disableChromeParrot)
-
-        // version 10
-        output.writeString(certificateSha256)
     }
 
-    override fun deserialize(input: BinaryInput) {
+    override fun deserialize(input: ByteBufferInput) {
         val version = input.readInt()
         super.deserialize(input)
         protocolVersion = input.readInt()
@@ -242,10 +236,6 @@ class HysteriaBean : AbstractBean() {
         if (version >= 9) {
             disableChromeParrot = input.readBoolean()
         }
-
-        if (version >= 10) {
-            certificateSha256 = input.readString()
-        }
     }
 
     override fun applyFeatureSettings(other: AbstractBean) {
@@ -276,11 +266,11 @@ class HysteriaBean : AbstractBean() {
         }
 
     override fun displayAddress(): String {
-        return joinAddress(serverAddress, serverPorts)
+        return "${serverAddress.wrapIPV6Host()}:$serverPorts"
     }
 
     override fun clone(): HysteriaBean {
-        return BeanConverters.deserialize(HysteriaBean(), BeanConverters.serialize(this))
+        return KryoConverters.deserialize(HysteriaBean(), KryoConverters.serialize(this))
     }
 
 }

@@ -1,8 +1,8 @@
 package fr.husi.database
 
+import com.esotericsoftware.kryo.io.ByteBufferInput
+import com.esotericsoftware.kryo.io.ByteBufferOutput
 import fr.husi.fmt.Serializable
-import fr.husi.io.BinaryInput
-import fr.husi.io.BinaryOutput
 
 class SubscriptionBean : Serializable() {
 
@@ -40,7 +40,7 @@ class SubscriptionBean : Serializable() {
     var username: String = ""
     var expiryDate: Long = 0L
 
-    override fun serializeToBuffer(output: BinaryOutput) {
+    override fun serializeToBuffer(output: ByteBufferOutput) {
         output.writeInt(5)
 
         output.writeInt(type)
@@ -61,7 +61,7 @@ class SubscriptionBean : Serializable() {
         output.writeString(ageIdentity)
     }
 
-    fun serializeForShare(output: BinaryOutput) {
+    fun serializeForShare(output: ByteBufferOutput) {
         output.writeInt(2)
 
         output.writeInt(type)
@@ -76,7 +76,7 @@ class SubscriptionBean : Serializable() {
         output.writeString(ageIdentity)
     }
 
-    override fun deserializeFromBuffer(input: BinaryInput) {
+    override fun deserializeFromBuffer(input: ByteBufferInput) {
         val version = input.readInt()
 
         type = input.readInt()
@@ -108,7 +108,7 @@ class SubscriptionBean : Serializable() {
         }
     }
 
-    fun deserializeFromShare(input: BinaryInput) {
+    fun deserializeFromShare(input: ByteBufferInput) {
         val version = input.readInt()
 
         type = input.readInt()
