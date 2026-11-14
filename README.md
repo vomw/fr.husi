@@ -200,6 +200,35 @@ make apk
 
 The APK file will be located in `androidApp/build/outputs/apk`.
 
+#### GitHub Actions production APKs
+
+The `Android production APKs` workflow (`.github/workflows/android-production-apks.yml`) is manually
+dispatched and builds signed `FossRelease` APKs in separate jobs for `arm64-v8a`, `armeabi-v7a`,
+`x86_64`, and `x86`. Each uploaded APK is named
+`<application-id>-<version-name>-<version-code>-<abi>.apk`, using the values in `husi.properties`.
+
+Configure these repository Actions secrets before dispatching it:
+
+* `ANDROID_KEYSTORE_BASE64`: a single-line Base64 encoding of the release keystore. The workflow
+  restores it as the root-level `release.keystore` only for the build. For example, in PowerShell:
+
+  ```powershell
+  [Convert]::ToBase64String([IO.File]::ReadAllBytes("release.keystore"))
+  ```
+
+* `LOCAL_PROPERTIES`: the signing entries for `local.properties`, with no surrounding quotes:
+
+  ```properties
+  KEYSTORE_PASS=your-keystore-password
+  ALIAS_NAME=your-key-alias
+  ALIAS_PASS=your-key-password
+  ```
+
+`ANDROID_HOME`, `ANDROID_NDK_HOME`, `JAVA_VERSION`, and `GO_VERSION` are configured by the hosted
+runner and workflow setup steps. The SDK must provide Android API 37 and build-tools 37.0.0; the NDK,
+JDK, and Go versions are read from `buildScript/init/version.sh`. Do not commit `release.keystore` or
+`local.properties`.
+
 #### 🖥️ Desktop
 
 Environment:

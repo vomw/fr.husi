@@ -1,0 +1,143 @@
+name: Android production APKs
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.abi }} production APK
+    runs-on: ubuntu-26.04
+    strategy:
+      fail-fast: false
+      matrix:
+        abi:
+          - arm64-v8a
+          - armeabi-v7a
+          - x86_64
+          - x86
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: ./.github/actions/load-build-versions
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: libcore/go.sum
+
+      - name: Set up Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: ${{ env.ANDROID_NDK_VERSION }}
+
+      - name: Verify Android SDK
+        shell: bash
+        run: |
+          sdk_root="${ANDROID_HOME:?ANDROID_HOME is not set}"
+          test -d "$sdk_root/platforms/android-37" || test -d "$sdk_root/platforms/android-37.0"
+          test -x "$sdk_root/build-tools/37.0.0/apksigner"
+
+      - uses: burrunan/gradle-cache-action@v3
+
+      - name: Cache route assets
+        id: cache-assets
+        uses: actions/cache@v6
+        with:
+          path: composeApp/src/commonMain/composeResources/files/sing-box
+          key: assets-${{ env.GEOIP_VERSION }}-${{ env.GEOSITE_VERSION }}
+
+      - name: Prepare route assets
+        if: steps.cache-assets.outputs.cache-hit != 'true'
+        run: make assets
+
+      - name: Restore signing keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        shell: bash
+        run: |
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > release.keystore
+          test -s release.keystore
+          chmod 600 release.keystore
+
+      - name: Write signing properties
+        env:
+          LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
+        shell: bash
+        run: |
+          test -n "$LOCAL_PROPERTIES"
+          printf '%s\n' "$LOCAL_PROPERTIES" > local.properties
+          grep -q '^KEYSTORE_PASS=' local.properties
+          grep -q '^ALIAS_NAME=' local.properties
+          grep -q '^ALIAS_PASS=' local.properties
+
+      - name: Build Android libcore
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: make libcore_android
+
+      - name: Generate Android license metadata
+        run: make aboutlibraries_go aboutlibraries_android
+
+      - name: Build production APKs
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: make apk
+
+      - name: Select and verify ${{ matrix.abi }} APK
+        id: package
+        env:
+          ABI: ${{ matrix.abi }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          metadata_file="$(find androidApp/build/outputs/apk -name output-metadata.json -print -quit)"
+          test -n "$metadata_file"
+          apk_name="$(jq -r --arg abi "$ABI" '
+            .elements[]
+            | select(any(.filters[]?; .filterType == "ABI" and .value == $abi))
+            | .outputFile
+          ' "$metadata_file")"
+          test -n "$apk_name"
+          test "$apk_name" != "null"
+          test "$(printf '%s\n' "$apk_name" | wc -l)" -eq 1
+          apk_path="$(dirname "$metadata_file")/$apk_name"
+          test -f "$apk_path"
+          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose "$apk_path"
+
+          application_id="$(awk -F= '$1 == "PACKAGE_NAME" { print $2; exit }' husi.properties)"
+          version_name="$(awk -F= '$1 == "VERSION_NAME" { print $2; exit }' husi.properties)"
+          version_code="$(awk -F= '$1 == "VERSION_CODE" { print $2; exit }' husi.properties)"
+          test -n "$application_id"
+          test -n "$version_name"
+          test -n "$version_code"
+          artifact_file="${application_id}-${version_name}-${version_code}-${ABI}.apk"
+          mkdir -p artifacts
+          cp "$apk_path" "artifacts/$artifact_file"
+          echo "artifact_file=$artifact_file" >> "$GITHUB_OUTPUT"
+
+      - name: Upload ${{ matrix.abi }} APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.package.outputs.artifact_file }}
+          path: artifacts/${{ steps.package.outputs.artifact_file }}
+          if-no-files-found: error
