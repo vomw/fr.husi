@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -300,7 +301,9 @@ private fun MainScreenContent(
         showNavigation = navigator.isCurrentTopLevel,
         bottomBar = {
             val urlTestStatus by viewModel.urlTestStatus.collectAsStateWithLifecycle()
-            val connectionTestUrl by DataStore.connectionTestURL.collectAsStateWithLifecycle()
+            val initialConnectionTestUrl = remember { DataStore.connectionTestURL.getBlocking() }
+            val connectionTestUrl by DataStore.connectionTestURL.flow()
+                .collectAsState(initial = initialConnectionTestUrl)
             ConnectionStatsBar(
                 status = serviceStatus,
                 urlTestStatus = urlTestStatus,

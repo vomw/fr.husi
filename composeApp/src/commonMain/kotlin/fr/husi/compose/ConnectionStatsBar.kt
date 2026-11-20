@@ -15,6 +15,12 @@ import fr.husi.compose.material3.Text
 import fr.husi.ktx.formatBytes
 import fr.husi.ktx.readableUrlTestError
 import fr.husi.resources.Res
+import fr.husi.resources.connection_test_available
+import fr.husi.resources.connection_test_available_http
+import fr.husi.resources.connection_test_error
+import fr.husi.resources.connection_test_testing
+import fr.husi.resources.speed
+import fr.husi.resources.vpn_connected
 import fr.husi.ui.URLTestStatus
 import org.jetbrains.compose.resources.stringResource
 
