@@ -29,6 +29,7 @@ import fr.husi.bg.Executable
 import fr.husi.bg.ServiceAlert
 import fr.husi.bg.ServiceState
 import fr.husi.compose.SagerFab
+import fr.husi.compose.ConnectionStatsBar
 import fr.husi.compose.ScrollableDialog
 import fr.husi.compose.SwipeableSnackbarHost
 import fr.husi.compose.TextButton
@@ -38,6 +39,7 @@ import fr.husi.compose.material3.NavigationSuiteItem
 import fr.husi.compose.material3.Text
 import fr.husi.compose.navigationBarsAlwaysInsets
 import fr.husi.core.remote.RemoteControlManager
+import fr.husi.database.DataStore
 import fr.husi.database.SagerDatabase
 import fr.husi.fmt.PluginEntry
 import fr.husi.ktx.restartApplication
@@ -296,6 +298,16 @@ private fun MainScreenContent(
     NavigationSuite(
         items = navigationItems,
         showNavigation = navigator.isCurrentTopLevel,
+        bottomBar = {
+            val urlTestStatus by viewModel.urlTestStatus.collectAsStateWithLifecycle()
+            val connectionTestUrl by DataStore.connectionTestURL.collectAsStateWithLifecycle()
+            ConnectionStatsBar(
+                status = serviceStatus,
+                urlTestStatus = urlTestStatus,
+                isHttpsTest = connectionTestUrl.startsWith("https://"),
+                onTestConnection = viewModel::urlTest,
+            )
+        },
         snackbarHost = {
             SwipeableSnackbarHost(
                 hostState = snackbarHostState,

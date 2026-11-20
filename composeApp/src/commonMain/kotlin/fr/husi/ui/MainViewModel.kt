@@ -9,6 +9,8 @@ import fr.husi.bg.AppUpdateAutoChecker
 import fr.husi.bg.AppUpdateInfo
 import fr.husi.bg.BackendState
 import fr.husi.bg.DeepLinkDispatcher
+import fr.husi.core.CoreClient
+import fr.husi.core.urlTestOptions
 import fr.husi.database.DataStore
 import fr.husi.database.ProxyGroup
 import fr.husi.database.SagerDatabase
@@ -24,6 +26,7 @@ import fr.husi.repository.Repository
 import fr.husi.repository.resolveRepository
 import fr.husi.resources.*
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -37,14 +40,15 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 
 @Immutable
 sealed interface URLTestStatus {
     object Initial : URLTestStatus
     object Testing : URLTestStatus
-    class Success(val legacy: Int) : URLTestStatus
-    class Exception(val exception: String) : URLTestStatus
+    class Success(val delay: Int) : URLTestStatus
+    class Exception(val message: String) : URLTestStatus
 }
 
 @Immutable
@@ -64,13 +68,16 @@ class MainAlertDialogEvent(
 
 @Stable
 class MainViewModel(
+    private val coreClient: CoreClient,
     private val repository: Repository = resolveRepository(),
     private val importLinkInteractor: ImportLinkInteractor = ImportLinkInteractor(),
     private val snackbar: SnackbarEmitter = SnackbarEmitter(),
     private val appUpdateChecker: AppUpdateAutoChecker = AppUpdateAutoChecker(),
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : AutoCloseable {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val urlTestMutex = Mutex()
 
     val urlTestStatus: StateFlow<URLTestStatus>
         field = MutableStateFlow<URLTestStatus>(URLTestStatus.Initial)
@@ -138,6 +145,31 @@ class MainViewModel(
 
     fun resetUrlTestStatus() {
         urlTestStatus.value = URLTestStatus.Initial
+    }
+
+    fun urlTest() = scope.launch(ioDispatcher) {
+        if (!urlTestMutex.tryLock()) return@launch
+        try {
+            urlTestStatus.value = URLTestStatus.Testing
+            if (!DataStore.serviceState.connected) {
+                urlTestStatus.value = URLTestStatus.Exception("not started")
+                return@launch
+            }
+            val delay = coreClient.urlTest(
+                tag = "",
+                link = DataStore.connectionTestURL.get(),
+                timeoutMs = DataStore.connectionTestTimeout.get(),
+                options = urlTestOptions(
+                    DataStore.connectionTestUnifiedDelay.get(),
+                    DataStore.connectionTestIgnoreHandshakeTime.get(),
+                ),
+            )
+            urlTestStatus.value = URLTestStatus.Success(delay)
+        } catch (e: Exception) {
+            urlTestStatus.value = URLTestStatus.Exception(e.readableMessage)
+        } finally {
+            urlTestMutex.unlock()
+        }
     }
 
     fun importFromUri(uri: String) = scope.launch {

@@ -3,6 +3,7 @@ package fr.husi.compose.material3
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
@@ -112,6 +113,7 @@ internal interface PlatformMaterialApi {
     fun NavigationSuite(
         items: ImmutableList<NavigationSuiteItem>,
         showNavigation: Boolean,
+        bottomBar: @Composable () -> Unit,
         snackbarHost: @Composable () -> Unit,
         floatingActionButton: @Composable () -> Unit,
         content: @Composable () -> Unit,
@@ -331,6 +333,7 @@ private object MaterialPlatformMaterialApi : PlatformMaterialApi {
     override fun NavigationSuite(
         items: ImmutableList<NavigationSuiteItem>,
         showNavigation: Boolean,
+        bottomBar: @Composable () -> Unit,
         snackbarHost: @Composable () -> Unit,
         floatingActionButton: @Composable () -> Unit,
         content: @Composable () -> Unit,
@@ -339,15 +342,18 @@ private object MaterialPlatformMaterialApi : PlatformMaterialApi {
             modifier = Modifier.fillMaxSize(),
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             bottomBar = {
-                AnimatedVisibility(visible = showNavigation) {
-                    ShortNavigationBar {
-                        items.forEach { item ->
-                            ShortNavigationBarItem(
-                                selected = item.selected,
-                                onClick = item.onClick,
-                                icon = { NavigationSuiteItemIcon(item) },
-                                label = { MaterialText(stringResource(item.label)) },
-                            )
+                Column {
+                    bottomBar()
+                    AnimatedVisibility(visible = showNavigation) {
+                        ShortNavigationBar {
+                            items.forEach { item ->
+                                ShortNavigationBarItem(
+                                    selected = item.selected,
+                                    onClick = item.onClick,
+                                    icon = { NavigationSuiteItemIcon(item) },
+                                    label = { MaterialText(stringResource(item.label)) },
+                                )
+                            }
                         }
                     }
                 }
@@ -887,6 +893,7 @@ object CardDefaults {
 fun NavigationSuite(
     items: ImmutableList<NavigationSuiteItem>,
     showNavigation: Boolean,
+    bottomBar: @Composable () -> Unit = {},
     snackbarHost: @Composable () -> Unit,
     floatingActionButton: @Composable () -> Unit,
     content: @Composable () -> Unit,
@@ -894,6 +901,7 @@ fun NavigationSuite(
     currentPlatformMaterialApi().NavigationSuite(
         items = items,
         showNavigation = showNavigation,
+        bottomBar = bottomBar,
         snackbarHost = snackbarHost,
         floatingActionButton = floatingActionButton,
         content = content,

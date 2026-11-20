@@ -48,7 +48,7 @@ import org.koin.dsl.onClose
 
 internal val commonNavigationModule = module {
     scope<MainScreenScope> {
-        scopedOf(::MainViewModel) onClose { it?.close() }
+        scoped { MainViewModel(coreClient = get()) } onClose { it?.close() }
         scopedOf(::ProfilePickerController)
         scopedOf(::SnackbarEmitter)
 

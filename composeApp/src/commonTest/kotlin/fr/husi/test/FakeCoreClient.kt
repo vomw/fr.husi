@@ -243,7 +243,21 @@ open class FakeCoreClient : CoreClient {
         link: String,
         timeoutMs: Int,
         options: URLTestOptions,
-    ): Int = 0
+    ): Int {
+        urlTestCalls += 1
+        lastUrlTestTag = tag
+        lastUrlTestLink = link
+        lastUrlTestTimeoutMs = timeoutMs
+        urlTestThrowable?.let { throw it }
+        return nextUrlTestDelay
+    }
+
+    var nextUrlTestDelay: Int = 0
+    var urlTestThrowable: Throwable? = null
+    var urlTestCalls: Int = 0
+    var lastUrlTestTag: String? = null
+    var lastUrlTestLink: String? = null
+    var lastUrlTestTimeoutMs: Int? = null
 
     override suspend fun standaloneUrlTest(
         config: String,

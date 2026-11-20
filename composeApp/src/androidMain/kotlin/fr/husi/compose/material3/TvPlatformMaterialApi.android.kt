@@ -135,6 +135,7 @@ internal object TvPlatformMaterialApi : PlatformMaterialApi {
     override fun NavigationSuite(
         items: ImmutableList<NavigationSuiteItem>,
         showNavigation: Boolean,
+        bottomBar: @Composable () -> Unit,
         snackbarHost: @Composable () -> Unit,
         floatingActionButton: @Composable () -> Unit,
         content: @Composable () -> Unit,
@@ -142,6 +143,7 @@ internal object TvPlatformMaterialApi : PlatformMaterialApi {
         Scaffold(
             containerColor = Color.Transparent,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            bottomBar = bottomBar,
             snackbarHost = snackbarHost,
             floatingActionButton = floatingActionButton,
         ) { innerPadding ->

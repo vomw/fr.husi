@@ -5,6 +5,7 @@ import fr.husi.bg.BackendState
 import fr.husi.bg.ServiceState
 import fr.husi.database.DataStore
 import fr.husi.test.FakeAppUpdateFetcher
+import fr.husi.test.FakeCoreClient
 import fr.husi.test.HusiKoinMainDispatcherTest
 import fr.husi.test.appUpdateInfo
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -29,6 +30,7 @@ class MainViewModelTest : HusiKoinMainDispatcherTest() {
     @AfterTest
     fun resetBackendState() {
         BackendState.reset()
+        DataStore.serviceState = ServiceState.Idle
     }
 
     /**
@@ -36,7 +38,7 @@ class MainViewModelTest : HusiKoinMainDispatcherTest() {
      */
     @Test
     fun `confirm should complete false when dialog is dismissed`() = runTest(dispatcher.scheduler) {
-        val viewModel = MainViewModel()
+        val viewModel = newViewModel()
 
         val eventDeferred = backgroundScope.async {
             viewModel.dialogEvent.first()
@@ -65,12 +67,14 @@ class MainViewModelTest : HusiKoinMainDispatcherTest() {
         val info = appUpdateInfo()
         val fetcher = FakeAppUpdateFetcher(nextResult = info)
         val viewModel = MainViewModel(
+            coreClient = FakeCoreClient(),
             appUpdateChecker = AppUpdateAutoChecker(
                 fetcher = fetcher,
                 isSupported = true,
                 today = { 100L },
                 ioDispatcher = dispatcher,
             ),
+            ioDispatcher = dispatcher,
         )
 
         advanceUntilIdle()
@@ -85,4 +89,44 @@ class MainViewModelTest : HusiKoinMainDispatcherTest() {
 
         viewModel.close()
     }
+
+    @Test
+    fun `connection test uses the active service and configured URL`() = runTest(dispatcher.scheduler) {
+        val client = FakeCoreClient().apply { nextUrlTestDelay = 123 }
+        DataStore.connectionTestURL.set("https://test.example/")
+        DataStore.connectionTestTimeout.set(4_000)
+        DataStore.connectionTestUnifiedDelay.set(true)
+        DataStore.connectionTestIgnoreHandshakeTime.set(true)
+        DataStore.serviceState = ServiceState.Connected
+        val viewModel = newViewModel(client)
+
+        viewModel.urlTest()
+        advanceUntilIdle()
+
+        assertEquals(1, client.urlTestCalls)
+        assertEquals("", client.lastUrlTestTag)
+        assertEquals("https://test.example/", client.lastUrlTestLink)
+        assertEquals(4_000, client.lastUrlTestTimeoutMs)
+        assertEquals(123, assertIs<URLTestStatus.Success>(viewModel.urlTestStatus.value).delay)
+        viewModel.close()
+    }
+
+    @Test
+    fun `connection test does not contact the core while disconnected`() = runTest(dispatcher.scheduler) {
+        val client = FakeCoreClient()
+        DataStore.serviceState = ServiceState.Idle
+        val viewModel = newViewModel(client)
+
+        viewModel.urlTest()
+        advanceUntilIdle()
+
+        assertEquals(0, client.urlTestCalls)
+        assertIs<URLTestStatus.Exception>(viewModel.urlTestStatus.value)
+        viewModel.close()
+    }
+
+    private fun newViewModel(coreClient: FakeCoreClient = FakeCoreClient()) = MainViewModel(
+        coreClient = coreClient,
+        ioDispatcher = dispatcher,
+    )
 }

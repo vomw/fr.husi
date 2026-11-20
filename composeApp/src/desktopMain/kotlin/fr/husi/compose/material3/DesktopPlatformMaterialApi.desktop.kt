@@ -59,6 +59,7 @@ internal object DesktopPlatformMaterialApi : PlatformMaterialApi by standardPlat
     override fun NavigationSuite(
         items: ImmutableList<NavigationSuiteItem>,
         showNavigation: Boolean,
+        bottomBar: @Composable () -> Unit,
         snackbarHost: @Composable () -> Unit,
         floatingActionButton: @Composable () -> Unit,
         content: @Composable () -> Unit,
@@ -71,6 +72,7 @@ internal object DesktopPlatformMaterialApi : PlatformMaterialApi by standardPlat
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            bottomBar = bottomBar,
             snackbarHost = snackbarHost,
             floatingActionButton = floatingActionButton,
         ) { innerPadding ->
