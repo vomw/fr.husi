@@ -7,8 +7,10 @@ import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.Clipboard
 import androidx.compose.ui.platform.asAwtTransferable
 import fr.husi.ktx.Logs
-import fr.husi.ktx.onIoDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.awt.Image
+import java.awt.Toolkit
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
 import java.awt.datatransfer.Transferable
@@ -20,6 +22,13 @@ import org.jetbrains.skia.Image as SkiaImage
 @OptIn(ExperimentalComposeUiApi::class)
 actual suspend fun Clipboard.setPlainText(text: String) {
     setClipEntry(ClipEntry(StringSelection(text)))
+}
+
+/**
+ * Use it outside LocalClipboard scope
+ */
+fun setSystemClipboardPlainText(text: String) = runCatching {
+    Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(text), null)
 }
 
 @OptIn(ExperimentalComposeUiApi::class)
@@ -45,16 +54,21 @@ actual suspend fun Clipboard.getFirstContent(): ClipboardContent? {
     for (flavor in transferable.transferDataFlavors) {
         val data = try {
             when (flavor) {
-                DataFlavor.stringFlavor, DataFlavor.imageFlavor -> transferable.getTransferData(flavor)
+                DataFlavor.stringFlavor, DataFlavor.imageFlavor -> {
+                    withContext(Dispatchers.IO) {
+                        transferable.getTransferData(flavor)
+                    }
+                }
+
                 else -> continue
             }
         } catch (e: Exception) {
             Logs.e(e)
             continue
         }
-        when (data) {
-            is String -> return ClipboardContent.Text(data)
-            is Image -> return data.toImageBitmap()?.let(ClipboardContent::Image)
+        return when (data) {
+            is String -> ClipboardContent.Text(data)
+            is Image -> data.toImageBitmap()?.let(ClipboardContent::Image)
             else -> continue
         }
     }
@@ -73,9 +87,9 @@ private fun Image.toBufferedImage(): BufferedImage? {
     }
 }
 
-private suspend fun Image.toImageBitmap(): ImageBitmap? = onIoDispatcher {
+private suspend fun Image.toImageBitmap(): ImageBitmap? = withContext(Dispatchers.IO) {
     try {
-        val buffered = toBufferedImage() ?: return@onIoDispatcher null
+        val buffered = toBufferedImage() ?: return@withContext null
         SkiaImage.makeFromEncoded(
             ByteArrayOutputStream().also {
                 ImageIO.write(buffered, "png", it)

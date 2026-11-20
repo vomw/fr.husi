@@ -10,11 +10,12 @@ import fr.husi.database.ProxyGroup
 import fr.husi.database.SagerDatabase
 import fr.husi.group.GroupUpdater
 import fr.husi.ktx.Logs
-import fr.husi.ktx.onIoDispatcher
 import fr.husi.ktx.readableMessage
 import fr.husi.ktx.runOnDefaultDispatcher
 import fr.husi.ktx.runOnIoDispatcher
-import fr.husi.resources.*
+import fr.husi.resources.Res
+import fr.husi.resources.action_export_msg
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,6 +28,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.milliseconds
 
 @Immutable
@@ -148,18 +150,26 @@ class GroupScreenViewModel : ViewModel() {
     }
 
     fun submitReorder(changes: List<OrderedItem<GroupItemUiState>>) = runOnDefaultDispatcher {
-        val toUpdate = changes.mapNotNull { orderedItem ->
-            val newUserOrder = orderedItem.newIndex.toLong()
-            val group = orderedItem.value.group
+        if (changes.isEmpty()) return@runOnDefaultDispatcher
+
+        val reordered = uiState.value.groups.toMutableList()
+        for (change in changes) {
+            if (change.newIndex !in reordered.indices) {
+                return@runOnDefaultDispatcher
+            }
+            reordered[change.newIndex] = change.value
+        }
+
+        val toUpdate = reordered.mapIndexedNotNull { index, groupState ->
+            val newUserOrder = (index + 1).toLong()
+            val group = groupState.group
             if (group.userOrder != newUserOrder) {
-                group.copy(
-                    userOrder = newUserOrder,
-                )
+                group.copy(userOrder = newUserOrder)
             } else {
                 null
             }
         }
-        if (toUpdate.isNotEmpty()) onIoDispatcher {
+        if (toUpdate.isNotEmpty()) withContext(Dispatchers.IO) {
             SagerDatabase.groupDao.updateGroups(toUpdate)
         }
     }
@@ -170,9 +180,11 @@ class GroupScreenViewModel : ViewModel() {
         hiddenGroupAccess.withLock {
             hiddenGroup.clear()
         }
-        val groups = onIoDispatcher { SagerDatabase.groupDao.allGroups().first() }
-        val groupsWithCounts = groups.map { group ->
-            group to onIoDispatcher { SagerDatabase.proxyDao.countByGroup(group.id).first() }
+        val groupsWithCounts = withContext(Dispatchers.IO) {
+            val groups = SagerDatabase.groupDao.allGroups().first()
+            groups.map { group ->
+                group to SagerDatabase.proxyDao.countByGroup(group.id).first()
+            }
         }
         reloadGroups(groupsWithCounts)
     }
@@ -185,7 +197,7 @@ class GroupScreenViewModel : ViewModel() {
             hiddenGroup.clear()
             toDelete
         }
-        onIoDispatcher {
+        withContext(Dispatchers.IO) {
             GroupManager.deleteGroup(toDelete)
         }
     }
@@ -199,7 +211,7 @@ class GroupScreenViewModel : ViewModel() {
         writeContent: suspend (content: String) -> Unit,
         showSnackbar: (message: StringOrRes) -> Unit,
     ) = viewModelScope.launch {
-        val links = onIoDispatcher {
+        val links = withContext(Dispatchers.IO) {
             SagerDatabase.proxyDao
                 .getByGroup(group)
                 .first()

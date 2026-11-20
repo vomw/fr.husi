@@ -14,6 +14,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.test.runTest
 
 class V2RayFmtTest {
 
@@ -162,7 +163,7 @@ class V2RayFmtTest {
     }
 
     @Test
-    fun `buildSingBoxOutboundStandardV2RayBean should build vmess outbound`() {
+    fun `buildSingBoxOutboundStandardV2RayBean should build vmess outbound`() = runTest {
         val bean = VMessBean().apply {
             serverAddress = "example.com"
             serverPort = 10086
@@ -189,7 +190,7 @@ class V2RayFmtTest {
     }
 
     @Test
-    fun `buildSingBoxOutboundStandardV2RayBean should map TLS spoof fields`() {
+    fun `buildSingBoxOutboundStandardV2RayBean should map TLS spoof fields`() = runTest {
         val bean = VMessBean().apply {
             serverAddress = "example.com"
             serverPort = 443
@@ -199,6 +200,7 @@ class V2RayFmtTest {
             sni = "sni.example.com"
             tlsSpoof = "spoof.example.com"
             tlsSpoofMethod = "wrong-checksum"
+            certificateSha256 = "pin-a\npin-b"
         }
 
         val outbound = buildSingBoxOutboundStandardV2RayBean(bean)
@@ -207,10 +209,12 @@ class V2RayFmtTest {
         val tls = assertNotNull(vmess.tls)
         assertEquals("spoof.example.com", tls.spoof)
         assertEquals("wrong-checksum", tls.spoof_method)
+        assertEquals(listOf("pin-a", "pin-b"), tls.certificate_sha256?.toList())
+        assertEquals("pin-a\npin-b", bean.clone().certificateSha256)
     }
 
     @Test
-    fun `buildSingBoxOutboundStandardV2RayBean should omit blank TLS spoof fields`() {
+    fun `buildSingBoxOutboundStandardV2RayBean should omit blank TLS spoof fields`() = runTest {
         val bean = VMessBean().apply {
             serverAddress = "example.com"
             serverPort = 443
@@ -226,10 +230,11 @@ class V2RayFmtTest {
         val tls = assertNotNull(vmess.tls)
         assertNull(tls.spoof)
         assertNull(tls.spoof_method)
+        assertNull(tls.certificate_sha256)
     }
 
     @Test
-    fun `buildSingBoxOutboundStandardV2RayBean should build vless outbound with flow`() {
+    fun `buildSingBoxOutboundStandardV2RayBean should build vless outbound with flow`() = runTest {
         val bean = VLESSBean().apply {
             serverAddress = "example.com"
             serverPort = 443
@@ -247,7 +252,7 @@ class V2RayFmtTest {
     }
 
     @Test
-    fun `buildSingBoxOutboundStandardV2RayBean should preserve ws transport fields`() {
+    fun `buildSingBoxOutboundStandardV2RayBean should preserve ws transport fields`() = runTest {
         val bean = VMessBean().apply {
             serverAddress = "example.com"
             serverPort = 10086
@@ -272,7 +277,7 @@ class V2RayFmtTest {
     }
 
     @Test
-    fun `buildSingBoxOutboundStandardV2RayBean should parse ws early data settings from path query`() {
+    fun `buildSingBoxOutboundStandardV2RayBean should parse ws early data settings from path query`() = runTest {
         val bean = VMessBean().apply {
             serverAddress = "example.com"
             serverPort = 10086
@@ -289,7 +294,7 @@ class V2RayFmtTest {
     }
 
     @Test
-    fun `buildSingBoxOutboundStandardV2RayBean should preserve blank ws path`() {
+    fun `buildSingBoxOutboundStandardV2RayBean should preserve blank ws path`() = runTest {
         val bean = VMessBean().apply {
             serverAddress = "example.com"
             serverPort = 10086
@@ -306,7 +311,7 @@ class V2RayFmtTest {
     }
 
     @Test
-    fun `buildSingBoxOutboundStandardV2RayBean should strip only ed from path with many query params`() {
+    fun `buildSingBoxOutboundStandardV2RayBean should strip only ed from path with many query params`() = runTest {
         val bean = VMessBean().apply {
             serverAddress = "example.com"
             serverPort = 10086
@@ -329,7 +334,7 @@ class V2RayFmtTest {
     }
 
     @Test
-    fun `buildSingBoxOutboundStandardV2RayBean should let explicit wsMaxEarlyData override path query`() {
+    fun `buildSingBoxOutboundStandardV2RayBean should let explicit wsMaxEarlyData override path query`() = runTest {
         val bean = VMessBean().apply {
             serverAddress = "example.com"
             serverPort = 10086
@@ -348,7 +353,7 @@ class V2RayFmtTest {
     }
 
     @Test
-    fun `buildSingBoxOutboundStandardV2RayBean should build trojan outbound`() {
+    fun `buildSingBoxOutboundStandardV2RayBean should build trojan outbound`() = runTest {
         val bean = TrojanBean().apply {
             serverAddress = "example.com"
             serverPort = 443
@@ -378,6 +383,7 @@ class V2RayFmtTest {
                 "enabled" to true,
                 "server_name" to "sni.example.com",
                 "insecure" to true,
+                "certificate_sha256" to listOf("pin-1", "pin-2"),
             ),
         )
 
@@ -391,6 +397,7 @@ class V2RayFmtTest {
         assertTrue(bean.isTLS)
         assertEquals("sni.example.com", bean.sni)
         assertTrue(bean.allowInsecure)
+        assertEquals("pin-1\npin-2", bean.certificateSha256)
     }
 
     @Test

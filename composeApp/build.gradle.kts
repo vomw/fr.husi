@@ -1,15 +1,19 @@
+import com.codingfeline.buildkonfig.compiler.FieldSpec.Type.INT
+import com.codingfeline.buildkonfig.compiler.FieldSpec.Type.STRING
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.gradle.jvm.tasks.Jar
 
 plugins {
     id("org.jetbrains.kotlin.multiplatform")
     id("com.android.kotlin.multiplatform.library")
+    id("com.android.lint")
     id("kotlin-parcelize")
     alias(libs.plugins.ksp)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.aboutlibraries)
+    alias(libs.plugins.buildkonfig)
 }
 
 val packageNameProvider = requireMetadata("PACKAGE_NAME")
@@ -21,6 +25,8 @@ enum class DesktopPlatform(
     val composeDependencyId: String,
     val nativeNames: Set<String>,
     val jnaName: String,
+    /** OS part of the `kurpc-natives-jvm` classifier. */
+    val kurpcName: String,
 ) {
     Linux(
         id = "linux",
@@ -28,6 +34,7 @@ enum class DesktopPlatform(
         composeDependencyId = "linux",
         nativeNames = setOf("linux"),
         jnaName = "linux",
+        kurpcName = "linux",
     ),
     Darwin(
         id = "darwin",
@@ -35,6 +42,7 @@ enum class DesktopPlatform(
         composeDependencyId = "macos",
         nativeNames = setOf("osx", "darwin"),
         jnaName = "darwin",
+        kurpcName = "macos",
     ),
     Windows(
         id = "windows",
@@ -42,6 +50,7 @@ enum class DesktopPlatform(
         composeDependencyId = "windows",
         nativeNames = setOf("windows"),
         jnaName = "win32",
+        kurpcName = "windows",
     ),
     ;
 
@@ -72,6 +81,8 @@ enum class DesktopArch(
     val nativeNames: Set<String>,
     val jnaName: String,
     val nucleusName: String,
+    /** Arch part of the `kurpc-natives-jvm` classifier. */
+    val kurpcName: String,
 ) {
     Amd64(
         id = "amd64",
@@ -81,6 +92,7 @@ enum class DesktopArch(
         nativeNames = setOf("x64", "amd64"),
         jnaName = "x86-64",
         nucleusName = "x64",
+        kurpcName = "x86_64",
     ),
     Arm64(
         id = "arm64",
@@ -90,6 +102,7 @@ enum class DesktopArch(
         nativeNames = setOf("arm64", "aarch64"),
         jnaName = "aarch64",
         nucleusName = "aarch64",
+        kurpcName = "aarch64",
     ),
     ;
 
@@ -107,7 +120,11 @@ data class DesktopTarget(
     val arch: DesktopArch,
 ) {
     val id: String = "${platform.id}/${arch.id}"
-    val libcoreDesktopJarName: String = "libcore-desktop-${platform.id}-${arch.id}.jar"
+    /**
+     * libkurpc for this target. kurpc extracts it from the jar at its own resource path, outside
+     * the `natives/` tree the release jar filter rewrites, so it needs no sidecar.
+     */
+    val kurpcNativesClassifier: String = "${platform.kurpcName}-${arch.kurpcName}"
     val composeDependencyNotation: String =
         "org.jetbrains.compose.desktop:desktop-jvm-${platform.composeDependencyId}-${arch.composeDependencyId}"
     val nativeKeepPrefixes: Set<String> =
@@ -123,12 +140,16 @@ data class DesktopTarget(
         )
     val composeTrayNativeKeepPrefixes: Set<String> =
         setOf(
-            "composetray/native/${platform.jnaName}-${arch.jnaName}/",
+            "composetray/native/${platform.jnaName}-${arch.nucleusName}/",
         )
     val nucleusNativeKeepPrefixes: Set<String> =
         setOf(
             "nucleus/native/${platform.jnaName}-${arch.nucleusName}/",
         )
+    /** Where libghostty keeps its JNI library for every target, one directory each. */
+    val ghosttyNativePrefix: String = "io/github/xchacha20_poly1305/libghostty/native/"
+    /** libghostty names its native directories with the same OS and arch tokens as kurpc. */
+    val ghosttyNativeKeepPrefix: String = "$ghosttyNativePrefix${platform.kurpcName}-${arch.kurpcName}/"
     val skikoNativeKeepEntries: Set<String> =
         buildSet {
             val baseName = "skiko-${platform.composeDependencyId}-${arch.composeDependencyId}"
@@ -143,10 +164,25 @@ data class DesktopTarget(
     override fun toString(): String = id
 
     companion object {
+        /**
+         * androidx sqlite-bundled ships no `libsqliteJni` for these, so Room cannot open the
+         * database and the app dies on startup. Each one carries its own upstream issue.
+         * `darwin/amd64` is gone for good; `windows/arm64` comes back if upstream ever builds it.
+         */
+        private val missingBundledSqlite: Map<DesktopTarget, String> =
+            mapOf(
+                DesktopTarget(platform = DesktopPlatform.Darwin, arch = DesktopArch.Amd64) to
+                    "https://issuetracker.google.com/issues/495864182",
+                DesktopTarget(platform = DesktopPlatform.Windows, arch = DesktopArch.Arm64) to
+                    "https://issuetracker.google.com/issues/426464784",
+            )
+
         val supported: Set<DesktopTarget> =
-            DesktopPlatform.entries.flatMap { platform ->
-                DesktopArch.entries.map { arch -> DesktopTarget(platform, arch) }
-            }.toSet()
+            DesktopPlatform.entries
+                .flatMap { platform ->
+                    DesktopArch.entries.map { arch -> DesktopTarget(platform, arch) }
+                }.minus(missingBundledSqlite.keys)
+                .toSet()
 
         fun parse(rawValue: String): DesktopTarget {
             val tokens = rawValue.trim().split("/", limit = 2)
@@ -154,6 +190,11 @@ data class DesktopTarget(
                 "Invalid desktopTarget '$rawValue'. Use <platform>/<arch>, e.g. linux/amd64."
             }
             val parsedTarget = DesktopTarget(platform = DesktopPlatform.parse(tokens[0]), arch = DesktopArch.parse(tokens[1]))
+            val missingSqliteIssue = missingBundledSqlite[parsedTarget]
+            require(missingSqliteIssue == null) {
+                "Desktop target '$rawValue' has no androidx sqlite-bundled binary, so the app " +
+                    "cannot open its database. See $missingSqliteIssue."
+            }
             require(parsedTarget in supported) {
                 "Unsupported desktop target '$rawValue'. Supported targets: ${supported.joinToString()}."
             }
@@ -184,42 +225,81 @@ val requestedDesktopTarget =
 val desktopTarget = requestedDesktopTarget ?: resolveHostDesktopTarget()
 val composeDesktopVersion = libs.versions.composeMultiplatform.get()
 
-val desktopJarName = desktopTarget.libcoreDesktopJarName
-val desktopJarFile = layout.projectDirectory.file("libs/$desktopJarName").asFile
-val libcoreDesktopJarOptional = desktopJarFile.takeIf { it.isFile }?.let { files(it) }
-val libcoreDesktopJarRequired =
-    files({
-        require(desktopJarFile.isFile) {
-            "Missing desktop libcore jar '${desktopJarFile.path}'. Build it first, e.g. make libcore_desktop DESKTOP_TARGETS=$desktopTarget."
+val libcoreAarFile = layout.projectDirectory.file("libs/libcore.aar").asFile
+val checkLibcoreAar = tasks.register("checkLibcoreAar") {
+    description = "Fails with an explanation when the Android libcore.aar has not been built yet."
+    val aarPath = libcoreAarFile.path
+    doFirst {
+        if (!File(aarPath).isFile) {
+            error("Missing Android libcore aar '$aarPath'. Build it first: make libcore_android.")
         }
-        desktopJarFile
-    })
+    }
+}
+
+
+val bundledAssetFiles = listOf("geoip.tgz", "geosite.tgz")
+val bundledAssetsDir = layout.projectDirectory.dir("src/commonMain/composeResources/files/sing-box").asFile
+val warnMissingAssets = tasks.register("warnMissingBundledAssets") {
+    description = "Warns when the geoip/geosite assets have not been downloaded yet."
+    val assetsDirPath = bundledAssetsDir.path
+    val assetFileNames = bundledAssetFiles.toList()
+    doFirst {
+        val missing = assetFileNames.filterNot { File(assetsDirPath, it).isFile }
+        if (missing.isNotEmpty()) {
+            logger.warn(
+                "Missing bundled route assets in '$assetsDirPath': ${missing.joinToString()}. " +
+                    "The app will ship without geoip/geosite rule sets; run 'make assets' to download them.",
+            )
+        }
+    }
+}
+
+tasks.matching { it.name.startsWith("compile") }.configureEach {
+    if (name.contains("Android", ignoreCase = true)) {
+        dependsOn(checkLibcoreAar)
+    }
+    dependsOn(warnMissingAssets)
+}
+
 val desktopPackageName = packageNameProvider.get().trim()
 val desktopVersion = versionNameProvider.get().trim()
 val desktopTargetFormats = emptySet<TargetFormat>()
+val desktopArtifactBaseName =
+    "$desktopPackageName-${desktopTarget.platform.id}-${desktopTarget.arch.packageJarArchToken}-$desktopVersion"
+val desktopProguardMappingFile =
+    layout.buildDirectory.file("compose/mapping/$desktopArtifactBaseName-mapping.txt")
 
-val generateBuildConfig = tasks.register("generateBuildConfig") {
-    description = "Generates the shared BuildConfig Kotlin source."
-    val outputDir = layout.buildDirectory.dir("generated/buildConfig/kotlin")
-    val versionName = versionNameProvider.get()
-    val versionCode = versionCodeProvider.get()
-    inputs.property("versionName", versionNameProvider)
-    inputs.property("versionCode", versionCodeProvider)
-    outputs.dir(outputDir)
+tasks.matching { it.name == "proguardReleaseJars" }.configureEach {
+    outputs.file(desktopProguardMappingFile)
+}
+
+val generateDesktopProguardMappingConfig = tasks.register("generateDesktopProguardMappingConfig") {
+    description = "Writes the ProGuard rule that keeps the desktop release mapping."
+    val configurationFile = layout.buildDirectory.file("compose/mapping/print-mapping.pro")
+    val mappingFile = desktopProguardMappingFile
+    inputs.property("mappingFileName", "$desktopArtifactBaseName-mapping.txt")
+    outputs.file(configurationFile)
     doLast {
-        val dir = outputDir.get().asFile.resolve("fr/husi")
-        dir.mkdirs()
-        dir.resolve("BuildConfig.kt").writeText(
-            """
-            |package fr.husi
-            |
-            |object BuildConfig {
-            |    const val VERSION_NAME = "$versionName"
-            |    const val VERSION_CODE = $versionCode
-            |    const val FLAVOR = ""
-            |}
-            """.trimMargin(),
-        )
+        val mapping = mappingFile.get().asFile
+        mapping.parentFile.mkdirs()
+        configurationFile.get().asFile.writeText("-printmapping '${mapping.invariantSeparatorsPath}'\n")
+    }
+}
+
+val collectDesktopLibraryProguardRules =
+    tasks.register<CollectLibraryProguardRulesTask>("collectDesktopLibraryProguardRules") {
+        description = "Merges the ProGuard rules that desktop dependencies ship in their jars."
+        runtimeClasspath.from(configurations.named("desktopRuntimeClasspath"))
+        outputFile.set(layout.buildDirectory.file("compose/proguard/library-rules.pro"))
+    }
+
+buildkonfig {
+    packageName = "fr.husi"
+    exposeObjectWithName = "BuildConfig"
+
+    defaultConfigs {
+        buildConfigField(STRING, "VERSION_NAME", versionNameProvider.get(), const = true)
+        buildConfigField(INT, "VERSION_CODE", versionCodeProvider.get(), const = true)
     }
 }
 
@@ -248,10 +328,20 @@ kotlin {
     android {
         namespace = "fr.husi.lib"
         buildToolsVersion = "37.0.0"
-        compileSdk = 37
+        compileSdk {
+            version = release(37) {
+                minorApiLevel = 2
+            }
+        }
         minSdk = 24
         androidResources {
             enable = true
+        }
+        // commonMain compiles against the desktop JDK, so only lint notices a JDK API that
+        // Android lacks below minSdk.
+        lint {
+            checkOnly += "NewApi"
+            abortOnError = true
         }
     }
 
@@ -259,20 +349,13 @@ kotlin {
 
     sourceSets {
         val commonMain = getByName("commonMain") {
-            kotlin.srcDir(generateBuildConfig)
             dependencies {
-                // Optional workaround for IDE to get libcore info
-                libcoreDesktopJarOptional?.let {
-                    compileOnly(it)
-                }
-
-                implementation(libs.jetbrains.compose.runtime)
+                implementation(libs.kurpc)
                 implementation(libs.jetbrains.compose.foundation)
                 implementation(libs.jetbrains.compose.material3)
                 implementation(libs.jetbrains.compose.animation.graphics)
                 implementation(libs.jetbrains.compose.components.resources)
                 implementation(libs.jetbrains.compose.ui.tooling.preview)
-                implementation(libs.jetbrains.lifecycle.viewmodel.compose)
                 implementation(libs.jetbrains.lifecycle.viewmodel.navigation3)
                 implementation(libs.jetbrains.lifecycle.runtime.compose)
                 implementation(libs.jetbrains.navigation3.ui)
@@ -281,23 +364,23 @@ kotlin {
                 implementation(libs.androidx.room.runtime)
                 implementation(libs.androidx.sqlite.bundled)
                 implementation(libs.kotlinx.serialization.json)
+                implementation(libs.kotlinx.serialization.protobuf)
                 implementation(libs.kotlinx.datetime)
 
                 implementation(libs.ini4j)
-                implementation(libs.kryo)
-                implementation(libs.compose.preference)
-                implementation(libs.fastscroller.core)
+                implementation(libs.okio)
                 implementation(libs.fastscroller.material3)
-                implementation(libs.filekit.core)
                 implementation(libs.filekit.dialogs.compose)
                 implementation(libs.aboutlibraries.compose.m3)
+                implementation(libs.haze.blur.material3)
                 implementation(libs.zxing.core)
+                implementation(libs.kpuri)
+                implementation(libs.libghostty.compose)
+                implementation(project(":proto"))
                 implementation(project(":library:DragDropSwipeLazyColumn"))
+                implementation(project(":library:ComposePreference"))
 
                 implementation(project.dependencies.platform(libs.koin.bom))
-                implementation(libs.koin.core)
-                implementation(libs.koin.core.viewmodel)
-                implementation(libs.koin.compose)
                 implementation(libs.koin.compose.viewmodel)
                 implementation(libs.koin.compose.navigation3)
             }
@@ -315,15 +398,17 @@ kotlin {
 
                 implementation(libs.androidx.appcompat)
                 implementation(libs.androidx.work.multiprocess)
-                implementation(libs.androidx.datastore)
                 implementation(libs.androidx.compose.ui.tooling)
                 implementation(libs.androidx.activity.compose)
 
                 implementation(libs.koin.android)
 
+                implementation(libs.shizuku.api)
+                implementation(libs.shizuku.provider)
+                implementation(libs.hidden.api.bypass)
+
                 implementation(libs.accompanist.drawablepainter)
 
-                implementation(libs.androidx.camera.core)
                 implementation(libs.androidx.camera.lifecycle)
                 implementation(libs.androidx.camera.camera2)
                 implementation(libs.androidx.camera.compose)
@@ -331,7 +416,6 @@ kotlin {
                 implementation(libs.smali.dexlib2.get().toString()) {
                     exclude(group = "com.google.guava", module = "guava")
                 }
-                implementation(libs.guava)
 
                 implementation(libs.process.phoenix)
 
@@ -358,12 +442,26 @@ kotlin {
                     implementation("${desktopTarget.composeDependencyNotation}:$composeDesktopVersion")
                 }
                 implementation(libs.clikt)
+                implementation(libs.jna)
                 implementation(libs.kotlinx.coroutines.swing)
-                implementation(libs.com.kdroid.composetray)
-                implementation(libs.dbus.java.core)
-                implementation(libs.dbus.java.transport.native.unixsocket)
-                implementation(libs.jna.platform)
-                implementation(libcoreDesktopJarRequired)
+                implementation(libs.nucleus.composetray)
+                implementation(libs.nucleus.core.runtime)
+                implementation(libs.nucleus.notification)
+                implementation(libs.nucleus.darkmode.detector)
+                implementation(libs.nucleus.autolaunch)
+                implementation(libs.nucleus.scheduler)
+                // The KMP dependency DSL has no variantOf; the classifier goes in the notation.
+                libs.kurpc.natives.jvm.get().let { natives ->
+                    implementation(
+                        "${natives.module}:${natives.versionConstraint.requiredVersion}:" +
+                            desktopTarget.kurpcNativesClassifier,
+                    )
+                }
+            }
+        }
+        getByName("desktopTest") {
+            dependencies {
+                implementation(libs.nucleus.scheduler.testing)
             }
         }
     }
@@ -383,6 +481,15 @@ compose.desktop {
             copyright = "GPL-3.0-or-later"
             licenseFile.set(rootProject.layout.projectDirectory.file("LICENSE"))
         }
+        buildTypes.release.proguard {
+            // Not real obfuscate, just for output mapping.
+            obfuscate.set(true)
+            configurationFiles.from(
+                project.file("r8-desktop.pro"),
+                collectDesktopLibraryProguardRules,
+                generateDesktopProguardMappingConfig,
+            )
+        }
     }
 }
 
@@ -390,9 +497,29 @@ compose.resources {
     packageOfResClass = "fr.husi.resources"
 }
 
+val commonAboutLibrariesDir = layout.projectDirectory.dir("src/commonMain/aboutlibraries")
+val desktopAboutLibrariesDir = layout.projectDirectory.dir("src/desktopMain/aboutlibraries")
+val desktopAboutLibrariesConfig = layout.buildDirectory.dir("aboutlibraries-desktop-config")
+val exportDesktopAboutLibraries = gradle.startParameter.taskNames.any { taskName ->
+    taskName.substringAfterLast(':').equals("exportLibraryDefinitionsDesktop", ignoreCase = true)
+}
+
+val mergeDesktopAboutLibraries = tasks.register<Sync>("mergeDesktopAboutLibraries") {
+    description = "Merges shared and desktop-only AboutLibraries presets."
+    from(commonAboutLibrariesDir)
+    from(desktopAboutLibrariesDir)
+    into(desktopAboutLibrariesConfig)
+}
+
 aboutLibraries {
+    offlineMode = true
     collect {
-        configPath = file("src/commonMain/aboutlibraries")
+        // Desktop-only presets are merged in only for exportLibraryDefinitionsDesktop.
+        configPath = if (exportDesktopAboutLibraries) {
+            desktopAboutLibrariesConfig.get().asFile
+        } else {
+            commonAboutLibrariesDir.asFile
+        }
     }
     export {
         variant = "android"
@@ -405,6 +532,10 @@ aboutLibraries {
     }
 }
 
+tasks.named("exportLibraryDefinitionsDesktop") {
+    dependsOn(mergeDesktopAboutLibraries)
+}
+
 ksp {
     arg("room.incremental", "true")
     arg("room.schemaLocation", "${projectDir}/schemas")
@@ -415,7 +546,7 @@ dependencies {
     add("kspDesktop", libs.androidx.room.compiler)
 }
 
-tasks.matching { it.name == "packageUberJarForCurrentOS" }.configureEach {
+tasks.matching { it.name == "packageReleaseUberJarForCurrentOS" }.configureEach {
     if (this is Jar) {
         // Exclude non-target native binaries from dependency family buckets.
 
@@ -423,15 +554,17 @@ tasks.matching { it.name == "packageUberJarForCurrentOS" }.configureEach {
         val jnaNativeKeepPrefixes = desktopTarget.jnaNativeKeepPrefixes
         val composeTrayNativeKeepPrefixes = desktopTarget.composeTrayNativeKeepPrefixes
         val nucleusNativeKeepPrefixes = desktopTarget.nucleusNativeKeepPrefixes
+        val ghosttyNativePrefix = desktopTarget.ghosttyNativePrefix
+        val ghosttyNativeKeepPrefix = desktopTarget.ghosttyNativeKeepPrefix
         val skikoNativeKeepEntries = desktopTarget.skikoNativeKeepEntries
-        val targetJarName =
-            "$desktopPackageName-${desktopTarget.platform.id}-${desktopTarget.arch.packageJarArchToken}-$desktopVersion.jar"
-        val targetJar = layout.buildDirectory.file("compose/jars/$targetJarName")
+        val targetJar = layout.buildDirectory.file("compose/jars/$desktopArtifactBaseName.jar")
 
         outputs.file(targetJar)
 
         eachFile {
             val entryPath = path
+            // Keep only the target bucket of the natives/ family (androidx sqlite's
+            // libsqliteJni). Dev classpath jars stay fat (untouched here).
             if (entryPath.startsWith("natives/") && nativeKeepPrefixes.none(entryPath::startsWith)) {
                 exclude()
                 return@eachFile
@@ -459,6 +592,14 @@ tasks.matching { it.name == "packageUberJarForCurrentOS" }.configureEach {
             if (
                 entryPath.startsWith("nucleus/native/") &&
                 nucleusNativeKeepPrefixes.none(entryPath::startsWith)
+            ) {
+                exclude()
+                return@eachFile
+            }
+
+            if (
+                entryPath.startsWith(ghosttyNativePrefix) &&
+                !entryPath.startsWith(ghosttyNativeKeepPrefix)
             ) {
                 exclude()
                 return@eachFile

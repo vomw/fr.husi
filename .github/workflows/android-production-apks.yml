@@ -3,147 +3,111 @@ name: Android production APKs
 on:
   workflow_dispatch:
 
+# The signing keystore is restored from a repository secret. No GitHub token is
+# required to build or upload workflow artifacts.
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   build:
-    name: ${{ matrix.abi }} production APK
-    runs-on: ubuntu-26.04
-    strategy:
-      fail-fast: false
-      matrix:
-        abi:
-          - arm64-v8a
-          - armeabi-v7a
-          - x86_64
-          - x86
+    name: signed FossRelease APKs
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout source code
         uses: actions/checkout@v7
         with:
           submodules: recursive
-
       - uses: ./.github/actions/load-build-versions
-
-      - name: Set up Java
-        uses: actions/setup-java@v5
+      - uses: ./.github/actions/setup-ndk
+      - uses: ./.github/actions/setup-jbr
+      - uses: ./.github/actions/gradle-cache
         with:
-          distribution: temurin
-          java-version: ${{ env.JAVA_VERSION }}
-
-      - name: Set up Go
-        uses: actions/setup-go@v7
+          read-only: 'true'
+          build-cache-name: release-android
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
-          cache-dependency-path: libcore/go.sum
-
-      - name: Set up Android NDK
-        id: setup-ndk
-        uses: nttld/setup-ndk@v1
+          cache: false
+      - uses: ./.github/actions/go-android-cache
         with:
-          ndk-version: ${{ env.ANDROID_NDK_VERSION }}
-
-      - name: Verify Android SDK
-        shell: bash
-        run: |
-          sdk_root="${ANDROID_HOME:?ANDROID_HOME is not set}"
-          test -d "$sdk_root/platforms/android-37" || test -d "$sdk_root/platforms/android-37.0"
-          test -x "$sdk_root/build-tools/37.0.0/apksigner"
-
-      - uses: burrunan/gradle-cache-action@v3
-
-      # This modifies only the disposable Actions checkout. Keeping the Gradle
-      # namespace/source package intact avoids breaking generated R classes.
-      - name: Namespace the Android fork for side-by-side installation
-        shell: bash
-        run: python3 .github/scripts/fork_android_identity.py --suffix vomw
-
+          read-only: 'true'
       - name: Cache route assets
         id: cache-assets
         uses: actions/cache@v6
         with:
           path: composeApp/src/commonMain/composeResources/files/sing-box
-          key: assets-${{ env.GEOIP_VERSION }}-${{ env.GEOSITE_VERSION }}
-
-      - name: Prepare route assets
+          key: >-
+            assets-v2-${{ env.GEOIP_VERSION }}-${{ env.GEOSITE_VERSION }}-${{ hashFiles('buildScript/lib/assets.sh', 'libcore/cmd/internal/ruleset_generate/**', 'libcore/go.mod', 'libcore/go.sum') }}
+      - name: Prepare assets
         if: steps.cache-assets.outputs.cache-hit != 'true'
         run: make assets
-
       - name: Restore signing keystore
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-        shell: bash
         run: |
           test -n "$ANDROID_KEYSTORE_BASE64"
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > release.keystore
           test -s release.keystore
           chmod 600 release.keystore
-
       - name: Write signing properties
         env:
           LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
-        shell: bash
         run: |
           test -n "$LOCAL_PROPERTIES"
-          printf '%s\n' "$LOCAL_PROPERTIES" > local.properties
-          grep -q '^KEYSTORE_PASS=' local.properties
-          grep -q '^ALIAS_NAME=' local.properties
-          grep -q '^ALIAS_PASS=' local.properties
-
+          printf '%s' "$LOCAL_PROPERTIES" > local.properties
       - name: Build Android libcore
-        env:
-          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: make libcore_android
-
-      - name: Generate Android license metadata
+      - name: Download Go modules
+        run: cd libcore && go mod download
+      - name: Generate about libraries metadata
         run: make aboutlibraries_go aboutlibraries_android
-
-      - name: Build production APKs
-        env:
-          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+      - name: Build signed production APK splits
         run: make apk
-
-      - name: Select and verify ${{ matrix.abi }} APK
-        id: package
-        env:
-          ABI: ${{ matrix.abi }}
+      - name: Stage and verify ABI APKs
+        id: apks
         shell: bash
         run: |
           set -euo pipefail
-          metadata_file="$(find androidApp/build/outputs/apk -name output-metadata.json -print -quit)"
-          test -n "$metadata_file"
-          apk_name="$(jq -r --arg abi "$ABI" '
-            .elements[]
-            | select(any(.filters[]?; .filterType == "ABI" and .value == $abi))
-            | .outputFile
-          ' "$metadata_file")"
-          test -n "$apk_name"
-          test "$apk_name" != "null"
-          test "$(printf '%s\n' "$apk_name" | wc -l)" -eq 1
-          apk_path="$(dirname "$metadata_file")/$apk_name"
-          test -f "$apk_path"
-          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose "$apk_path"
+          metadata=$(find androidApp/build/outputs/apk -name output-metadata.json -print -quit)
+          test -n "$metadata"
+          mkdir -p release-artifacts
+          apksigner=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner -print | sort -V | tail -n 1)
+          test -n "$apksigner"
 
-          application_id="$(awk -F= '$1 == "PACKAGE_NAME" { print $2; exit }' husi.properties)"
-          version_name="$(awk -F= '$1 == "VERSION_NAME" { print $2; exit }' husi.properties)"
-          version_code="$(awk -F= '$1 == "VERSION_CODE" { print $2; exit }' husi.properties)"
-          test -n "$application_id"
-          test -n "$version_name"
-          test -n "$version_code"
-          artifact_file="${application_id}-${version_name}-${version_code}-${ABI}.apk"
-          mkdir -p artifacts
-          cp "$apk_path" "artifacts/$artifact_file"
-          echo "artifact_file=$artifact_file" >> "$GITHUB_OUTPUT"
+          app_id=$(jq -er '.applicationId' "$metadata")
+          version_name=$(jq -er '.elements[0].versionName' "$metadata")
+          version_code=$(jq -er '.elements[0].versionCode | tostring' "$metadata")
+          printf 'artifact_prefix=%s-%s-%s\n' "$app_id" "$version_name" "$version_code" >> "$GITHUB_OUTPUT"
 
-      - name: Upload ${{ matrix.abi }} APK
-        uses: actions/upload-artifact@v7
+          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+            output_file=$(jq -er --arg abi "$abi" '
+              .elements[]
+              | select(any(.filters[]?; .filterType == "ABI" and .value == $abi))
+              | .outputFile
+            ' "$metadata")
+            source_apk="$(dirname "$metadata")/$output_file"
+            target_apk="release-artifacts/${app_id}-${version_name}-${version_code}-${abi}.apk"
+            test -f "$source_apk"
+            cp "$source_apk" "$target_apk"
+            "$apksigner" verify --verbose --print-certs "$target_apk"
+          done
+      - uses: actions/upload-artifact@v7
         with:
-          name: ${{ steps.package.outputs.artifact_file }}
-          path: artifacts/${{ steps.package.outputs.artifact_file }}
+          name: ${{ steps.apks.outputs.artifact_prefix }}-arm64-v8a
+          path: release-artifacts/*-arm64-v8a.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.apks.outputs.artifact_prefix }}-armeabi-v7a
+          path: release-artifacts/*-armeabi-v7a.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.apks.outputs.artifact_prefix }}-x86_64
+          path: release-artifacts/*-x86_64.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.apks.outputs.artifact_prefix }}-x86
+          path: release-artifacts/*-x86.apk
           if-no-files-found: error

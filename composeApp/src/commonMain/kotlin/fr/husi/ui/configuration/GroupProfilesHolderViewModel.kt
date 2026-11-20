@@ -6,16 +6,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ernestoyaquello.dragdropswipelazycolumn.OrderedItem
 import fr.husi.GroupOrder
-import fr.husi.Key
 import fr.husi.database.DataStore
 import fr.husi.database.ProfileManager
 import fr.husi.database.ProxyEntity
 import fr.husi.database.ProxyGroup
 import fr.husi.database.SagerDatabase
 import fr.husi.database.displayType
-import fr.husi.ktx.onIoDispatcher
 import fr.husi.ktx.runOnDefaultDispatcher
-import fr.husi.repository.resolveRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -27,6 +25,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.milliseconds
 
 @Immutable
@@ -34,7 +33,12 @@ data class GroupProfilesHolderUiState(
     val profiles: List<ProfileItem> = emptyList(),
     val hiddenProfiles: Int = 0,
     val scrollIndex: Int? = null,
-    val shouldRequestFocus: Boolean = false,
+    /**
+     * Whether the displayed positions are the persisted user order, which is what drag-and-drop
+     * reordering writes back. A search query or a group order other than [GroupOrder.ORIGIN]
+     * makes them unrelated to it, so dragging has to stay disabled there.
+     */
+    val canReorder: Boolean = true,
 )
 
 @Immutable
@@ -61,12 +65,11 @@ class GroupProfilesHolderViewModel(
     val uiState: StateFlow<GroupProfilesHolderUiState>
         field = MutableStateFlow(GroupProfilesHolderUiState())
 
-    val alwaysShowAddress = DataStore.configurationStore.booleanFlow(Key.ALWAYS_SHOW_ADDRESS, false)
-    val blurredAddress = DataStore.configurationStore.booleanFlow(Key.BLURRED_ADDRESS, false)
-    val trafficStatistics =
-        DataStore.configurationStore.booleanFlow(Key.PROFILE_TRAFFIC_STATISTICS, true)
-    val securityAdvisory = DataStore.configurationStore.booleanFlow(Key.SECURITY_ADVISORY, true)
-    val selectedProxy = DataStore.configurationStore.longFlow(Key.PROFILE_ID)
+    val alwaysShowAddress = DataStore.alwaysShowAddress.flow()
+    val blurredAddress = DataStore.blurredAddress.flow()
+    val trafficStatistics = DataStore.profileTrafficStatistics.flow()
+    val securityAdvisory = DataStore.securityAdvisory.flow()
+    val selectedProxy = DataStore.selectedProxy.flow()
 
     private var isFirstLoad = true
     private var observeJob: Job? = null
@@ -115,16 +118,27 @@ class GroupProfilesHolderViewModel(
     }
 
     fun submitReordered(changes: List<OrderedItem<ProfileItem>>) = runOnDefaultDispatcher {
-        val toChange = changes.mapNotNull { orderedItem ->
-            val profile = orderedItem.value.profile
-            val newOrder = orderedItem.newIndex.toLong()
+        val state = uiState.value
+        if (changes.isEmpty() || !state.canReorder) return@runOnDefaultDispatcher
+
+        val reordered = state.profiles.toMutableList()
+        for (change in changes) {
+            if (change.newIndex !in reordered.indices) {
+                return@runOnDefaultDispatcher
+            }
+            reordered[change.newIndex] = change.value
+        }
+
+        val toChange = reordered.mapIndexedNotNull { index, item ->
+            val newOrder = (index + 1).toLong()
+            val profile = item.profile
             if (profile.userOrder != newOrder) {
                 profile.copy(userOrder = newOrder)
             } else {
                 null
             }
         }
-        if (toChange.isNotEmpty()) onIoDispatcher {
+        if (toChange.isNotEmpty()) withContext(Dispatchers.IO) {
             ProfileManager.updateProfile(toChange)
         }
     }
@@ -146,8 +160,8 @@ class GroupProfilesHolderViewModel(
         shouldScroll: Boolean,
     ) = hiddenProfileAccess.withLock {
         val started = DataStore.serviceState.started
-        val current = DataStore.currentProfile
-        val selected = preSelected ?: DataStore.selectedProxy
+        val current = DataStore.currentProfile.get()
+        val selected = preSelected ?: DataStore.selectedProxy.get()
 
         val comparator: Comparator<ProxyEntity> = when (group.order) {
             GroupOrder.BY_NAME -> compareBy { it.displayName() }
@@ -165,10 +179,10 @@ class GroupProfilesHolderViewModel(
                 }
             }
 
-            else -> compareBy { it.userOrder }
+            else -> compareBy<ProxyEntity> { it.userOrder }.thenBy { it.id }
         }
         var selectedIndex = -1
-        val profiles = (raw ?: onIoDispatcher {
+        val profiles = (raw ?: withContext(Dispatchers.IO) {
             SagerDatabase.proxyDao.getByGroup(group.id).first()
         })
             .filter {
@@ -209,6 +223,7 @@ class GroupProfilesHolderViewModel(
                 profiles = profiles,
                 hiddenProfiles = hiddenProfileIds.size,
                 scrollIndex = scrollIndex,
+                canReorder = query.isBlank() && group.order == GroupOrder.ORIGIN,
             )
         }
     }
@@ -233,12 +248,18 @@ class GroupProfilesHolderViewModel(
         }
     }
 
-    fun requestFocusIfNotHave() {
-        uiState.update { it.copy(shouldRequestFocus = true) }
-    }
+    fun profileToSelect(delta: Int): Long? {
+        val profiles = uiState.value.profiles
+        if (profiles.isEmpty()) return null
 
-    fun consumeFocusRequest() {
-        uiState.update { it.copy(shouldRequestFocus = false) }
+        val currentIndex = profiles.indexOfFirst { it.isSelected }
+        val targetIndex = if (currentIndex < 0) {
+            0
+        } else {
+            (currentIndex + delta).coerceIn(0, profiles.lastIndex)
+        }
+        return profiles.getOrNull(targetIndex)?.profile?.id
+            ?.takeIf { targetIndex != currentIndex }
     }
 
     fun onProfileSelected(profileId: Long) {
@@ -279,7 +300,7 @@ class GroupProfilesHolderViewModel(
         hiddenProfileAccess.withLock {
             hiddenProfileIds.clear()
         }
-        val profiles = onIoDispatcher { SagerDatabase.proxyDao.getByGroup(group.id).first() }
+        val profiles = withContext(Dispatchers.IO) { SagerDatabase.proxyDao.getByGroup(group.id).first() }
         reloadProfiles(profiles, false)
     }
 
@@ -291,7 +312,7 @@ class GroupProfilesHolderViewModel(
             hiddenProfileIds.clear()
             toDelete
         }
-        onIoDispatcher {
+        withContext(Dispatchers.IO) {
             ProfileManager.deleteProfiles(group.id, toDelete)
         }
     }

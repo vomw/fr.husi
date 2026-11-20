@@ -12,10 +12,8 @@ import android.text.format.Formatter
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import fr.husi.Action
-import fr.husi.aidl.SpeedDisplayData
 import fr.husi.compose.theme.getPrimaryColor
 import fr.husi.database.DataStore
-import fr.husi.ktx.onMainDispatcher
 import fr.husi.ktx.runOnMainDispatcher
 import fr.husi.lib.R
 import fr.husi.repository.resolveAndroidRepository
@@ -29,7 +27,9 @@ import fr.husi.resources.speed_detail
 import fr.husi.resources.stop
 import fr.husi.resources.traffic
 import fr.husi.ui.SwitchActivity
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 
 /**
  * User can customize visibility of notification since Android 8.
@@ -54,7 +54,7 @@ class ServiceNotification(
 
     override fun canPostSpeed(): Boolean = listenPostSpeed
 
-    override suspend fun onSpeed(speed: SpeedDisplayData) {
+    override suspend fun onSpeed(speed: SpeedStats) {
         postNotificationSpeedUpdate(speed)
     }
 
@@ -62,7 +62,7 @@ class ServiceNotification(
         postNotificationWakeLockStatus(acquired)
     }
 
-    suspend fun postNotificationSpeedUpdate(stats: SpeedDisplayData) {
+    suspend fun postNotificationSpeedUpdate(stats: SpeedStats) {
         val context = service as Context
         useBuilder {
             if (showDirectSpeed) {
@@ -134,7 +134,7 @@ class ServiceNotification(
         update()
     }
 
-    private val showDirectSpeed = DataStore.showDirectSpeed
+    private val showDirectSpeed = DataStore.showDirectSpeed.getBlocking()
 
     private val builder = runBlocking {
         NotificationCompat.Builder(service as Context, channel)
@@ -149,7 +149,7 @@ class ServiceNotification(
     }
 
     private suspend fun useBuilder(f: (NotificationCompat.Builder) -> Unit) {
-        onMainDispatcher {
+        withContext(Dispatchers.Main) {
             f(builder)
         }
     }
@@ -200,7 +200,10 @@ class ServiceNotification(
                 0,
                 runBlocking { resolveRepository().getString(Res.string.reset_connections) },
                 PendingIntent.getBroadcast(
-                    service, 0, Intent(Action.RESET_UPSTREAM_CONNECTIONS), flags,
+                    service,
+                    0,
+                    Intent(Action.RESET_UPSTREAM_CONNECTIONS).setPackage(service.packageName),
+                    flags,
                 ),
             ).setShowsUserInterface(false).build()
             it.addAction(resetUpstreamAction)

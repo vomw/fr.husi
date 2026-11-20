@@ -1,0 +1,152 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - 'dev*'
+    paths:
+      - .github/actions/**
+      - .github/workflows/test.yml
+      - androidApp/**
+      - buildScript/**
+      - buildSrc/**
+      - composeApp/**
+      - gradle/**
+      - gradle.properties
+      - launcher/**
+      - libcore/**
+      - library/**
+      - Makefile
+      - proto/**
+      - release/**
+      - run
+  pull_request:
+    paths:
+      - .github/actions/**
+      - .github/workflows/test.yml
+      - androidApp/**
+      - buildScript/**
+      - buildSrc/**
+      - composeApp/**
+      - gradle/**
+      - gradle.properties
+      - launcher/**
+      - libcore/**
+      - library/**
+      - Makefile
+      - proto/**
+      - release/**
+      - run
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v7
+      - name: Lint shell scripts
+        run: |
+          command -v shellcheck >/dev/null || sudo apt-get install -y shellcheck
+          # -x follows the `# shellcheck source=` directives into sourced files.
+          shellcheck -x run
+          find buildScript release -name '*.sh' -exec shellcheck -x {} +
+
+  lint-go:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v7
+      - uses: ./.github/actions/load-build-versions
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: 'libcore/go.sum'
+      - name: Install golangci-lint
+        run: make lint_go_install
+      - name: Lint libcore
+        run: make lint_go
+
+  lint-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/load-build-versions
+      - uses: ./.github/actions/setup-ndk
+      - uses: ./.github/actions/setup-jbr
+      - uses: ./.github/actions/gradle-cache
+        with:
+          read-only: 'true'
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - uses: ./.github/actions/go-android-cache
+      # androidMain compiles against the aar, so lint cannot run without it.
+      - name: Build Android libcore
+        run: make libcore_android
+      - name: Lint Android API levels
+        run: make lint_android
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/load-build-versions
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: 'libcore/go.sum'
+      - name: Install protoc
+        run: |
+          curl -fsSL -o /tmp/protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip"
+          sudo unzip -o /tmp/protoc.zip -d /usr/local bin/protoc 'include/*'
+          rm /tmp/protoc.zip
+      - name: Regenerate protocol
+        run: make proto
+      - name: Check the generated tree is up to date
+        run: git diff --exit-code && test -z "$(git status --porcelain)"
+      - uses: ./.github/actions/setup-jbr
+      - uses: ./.github/actions/gradle-cache
+      - uses: ./.github/actions/setup-zig
+        with:
+          cache-name: test
+          cache-hash: ${{ hashFiles('launcher/**') }}
+      - name: Test libcore
+        working-directory: libcore
+        run: go test -v -count=1 ./...
+      - name: Build husi-core
+        run: make core_desktop
+      - name: Test Zig projects
+        run: make test_zig
+      - name: Test Kotlin
+        id: kotlin-tests
+        env:
+          BUILD_PLUGIN: none
+        run: ./gradlew :composeApp:allTests --build-cache
+      - name: Upload Kotlin test report
+        if: failure() && steps.kotlin-tests.outcome == 'failure'
+        uses: actions/upload-artifact@v7
+        with:
+          name: kotlin-test-report
+          path: |
+            build/reports/problems/
+            composeApp/build/reports/tests/
+            composeApp/build/test-results/
+            # Gradle's internal binary result format; the XML and HTML above say the same thing.
+            !**/*.bin
+          if-no-files-found: warn

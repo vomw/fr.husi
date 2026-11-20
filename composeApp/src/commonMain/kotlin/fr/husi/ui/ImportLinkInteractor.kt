@@ -8,14 +8,14 @@ import fr.husi.database.ProfileManager
 import fr.husi.database.ProxyGroup
 import fr.husi.database.SubscriptionBean
 import fr.husi.fmt.AbstractBean
-import fr.husi.fmt.KryoConverters
+import fr.husi.fmt.BeanConverters
 import fr.husi.group.GroupUpdater
 import fr.husi.ktx.b64Decode
 import fr.husi.ktx.blankAsNull
 import fr.husi.ktx.defaultOr
 import fr.husi.ktx.parseProxies
 import fr.husi.ktx.zlibDecompress
-import fr.husi.libcore.Libcore
+import io.github.xchacha20_poly1305.kpuri.Url
 
 sealed interface ImportLinkPreview {
     object Ignore : ImportLinkPreview
@@ -47,7 +47,7 @@ class ImportLinkInteractor {
             return null
         }
 
-        val urlForQuery = Libcore.parseURL(uri)
+        val urlForQuery = Url.parse(uri)
         val group: ProxyGroup
         val url = defaultOr(
             "",
@@ -79,7 +79,7 @@ class ImportLinkInteractor {
         } else {
             val data =
                 uri.substringAfter('?', "").substringBefore('#').blankAsNull() ?: return null
-            group = KryoConverters.deserialize(
+            group = BeanConverters.deserialize(
                 ProxyGroup().apply { export = true },
                 data.b64Decode().zlibDecompress(),
             ).apply {
@@ -112,7 +112,7 @@ class ImportLinkInteractor {
         for (proxy in proxies) {
             ProfileManager.createProfile(targetId, proxy)
         }
-        DataStore.selectedGroup = targetId
+        DataStore.selectedGroup.set(targetId)
         return proxies.size
     }
 }

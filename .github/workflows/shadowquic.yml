@@ -1,0 +1,77 @@
+name: Plugin ShadowQuic
+
+on:
+  push:
+    tags:
+      - 'plugin-shadowquic-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/load-build-versions
+      - uses: ./.github/actions/setup-ndk
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: armv7-linux-androideabi,aarch64-linux-android,i686-linux-android,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: plugin/shadowquic/src/main/rust/shadowquic
+      - name: Native build
+        run: ./run plugin shadowquic
+      - uses: ./.github/actions/setup-jbr
+      - uses: ./.github/actions/gradle-cache
+        with:
+          build-cache-name: plugin-shadowquic
+      - name: Write signing properties
+        env:
+          LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
+        run: printf '%s' "$LOCAL_PROPERTIES" > local.properties
+      - name: Gradle Build
+        env:
+          SKIP_BUILD: on
+        run: make plugin PLUGIN=shadowquic
+      - uses: actions/upload-artifact@v7
+        with:
+          name: plugin-shadowquic
+          path: plugin/shadowquic/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/plugin-shadowquic-')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: plugin-shadowquic
+          path: plugin-shadowquic-artifacts
+      - name: Publish GitHub Release
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          mapfile -d '' files < <(find plugin-shadowquic-artifacts -type f -print0)
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "${files[@]}" --clobber
+          else
+            ref_name="${{ github.ref_name }}"
+            UPSTREAM_VERSION="${ref_name#plugin-shadowquic-}"
+            UPSTREAM_VERSION="${UPSTREAM_VERSION%-*}"
+            gh release create "$RELEASE_TAG" "${files[@]}" --title "$RELEASE_TAG" --prerelease --notes $'# :memo: Release Notes\n\nUpstream: <https://github.com/spongebob888/shadowquic/releases/tag/'"$UPSTREAM_VERSION"'>'
+          fi

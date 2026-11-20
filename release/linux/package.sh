@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 METADATA_FILE="$ROOT_DIR/husi.properties"
 DESKTOP_METADATA_FILE="$ROOT_DIR/release/desktop/package-metadata.sh"
+DESKTOP_JRE_MODULES_FILE="$ROOT_DIR/release/desktop/jre-modules.sh"
 JAR_DIR_DEFAULT="$ROOT_DIR/composeApp/build/compose/jars"
 OUTPUT_DIR_DEFAULT="$ROOT_DIR/composeApp/build/compose/packages/linux"
 PACKAGE_NAME_PLACEHOLDER="__HUSI_PACKAGE_NAME__"
@@ -16,13 +17,18 @@ APP_NAME_ZH_TW_PLACEHOLDER="__HUSI_APP_NAME_ZH_TW__"
 APP_DESCRIPTION_PLACEHOLDER="__HUSI_APP_DESCRIPTION__"
 APP_DESCRIPTION_ZH_CN_PLACEHOLDER="__HUSI_APP_DESCRIPTION_ZH_CN__"
 APP_DESCRIPTION_ZH_TW_PLACEHOLDER="__HUSI_APP_DESCRIPTION_ZH_TW__"
+APP_FULL_DESCRIPTION_PLACEHOLDER="__HUSI_APP_FULL_DESCRIPTION__"
+APP_FULL_DESCRIPTION_ZH_CN_PLACEHOLDER="__HUSI_APP_FULL_DESCRIPTION_ZH_CN__"
+APP_FULL_DESCRIPTION_ZH_TW_PLACEHOLDER="__HUSI_APP_FULL_DESCRIPTION_ZH_TW__"
 STARTUP_WM_CLASS_PLACEHOLDER="__HUSI_STARTUP_WM_CLASS__"
 APP_URL_PLACEHOLDER="__HUSI_APP_URL__"
 MAINTAINER_PLACEHOLDER="__HUSI_MAINTAINER__"
 URL_SCHEME_MIME_TYPES_PLACEHOLDER="__HUSI_URL_SCHEME_MIME_TYPES__"
-LAUNCHER_PATH_PLACEHOLDER="__HUSI_LAUNCHER_PATH__"
-LAUNCHER_CAPS_PLACEHOLDER="__HUSI_LAUNCHER_CAPS__"
-LAUNCHER_SETCAPS="cap_setpcap,cap_net_admin,cap_net_raw,cap_net_bind_service,cap_sys_ptrace,cap_dac_read_search=ep"
+RELEASE_DATE_PLACEHOLDER="__HUSI_RELEASE_DATE__"
+CORE_PATH_PLACEHOLDER="__HUSI_CORE_PATH__"
+CORE_PATH_REGEX_PLACEHOLDER="__HUSI_CORE_PATH_REGEX__"
+# husi-core loads Cronet from its own directory, so the library travels with it.
+CORE_LIBRARY_NAME="libcronet.so"
 TAG_NAME=""
 TAG_EPOCH=""
 
@@ -37,18 +43,37 @@ error() {
 usage() {
     cat <<EOF
 Usage:
-  $(basename "$0") [--formats deb,rpm,pacman] [--target <platform/arch>] [--input-jar <file>] [--launcher-bin <file>] [--output-dir <dir>] [--pkgrel <n>]
-  $(basename "$0") --check-tools [--formats deb,rpm,pacman]
+  $(basename "$0") [--formats deb,rpm,pacman,tarball,appimage] [--target <platform/arch>] [--input-jar <file>] [--launcher-bin <file>] [--core-bin <file>] [--output-dir <dir>] [--pkgrel <n>] [--jbr-jmods <dir>] [--appimage-runtime <file>] [--appimage-update-info <string>] [--strip-objcopy <file>]
+  $(basename "$0") --check-tools [--formats deb,rpm,pacman,tarball,appimage]
 
 Description:
-  Build Linux native packages for system Java runtime from desktop uber jar via nfpm.
+  Build Linux native packages for system Java runtime from desktop uber jar via nfpm,
+  plus a relocatable tarball of the app subtree carrying its own user-level installer,
+  plus an AppImage that bundles a jlink runtime and so needs no system Java at all.
 
 Defaults:
   --formats    deb,rpm,pacman
   --input-jar  newest matching jar under $JAR_DIR_DEFAULT
   --launcher-bin  $ROOT_DIR/launcher/zig-out/bin/launcher-linux-<x86_64|aarch64>
+  --core-bin   $ROOT_DIR/libcore/build/linux_<amd64|arm64>/husi-core
+               ($CORE_LIBRARY_NAME is taken from the same directory)
   --output-dir $OUTPUT_DIR_DEFAULT
   --pkgrel     1
+  --jbr-jmods  JetBrains Runtime modules for the target architecture
+               (env: JBR_JMODS). Only read for the AppImage; left out, they
+               are fetched with ./run lib jbr linux/<arch>.
+  --appimage-runtime
+               AppImage runtime binary for the target architecture
+               (env: APPIMAGE_RUNTIME). Left out, appimagetool picks its own.
+  --appimage-update-info
+               Update information embedded into the AppImage's .upd_info section
+               (env: APPIMAGE_UPDATE_INFO). Defaults to a gh-releases-zsync entry
+               for the GitHub repository APP_URL names, which also makes
+               appimagetool emit the matching .zsync file next to the AppImage.
+  --strip-objcopy
+               objcopy used to strip the bundled runtime's native libraries
+               (env: OBJCOPY). Defaults to the host objcopy, or to
+               <arch>-linux-gnu-objcopy when cross-building.
 EOF
 }
 
@@ -96,14 +121,33 @@ render_template() {
     sed "${sed_args[@]}" "$template_file" >"$output_file"
 }
 
+# An AppStream summary is a label rather than a sentence, so it carries no
+# terminator. APP_DESCRIPTION is written as a sentence for everything else.
+summary_of() {
+    local summary="${1%.}"
+    printf '%s' "${summary%。}"
+}
+
 source_desktop_metadata() {
     if [[ ! -f "$DESKTOP_METADATA_FILE" ]]; then
         error "Desktop metadata file not found: $DESKTOP_METADATA_FILE"
         exit 1
     fi
 
-    # shellcheck disable=SC1090
+    # Named so that shellcheck can follow it; the path is only dynamic because
+    # it is anchored at the repository root.
+    # shellcheck source=../desktop/package-metadata.sh
     source "$DESKTOP_METADATA_FILE"
+}
+
+source_desktop_jre_modules() {
+    if [[ ! -f "$DESKTOP_JRE_MODULES_FILE" ]]; then
+        error "Desktop JRE module list not found: $DESKTOP_JRE_MODULES_FILE"
+        exit 1
+    fi
+
+    # shellcheck source=../desktop/jre-modules.sh
+    source "$DESKTOP_JRE_MODULES_FILE"
 }
 
 normalize_pkgrel() {
@@ -147,7 +191,13 @@ load_metadata() {
     fi
 
     source_desktop_metadata
+    source_desktop_jre_modules
     URL_SCHEME_MIME_TYPES="$(desktop_url_scheme_mime_types)"
+    METAINFO_RELATIVE_PATH="usr/share/metainfo/$PACKAGE_NAME.metainfo.xml"
+    POLKIT_ACTION_RELATIVE_PATH="usr/share/polkit-1/actions/$PACKAGE_NAME.policy"
+    DAEMON_POLKIT_ACTION_RELATIVE_PATH="usr/share/polkit-1/actions/husi-daemon.policy"
+    SELINUX_MODULE_RELATIVE_PATH="usr/share/selinux/packages/husi.cil"
+    CORE_INSTALL_PATH="/usr/lib/$PACKAGE_NAME/bin/husi-core"
 }
 
 resolve_tag_epoch() {
@@ -223,6 +273,7 @@ resolve_arch() {
             DEB_ARCH="amd64"
             RPM_ARCH="x86_64"
             PACMAN_ARCH="x86_64"
+            APPIMAGE_ARCH="x86_64"
             LAUNCHER_MACHINE="x86_64"
             ;;
         arm64)
@@ -230,6 +281,7 @@ resolve_arch() {
             DEB_ARCH="arm64"
             RPM_ARCH="aarch64"
             PACMAN_ARCH="aarch64"
+            APPIMAGE_ARCH="aarch64"
             LAUNCHER_MACHINE="aarch64"
             ;;
         *)
@@ -247,13 +299,13 @@ resolve_formats() {
     for item in "${items[@]}"; do
         item="$(echo "$item" | tr '[:upper:]' '[:lower:]' | xargs)"
         case "$item" in
-            deb|rpm|pacman)
+            deb|rpm|pacman|tarball|appimage)
                 ENABLED_FORMATS["$item"]=1
                 ;;
             "")
                 ;;
             *)
-                error "Unknown format '$item'. Use deb,rpm,pacman."
+                error "Unknown format '$item'. Use deb,rpm,pacman,tarball,appimage."
                 exit 1
                 ;;
         esac
@@ -266,9 +318,20 @@ resolve_formats() {
 }
 
 require_tools_for_formats() {
-    local -a tools=(awk sed find cp mkdir mktemp date xargs git nfpm)
+    local -a tools=(awk sed find cp mkdir mktemp date xargs git)
     local -a missing=()
     local tool
+
+    if [[ -n "${ENABLED_FORMATS[deb]:-}" || -n "${ENABLED_FORMATS[rpm]:-}" || -n "${ENABLED_FORMATS[pacman]:-}" ]]; then
+        tools+=(nfpm)
+    fi
+    if [[ -n "${ENABLED_FORMATS[tarball]:-}" ]]; then
+        tools+=(tar zstd)
+    fi
+    if [[ -n "${ENABLED_FORMATS[appimage]:-}" ]]; then
+        tools+=(jlink appimagetool)
+    fi
+
     for tool in "${tools[@]}"; do
         if ! command -v "$tool" >/dev/null 2>&1; then
             missing+=("$tool")
@@ -306,7 +369,7 @@ resolve_input_jar() {
     fi
 
     error "No matching desktop jar found in $JAR_DIR_DEFAULT"
-    error "Build one first: ./gradlew -p composeApp packageUberJarForCurrentOS"
+    error "Build one first: ./gradlew -p composeApp packageReleaseUberJarForCurrentOS"
     exit 1
 }
 
@@ -333,6 +396,39 @@ resolve_launcher_bin() {
     exit 1
 }
 
+resolve_core_bin() {
+    local requested="$1"
+    local default_path="$ROOT_DIR/libcore/build/${TARGET_PLATFORM}_${TARGET_ARCH}/husi-core"
+
+    if [[ -n "$requested" ]]; then
+        if [[ ! -f "$requested" ]]; then
+            error "Core host binary not found: $requested"
+            exit 1
+        fi
+        INPUT_CORE_BIN="$requested"
+        return
+    fi
+
+    if [[ -f "$default_path" ]]; then
+        INPUT_CORE_BIN="$default_path"
+        return
+    fi
+
+    error "Core host binary not found: $default_path"
+    error "Build one first: make core_desktop DESKTOP_TARGETS=${TARGET_PLATFORM}/${TARGET_ARCH}"
+    exit 1
+}
+
+resolve_core_library() {
+    INPUT_CORE_LIBRARY="$(dirname "$INPUT_CORE_BIN")/$CORE_LIBRARY_NAME"
+    if [[ ! -f "$INPUT_CORE_LIBRARY" ]]; then
+        error "$CORE_LIBRARY_NAME not found beside the core host binary: $INPUT_CORE_LIBRARY"
+        error "make core_desktop puts it there."
+        exit 1
+    fi
+}
+
+
 prepare_rootfs() {
     local rootfs="$1"
     local app_root="$rootfs/usr/lib/$PACKAGE_NAME"
@@ -341,19 +437,34 @@ prepare_rootfs() {
     local java_opts_template="$ROOT_DIR/release/linux/desktop/desktop-java-opts.conf"
     local app_args_template="$ROOT_DIR/release/linux/desktop/desktop-app-args.conf"
     local desktop_entry_template="$ROOT_DIR/release/linux/desktop/husi.desktop"
+    local metainfo_template="$ROOT_DIR/release/linux/desktop/husi.metainfo.xml"
+    local daemon_unit_template="$ROOT_DIR/release/linux/desktop/husi-daemon.service"
+    local polkit_action_template="$ROOT_DIR/release/linux/desktop/husi.policy"
+    local daemon_polkit_action_source="$ROOT_DIR/libcore/daemonhost/husi-daemon.policy"
     local main_launcher="$bin_dir/$PACKAGE_NAME"
+    local selinux_module_template="$ROOT_DIR/release/linux/desktop/husi.cil"
+    local core_path="$CORE_INSTALL_PATH"
     local desktop_entry_path="$rootfs/usr/share/applications/$PACKAGE_NAME.desktop"
+    local metainfo_path="$rootfs/$METAINFO_RELATIVE_PATH"
+    local daemon_unit_path="$rootfs/etc/systemd/system/husi-daemon.service"
+    local polkit_action_path="$rootfs/$POLKIT_ACTION_RELATIVE_PATH"
+    local daemon_polkit_action_path="$rootfs/$DAEMON_POLKIT_ACTION_RELATIVE_PATH"
+    local selinux_module_path="$rootfs/$SELINUX_MODULE_RELATIVE_PATH"
     local startup_wm_class="${PACKAGE_NAME//./-}-DesktopMainKt"
 
-    if [[ ! -f "$java_opts_template" || ! -f "$app_args_template" || ! -f "$desktop_entry_template" ]]; then
+    if [[ ! -f "$java_opts_template" || ! -f "$app_args_template" || ! -f "$desktop_entry_template" || ! -f "$metainfo_template" || ! -f "$daemon_unit_template" || ! -f "$polkit_action_template" || ! -f "$daemon_polkit_action_source" || ! -f "$selinux_module_template" ]]; then
         error "Missing launcher templates under release/linux/desktop"
         exit 1
     fi
 
-    mkdir -p "$bin_dir" "$app_dir" "$rootfs/usr/share/applications" "$rootfs/usr/share/pixmaps"
+    mkdir -p "$bin_dir" "$app_dir" "$rootfs/usr/share/applications" "$rootfs/usr/share/metainfo" "$rootfs/usr/share/pixmaps" "$rootfs/etc/systemd/system" "$rootfs/usr/lib/sysusers.d" "$(dirname "$polkit_action_path")" "$(dirname "$selinux_module_path")"
     cp "$INPUT_JAR" "$app_dir/$PACKAGE_NAME.jar"
     cp "$INPUT_LAUNCHER_BIN" "$main_launcher"
     chmod 755 "$main_launcher"
+    cp "$INPUT_CORE_BIN" "$bin_dir/husi-core"
+    chmod 755 "$bin_dir/husi-core"
+    cp "$INPUT_CORE_LIBRARY" "$bin_dir/$CORE_LIBRARY_NAME"
+    chmod 644 "$bin_dir/$CORE_LIBRARY_NAME"
 
     cp "$java_opts_template" "$bin_dir/desktop-java-opts.conf.template"
     cp "$app_args_template" "$bin_dir/desktop-app-args.conf.template"
@@ -371,7 +482,69 @@ prepare_rootfs() {
         "$URL_SCHEME_MIME_TYPES_PLACEHOLDER" "$URL_SCHEME_MIME_TYPES" \
         "$STARTUP_WM_CLASS_PLACEHOLDER" "$startup_wm_class"
 
-    local icon_source="$ROOT_DIR/fastlane/metadata/android/en-US/images/icon.png"
+    render_template \
+        "$metainfo_template" \
+        "$metainfo_path" \
+        "$PACKAGE_NAME_PLACEHOLDER" "$PACKAGE_NAME" \
+        "$APP_NAME_PLACEHOLDER" "$APP_NAME" \
+        "$APP_NAME_ZH_CN_PLACEHOLDER" "$APP_NAME_ZH_CN" \
+        "$APP_NAME_ZH_TW_PLACEHOLDER" "$APP_NAME_ZH_TW" \
+        "$APP_DESCRIPTION_PLACEHOLDER" "$(summary_of "$APP_DESCRIPTION")" \
+        "$APP_DESCRIPTION_ZH_CN_PLACEHOLDER" "$(summary_of "$APP_DESCRIPTION_ZH_CN")" \
+        "$APP_DESCRIPTION_ZH_TW_PLACEHOLDER" "$(summary_of "$APP_DESCRIPTION_ZH_TW")" \
+        "$APP_FULL_DESCRIPTION_PLACEHOLDER" "$APP_FULL_DESCRIPTION" \
+        "$APP_FULL_DESCRIPTION_ZH_CN_PLACEHOLDER" "$APP_FULL_DESCRIPTION_ZH_CN" \
+        "$APP_FULL_DESCRIPTION_ZH_TW_PLACEHOLDER" "$APP_FULL_DESCRIPTION_ZH_TW" \
+        "$APP_URL_PLACEHOLDER" "$APP_URL" \
+        "$MAINTAINER_PLACEHOLDER" "$MAINTAINER" \
+        "$VERSION_NAME_PLACEHOLDER" "$VERSION_NAME" \
+        "$RELEASE_DATE_PLACEHOLDER" "$(date -u -d "@$TAG_EPOCH" "+%Y-%m-%d")"
+
+    render_template \
+        "$daemon_unit_template" \
+        "$daemon_unit_path" \
+        "$CORE_PATH_PLACEHOLDER" "$core_path"
+
+    # Packages only: prepare_appdir and build_tarball both read out of this
+    # same rootfs, but each copies an explicit list of paths (the app
+    # subtree, the desktop entry, the icon, the metainfo) rather than the
+    # whole rootfs, so the action stays in the packages without anything
+    # having to exclude it. That matters because their husi-core lives under
+    # a user-writable prefix, and exec.path below must stay the package-owned
+    # $core_path or the action would let an admin approve a dialog about
+    # installing the daemon while actually running user-controlled code as
+    # root.
+    render_template \
+        "$polkit_action_template" \
+        "$polkit_action_path" \
+        "$PACKAGE_NAME_PLACEHOLDER" "$PACKAGE_NAME" \
+        "$APP_NAME_PLACEHOLDER" "$APP_NAME" \
+        "$APP_NAME_ZH_CN_PLACEHOLDER" "$APP_NAME_ZH_CN" \
+        "$APP_NAME_ZH_TW_PLACEHOLDER" "$APP_NAME_ZH_TW" \
+        "$APP_URL_PLACEHOLDER" "$APP_URL" \
+        "$CORE_PATH_PLACEHOLDER" "$core_path"
+
+    # Verbatim copy of libcore/daemonhost/husi-daemon.policy — never a
+    # template. Native-package postinstall enables the daemon without
+    # running `service install`, so the file has to ship here. husi-core
+    # embeds the same bytes and writes them to the same path for tarball /
+    # manual install; both paths therefore register one action id, never a
+    # duplicate. The pkexec manage-daemon action is the rendered template
+    # copied just above (husi.policy).
+    cp "$daemon_polkit_action_source" "$daemon_polkit_action_path"
+
+    # The account the unit runs as. postinstall.sh applies it, for the
+    # distributions whose package manager does not pick sysusers.d up itself.
+    cp "$ROOT_DIR/release/linux/desktop/husi-sysusers.conf" "$rootfs/usr/lib/sysusers.d/husi.conf"
+
+    # Packages only, like the unit: postinstall.sh loads it on SELinux systems.
+    # filecon takes a regular expression, so the dots in the path are escaped.
+    render_template \
+        "$selinux_module_template" \
+        "$selinux_module_path" \
+        "$CORE_PATH_REGEX_PLACEHOLDER" "${core_path//./\\.}"
+
+    local icon_source="$ROOT_DIR/release/linux/desktop/icon.png"
     if [[ -f "$icon_source" ]]; then
         cp "$icon_source" "$rootfs/usr/share/pixmaps/$PACKAGE_NAME.png"
     fi
@@ -379,43 +552,33 @@ prepare_rootfs() {
 
 prepare_script_templates() {
     local work_dir="$1"
-    local launcher_path="/usr/lib/$PACKAGE_NAME/bin/$PACKAGE_NAME"
 
+    # Scripts manage the fixed unit name husi-daemon.service. postinstall.sh
+    # only needs the core path, to relabel it for the SELinux module.
+    # One postinstall.sh for every install and upgrade hook, one postremove.sh
+    # for deb/rpm/pacman; argument handling is packager-aware.
     render_template \
         "$ROOT_DIR/release/linux/desktop/postinstall.sh" \
-        "$work_dir/deb-postinstall.sh" \
-        "$LAUNCHER_PATH_PLACEHOLDER" "$launcher_path" \
-        "$LAUNCHER_CAPS_PLACEHOLDER" "$LAUNCHER_SETCAPS"
+        "$work_dir/postinstall.sh" \
+        "$CORE_PATH_PLACEHOLDER" "$CORE_INSTALL_PATH"
+    cp "$ROOT_DIR/release/linux/desktop/postremove.sh" "$work_dir/postremove.sh"
 
-    render_template \
-        "$ROOT_DIR/release/linux/desktop/postremove.sh" \
-        "$work_dir/deb-postremove.sh" \
-        "$LAUNCHER_PATH_PLACEHOLDER" "$launcher_path"
-
-    render_template \
-        "$ROOT_DIR/release/linux/desktop/posttrans.sh" \
-        "$work_dir/rpm-posttrans.sh" \
-        "$LAUNCHER_PATH_PLACEHOLDER" "$launcher_path" \
-        "$LAUNCHER_CAPS_PLACEHOLDER" "$LAUNCHER_SETCAPS"
-
-    render_template \
-        "$ROOT_DIR/release/linux/desktop/postinstall.arch.sh" \
-        "$work_dir/arch-postinstall.sh" \
-        "$LAUNCHER_PATH_PLACEHOLDER" "$launcher_path" \
-        "$LAUNCHER_CAPS_PLACEHOLDER" "$LAUNCHER_SETCAPS"
-
-    render_template \
-        "$ROOT_DIR/release/linux/desktop/postupgrade.arch.sh" \
-        "$work_dir/arch-postupgrade.sh" \
-        "$LAUNCHER_PATH_PLACEHOLDER" "$launcher_path" \
-        "$LAUNCHER_CAPS_PLACEHOLDER" "$LAUNCHER_SETCAPS"
+    # The tarball carries its own user-level installer: no package manager and
+    # therefore no root is involved, so these two do need the metadata baked in.
+    local script
+    for script in install uninstall; do
+        render_template \
+            "$ROOT_DIR/release/linux/desktop/$script.sh" \
+            "$work_dir/$script.sh" \
+            "$PACKAGE_NAME_PLACEHOLDER" "$PACKAGE_NAME" \
+            "$APP_NAME_PLACEHOLDER" "$APP_NAME"
+    done
 
     chmod 755 \
-        "$work_dir/deb-postinstall.sh" \
-        "$work_dir/deb-postremove.sh" \
-        "$work_dir/rpm-posttrans.sh" \
-        "$work_dir/arch-postinstall.sh" \
-        "$work_dir/arch-postupgrade.sh"
+        "$work_dir/postinstall.sh" \
+        "$work_dir/postremove.sh" \
+        "$work_dir/install.sh" \
+        "$work_dir/uninstall.sh"
 }
 
 write_content_entry() {
@@ -464,6 +627,12 @@ EOF
     write_content_entry "$config_file" "$rootfs/usr/lib/$PACKAGE_NAME" "/usr/lib/$PACKAGE_NAME" "tree"
     write_content_entry "$config_file" "../lib/$PACKAGE_NAME/bin/$PACKAGE_NAME" "/usr/bin/$PACKAGE_NAME" "symlink"
     write_content_entry "$config_file" "$rootfs/usr/share/applications/$PACKAGE_NAME.desktop" "/usr/share/applications/$PACKAGE_NAME.desktop" ""
+    write_content_entry "$config_file" "$rootfs/$METAINFO_RELATIVE_PATH" "/$METAINFO_RELATIVE_PATH" ""
+    write_content_entry "$config_file" "$rootfs/etc/systemd/system/husi-daemon.service" "/etc/systemd/system/husi-daemon.service" ""
+    write_content_entry "$config_file" "$rootfs/usr/lib/sysusers.d/husi.conf" "/usr/lib/sysusers.d/husi.conf" ""
+    write_content_entry "$config_file" "$rootfs/$POLKIT_ACTION_RELATIVE_PATH" "/$POLKIT_ACTION_RELATIVE_PATH" ""
+    write_content_entry "$config_file" "$rootfs/$DAEMON_POLKIT_ACTION_RELATIVE_PATH" "/$DAEMON_POLKIT_ACTION_RELATIVE_PATH" ""
+    write_content_entry "$config_file" "$rootfs/$SELINUX_MODULE_RELATIVE_PATH" "/$SELINUX_MODULE_RELATIVE_PATH" ""
 
     local icon_path="$rootfs/usr/share/pixmaps/$PACKAGE_NAME.png"
     if [[ -f "$icon_path" ]]; then
@@ -472,21 +641,31 @@ EOF
 
 }
 
+# Weak dependencies, deliberately not hard ones: the package installs and enables
+# husi-daemon.service itself, so polkit is only needed by the Settings "install
+# daemon" button, and xdg-utils only by the links the UI opens. Neither belongs on
+# a headless system that is happy with the unit the package already dropped in.
 append_deb_nfpm_config() {
     local config_file="$1"
     local work_dir="$2"
 
     cat >>"$config_file" <<EOF
 depends:
-  - java21-runtime | openjdk-21-jre | openjdk-21-jre-headless
-  - libcap2-bin
+  # A headless JRE cannot open the Compose window, so the real headful package
+  # leads and the virtual one only trails it for third-party JDKs. Listing
+  # java21-runtime first would let apt satisfy it with a headless provider.
+  - openjdk-21-jre | java21-runtime
   - ca-certificates
   - nftables
+recommends:
+  - pkexec | policykit-1
+  - xdg-utils
 scripts:
-  postinstall: $work_dir/deb-postinstall.sh
-  postremove: $work_dir/deb-postremove.sh
+  postinstall: $work_dir/postinstall.sh
+  postremove: $work_dir/postremove.sh
 deb:
   arch: $DEB_ARCH
+  compression: xz
 EOF
 }
 
@@ -497,18 +676,26 @@ append_rpm_nfpm_config() {
     cat >>"$config_file" <<EOF
 depends:
   - java >= 21
-  - libcap
   - ca-certificates
   - nftables
+recommends:
+  - /usr/bin/pkexec
+  - xdg-utils
+scripts:
+  postremove: $work_dir/postremove.sh
 rpm:
   arch: $RPM_ARCH
+  compression: xz
   summary: $APP_DESCRIPTION
   packager: $MAINTAINER
   scripts:
-    posttrans: $work_dir/rpm-posttrans.sh
+    posttrans: $work_dir/postinstall.sh
 EOF
 }
 
+# No weak dependencies here: nfpm's arch packager writes only depend, provides,
+# conflict and replaces, so a `recommends` block would be silently dropped rather
+# than become optdepends. polkit and xdg-utils come with every Arch desktop anyway.
 append_pacman_nfpm_config() {
     local config_file="$1"
     local work_dir="$2"
@@ -516,17 +703,17 @@ append_pacman_nfpm_config() {
     cat >>"$config_file" <<EOF
 depends:
   - java-runtime>=21
-  - libcap
   - ca-certificates
   - nftables
 scripts:
-  postinstall: $work_dir/arch-postinstall.sh
+  postinstall: $work_dir/postinstall.sh
+  postremove: $work_dir/postremove.sh
 archlinux:
   arch: $PACMAN_ARCH
   pkgbase: $PACKAGE_NAME
   packager: $MAINTAINER
   scripts:
-    postupgrade: $work_dir/arch-postupgrade.sh
+    postupgrade: $work_dir/postinstall.sh
 EOF
 }
 
@@ -550,6 +737,12 @@ output_filename() {
             ;;
         pacman)
             echo "${PACKAGE_NAME}-${package_version}-${PKGREL}-${PACMAN_ARCH}.pkg.tar.zst"
+            ;;
+        tarball)
+            echo "${PACKAGE_NAME}-${package_version}-linux-${TARGET_ARCH}.tar.zst"
+            ;;
+        appimage)
+            echo "${PACKAGE_NAME}-${package_version}-linux-${APPIMAGE_ARCH}.AppImage"
             ;;
         *)
             error "Unknown output format '$format'."
@@ -600,9 +793,261 @@ build_with_nfpm() {
             ;;
     esac
 
-    local output_path="$OUTPUT_DIR/$(output_filename "$format" "$package_version")"
+    # Assigned separately so that set -e still sees output_filename's status:
+    # its `exit 1` only leaves the command substitution, and `local` would
+    # swallow the failure and hand nfpm a half-formed path.
+    local output_path
+    output_path="$OUTPUT_DIR/$(output_filename "$format" "$package_version")"
     nfpm package --config "$config_file" --packager "$packager" --target "$output_path"
     log "Built $format: $output_path"
+}
+
+# The desktop entry and icon are already rendered for the native packages;
+# install.sh rewrites their Exec/Icon to absolute paths at install time, so no
+# second set of placeholders is needed here.
+stage_tarball_desktop_files() {
+    local rootfs="$1"
+    local staging="$2"
+    local source_entry="$rootfs/usr/share/applications/$PACKAGE_NAME.desktop"
+    local source_icon="$rootfs/usr/share/pixmaps/$PACKAGE_NAME.png"
+
+    if [[ -f "$source_entry" ]]; then
+        mkdir -p "$staging/share/applications"
+        cp "$source_entry" "$staging/share/applications/$PACKAGE_NAME.desktop"
+    fi
+    if [[ -f "$source_icon" ]]; then
+        mkdir -p "$staging/share/icons/hicolor/512x512/apps"
+        cp "$source_icon" "$staging/share/icons/hicolor/512x512/apps/$PACKAGE_NAME.png"
+    fi
+}
+
+build_tarball() {
+    local rootfs="$1"
+    local work_dir="$2"
+    local app_root="$rootfs/usr/lib/$PACKAGE_NAME"
+    local archive_name="${PACKAGE_NAME}-${VERSION_NAME}"
+    local staging_parent="$work_dir/tarball"
+    local staging="$staging_parent/$archive_name"
+    local output_path
+    output_path="$OUTPUT_DIR/$(output_filename "tarball" "$VERSION_NAME")"
+
+    if [[ ! -d "$app_root" ]]; then
+        error "Relocatable app subtree not found: $app_root"
+        exit 1
+    fi
+
+    mkdir -p "$staging"
+    cp -a "$app_root/." "$staging/"
+    stage_tarball_desktop_files "$rootfs" "$staging"
+    cp "$work_dir/install.sh" "$work_dir/uninstall.sh" "$staging/"
+    chmod 755 "$staging/install.sh" "$staging/uninstall.sh"
+    find "$staging" -exec touch -d "@$TAG_EPOCH" {} +
+
+    rm -f "$output_path"
+    tar -C "$staging_parent" -cf - "$archive_name" | zstd -q -o "$output_path"
+    log "Built tarball: $output_path"
+}
+
+# jlink needs the JetBrains Runtime modules of the *target* architecture, not
+# the host's, and they come from the same pinned release whatever the host JDK.
+resolve_jbr_jmods() {
+    local requested="$1"
+
+    if [[ -n "$requested" ]]; then
+        JBR_JMODS_DIR="$requested"
+    elif [[ -n "${JBR_JMODS:-}" ]]; then
+        JBR_JMODS_DIR="${JBR_JMODS}"
+    else
+        JBR_JMODS_DIR="$("$ROOT_DIR/buildScript/lib/jbr.sh" "linux/$TARGET_ARCH")"
+    fi
+
+    if [[ ! -d "$JBR_JMODS_DIR" ]]; then
+        error "JetBrains Runtime modules directory not found: $JBR_JMODS_DIR"
+        error "Fetch them first: ./run lib jbr linux/$TARGET_ARCH"
+        exit 1
+    fi
+}
+
+# jlink strips the runtime's native libraries by shelling out to objcopy, so a
+# cross-architecture build needs the binutils for that architecture.
+resolve_strip_objcopy() {
+    local requested="$1"
+    local host_arch
+
+    if [[ -n "$requested" ]]; then
+        STRIP_OBJCOPY="$requested"
+    elif [[ -n "${OBJCOPY:-}" ]]; then
+        STRIP_OBJCOPY="${OBJCOPY}"
+    else
+        host_arch="$(normalize_arch "$(uname -m)")"
+        if [[ "$host_arch" == "$TARGET_ARCH" ]]; then
+            STRIP_OBJCOPY="objcopy"
+        else
+            STRIP_OBJCOPY="${LAUNCHER_MACHINE}-linux-gnu-objcopy"
+        fi
+    fi
+
+    # jlink rejects a bare command name, so this has to resolve to a real path.
+    if command -v "$STRIP_OBJCOPY" >/dev/null 2>&1; then
+        STRIP_OBJCOPY="$(command -v "$STRIP_OBJCOPY")"
+    else
+        error "objcopy for $TARGET_ARCH not found: $STRIP_OBJCOPY"
+        error "Without it the bundled runtime keeps ~650 MB of native debug symbols."
+        error "On Debian/Ubuntu: apt-get install binutils-${LAUNCHER_MACHINE}-linux-gnu"
+        error "Or point --strip-objcopy (env: OBJCOPY) at a suitable one."
+        exit 1
+    fi
+}
+
+build_jre() {
+    local jvm_dir="$1"
+
+    rm -rf "$jvm_dir"
+    mkdir -p "$(dirname "$jvm_dir")"
+    # Split rather than the compound --strip-debug, which silently assumes the
+    # host objcopy can read the target's ELF. Native symbols are not optional
+    # to strip: libjvm.so alone carries ~650 MB of them.
+    jlink \
+        --module-path "$JBR_JMODS_DIR" \
+        --add-modules "$DESKTOP_JRE_MODULES_COMMON" \
+        --strip-java-debug-attributes \
+        --strip-native-debug-symbols "objcopy=$STRIP_OBJCOPY" \
+        --no-header-files \
+        --no-man-pages \
+        --compress=zip-6 \
+        --output "$jvm_dir"
+    log "Linked bundled runtime: $jvm_dir"
+}
+
+# The desktop entry the AppImage carries differs from the packaged one in two
+# ways, both meaningless outside an AppDir: Exec names AppRun, and the X-AppImage
+# keys describe the image itself. Desktop integration tools read the version from
+# there before they fall back to the AppStream metainfo.
+write_appdir_desktop_entry() {
+    local source_entry="$1"
+    local target_entry="$2"
+
+    # AppRun is the only entry point inside the image, so Exec names it rather
+    # than the launcher: JAVA_HOME has to be set before the launcher starts.
+    sed -e "s#^Exec=.*#Exec=AppRun open %u#" "$source_entry" >"$target_entry"
+
+    # [Desktop Entry] is the only group in the file, so these land in it.
+    # No X-AppImage-UpdateURL: the embedded update information already names the
+    # source, and installers derive the link from it.
+    cat >>"$target_entry" <<EOF
+X-AppImage-Version=$VERSION_NAME
+X-AppImage-Homepage=$APP_URL
+EOF
+}
+
+# AppDir layout follows the AppImage spec: AppRun, one desktop entry and one
+# icon at the root, with the real tree under usr/ so desktop-integration tools
+# (Gear Lever, appimaged) find what they expect.
+prepare_appdir() {
+    local rootfs="$1"
+    local appdir="$2"
+    local app_root="$rootfs/usr/lib/$PACKAGE_NAME"
+    local source_entry="$rootfs/usr/share/applications/$PACKAGE_NAME.desktop"
+    local source_icon="$rootfs/usr/share/pixmaps/$PACKAGE_NAME.png"
+
+    if [[ ! -d "$app_root" ]]; then
+        error "Relocatable app subtree not found: $app_root"
+        exit 1
+    fi
+
+    rm -rf "$appdir"
+    mkdir -p "$appdir/usr/lib/$PACKAGE_NAME" "$appdir/usr/share/applications" \
+        "$appdir/usr/share/metainfo" "$appdir/usr/share/icons/hicolor/512x512/apps"
+    cp -a "$app_root/." "$appdir/usr/lib/$PACKAGE_NAME/"
+
+    render_template \
+        "$ROOT_DIR/release/linux/appimage/AppRun.sh" \
+        "$appdir/AppRun" \
+        "$PACKAGE_NAME_PLACEHOLDER" "$PACKAGE_NAME"
+    chmod 755 "$appdir/AppRun"
+
+    write_appdir_desktop_entry "$source_entry" "$appdir/$PACKAGE_NAME.desktop"
+    cp "$appdir/$PACKAGE_NAME.desktop" "$appdir/usr/share/applications/$PACKAGE_NAME.desktop"
+
+    cp "$rootfs/$METAINFO_RELATIVE_PATH" "$appdir/$METAINFO_RELATIVE_PATH"
+
+    if [[ -f "$source_icon" ]]; then
+        cp "$source_icon" "$appdir/$PACKAGE_NAME.png"
+        cp "$source_icon" "$appdir/usr/share/icons/hicolor/512x512/apps/$PACKAGE_NAME.png"
+        ln -sf "$PACKAGE_NAME.png" "$appdir/.DirIcon"
+    fi
+}
+
+# Update information for the .upd_info ELF section: what tells AppImage
+# desktop integrators (AppManager, Gear Lever, appimageupdate) where the next
+# version lives. The pattern has to match the published asset name, so it is
+# derived from output_filename with the version turned into a wildcard.
+resolve_appimage_update_info() {
+    local repository_slug
+
+    if [[ -n "$APPIMAGE_UPDATE_INFO_ARG" ]]; then
+        APPIMAGE_UPDATE_INFO="$APPIMAGE_UPDATE_INFO_ARG"
+        return
+    fi
+
+    repository_slug="$(github_repository_slug)"
+    if [[ -z "$repository_slug" ]]; then
+        APPIMAGE_UPDATE_INFO=""
+        log "APP_URL names no GitHub repository, building without update information."
+        return
+    fi
+
+    APPIMAGE_UPDATE_INFO="gh-releases-zsync|${repository_slug%%/*}|${repository_slug##*/}|latest|$(output_filename "appimage" "*").zsync"
+}
+
+build_appimage() {
+    local rootfs="$1"
+    local work_dir="$2"
+    local appdir="$work_dir/appdir"
+    local output_name
+    local -a appimagetool_args=()
+    output_name="$(output_filename "appimage" "$VERSION_NAME")"
+
+    resolve_jbr_jmods "$JBR_JMODS_ARG"
+    resolve_strip_objcopy "$STRIP_OBJCOPY_ARG"
+    resolve_appimage_update_info
+    prepare_appdir "$rootfs" "$appdir"
+    build_jre "$appdir/usr/lib/jvm"
+
+    if [[ -n "$APPIMAGE_RUNTIME_ARG" ]]; then
+        if [[ ! -f "$APPIMAGE_RUNTIME_ARG" ]]; then
+            error "AppImage runtime not found: $APPIMAGE_RUNTIME_ARG"
+            exit 1
+        fi
+        appimagetool_args+=(--runtime-file "$APPIMAGE_RUNTIME_ARG")
+    fi
+
+    if [[ -n "$APPIMAGE_UPDATE_INFO" ]]; then
+        appimagetool_args+=(--updateinformation "$APPIMAGE_UPDATE_INFO")
+    fi
+
+    find "$appdir" -exec touch -d "@$TAG_EPOCH" {} +
+
+    rm -f "$OUTPUT_DIR/$output_name" "$OUTPUT_DIR/$output_name.zsync"
+    # Named rather than addressed by path, and run from the output directory:
+    # the bundled zsyncmake writes its .zsync into the working directory, so
+    # both artifacts have to be produced there to end up side by side.
+    # --appimage-extract-and-run keeps the build host free of any FUSE requirement.
+    (
+        cd "$OUTPUT_DIR" &&
+            ARCH="$APPIMAGE_ARCH" SOURCE_DATE_EPOCH="$TAG_EPOCH" \
+                appimagetool --appimage-extract-and-run "${appimagetool_args[@]}" "$appdir" "$output_name"
+    )
+    log "Built AppImage: $OUTPUT_DIR/$output_name"
+
+    if [[ -n "$APPIMAGE_UPDATE_INFO" ]]; then
+        if [[ ! -f "$OUTPUT_DIR/$output_name.zsync" ]]; then
+            error "Update information was embedded but no zsync file was produced."
+            error "appimagetool needs zsyncmake for that; its own AppImage bundles one."
+            exit 1
+        fi
+        log "Built zsync file: $OUTPUT_DIR/$output_name.zsync"
+    fi
 }
 
 FORMATS="deb,rpm,pacman"
@@ -611,9 +1056,18 @@ TARGET_PLATFORM=""
 TARGET_ARCH=""
 INPUT_JAR=""
 INPUT_LAUNCHER_BIN=""
+INPUT_CORE_BIN=""
+INPUT_CORE_LIBRARY=""
 OUTPUT_DIR="$OUTPUT_DIR_DEFAULT"
 PKGREL="1"
 CHECK_TOOLS=0
+JBR_JMODS_ARG=""
+JBR_JMODS_DIR=""
+APPIMAGE_RUNTIME_ARG="${APPIMAGE_RUNTIME:-}"
+APPIMAGE_UPDATE_INFO_ARG="${APPIMAGE_UPDATE_INFO:-}"
+APPIMAGE_UPDATE_INFO=""
+STRIP_OBJCOPY_ARG=""
+STRIP_OBJCOPY=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -637,6 +1091,11 @@ while [[ $# -gt 0 ]]; do
             INPUT_LAUNCHER_BIN="$2"
             shift 2
             ;;
+        --core-bin)
+            require_arg "$1" "${2:-}"
+            INPUT_CORE_BIN="$2"
+            shift 2
+            ;;
         -o|--output-dir)
             require_arg "$1" "${2:-}"
             OUTPUT_DIR="$2"
@@ -645,6 +1104,26 @@ while [[ $# -gt 0 ]]; do
         --pkgrel)
             require_arg "$1" "${2:-}"
             PKGREL="$2"
+            shift 2
+            ;;
+        --jbr-jmods)
+            require_arg "$1" "${2:-}"
+            JBR_JMODS_ARG="$2"
+            shift 2
+            ;;
+        --appimage-runtime)
+            require_arg "$1" "${2:-}"
+            APPIMAGE_RUNTIME_ARG="$2"
+            shift 2
+            ;;
+        --appimage-update-info)
+            require_arg "$1" "${2:-}"
+            APPIMAGE_UPDATE_INFO_ARG="$2"
+            shift 2
+            ;;
+        --strip-objcopy)
+            require_arg "$1" "${2:-}"
+            STRIP_OBJCOPY_ARG="$2"
             shift 2
             ;;
         --check-tools)
@@ -678,6 +1157,8 @@ fi
 
 resolve_input_jar "$INPUT_JAR"
 resolve_launcher_bin "$INPUT_LAUNCHER_BIN"
+resolve_core_bin "$INPUT_CORE_BIN"
+resolve_core_library
 mkdir -p "$OUTPUT_DIR"
 
 work_dir="$(mktemp -d)"
@@ -702,6 +1183,14 @@ fi
 
 if [[ -n "${ENABLED_FORMATS[pacman]:-}" ]]; then
     build_with_nfpm "$rootfs" "$work_dir" "pacman"
+fi
+
+if [[ -n "${ENABLED_FORMATS[tarball]:-}" ]]; then
+    build_tarball "$rootfs" "$work_dir"
+fi
+
+if [[ -n "${ENABLED_FORMATS[appimage]:-}" ]]; then
+    build_appimage "$rootfs" "$work_dir"
 fi
 
 log "Done. Output directory: $OUTPUT_DIR"

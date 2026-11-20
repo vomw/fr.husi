@@ -5,22 +5,23 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import fr.husi.compose.DurationTextField
 import fr.husi.compose.IconMaskColors
 import fr.husi.compose.IconMaskShapes
+import fr.husi.compose.ListPreference
 import fr.husi.compose.MaskedIcon
 import fr.husi.compose.MultilineTextField
 import fr.husi.compose.PasswordPreference
 import fr.husi.compose.PreferenceCategory
-import fr.husi.compose.PreferenceDivider
+import fr.husi.compose.SwitchPreference
+import fr.husi.compose.TextFieldPreference
 import fr.husi.compose.UIntegerTextField
 import fr.husi.compose.ValidatedTextField
 import fr.husi.compose.material3.Text
@@ -28,26 +29,29 @@ import fr.husi.compose.preferenceGroup
 import fr.husi.fmt.hysteria.HysteriaBean
 import fr.husi.ktx.contentOrUnset
 import fr.husi.ktx.intListN
+import fr.husi.ktx.parseGoDuration
 import fr.husi.ktx.readableMessage
-import fr.husi.libcore.Libcore
 import fr.husi.resources.Res
 import fr.husi.resources.allow_insecure
 import fr.husi.resources.allow_insecure_sum
 import fr.husi.resources.alpn
 import fr.husi.resources.block
 import fr.husi.resources.cert_public_key_sha256
+import fr.husi.resources.certificate_sha256
 import fr.husi.resources.certificates
 import fr.husi.resources.client_certificate
 import fr.husi.resources.client_key
 import fr.husi.resources.compare_arrows
 import fr.husi.resources.copyright
 import fr.husi.resources.directions_boat
+import fr.husi.resources.disabled
 import fr.husi.resources.domino_mask
 import fr.husi.resources.ech
 import fr.husi.resources.ech_config
 import fr.husi.resources.ech_query_server_name
 import fr.husi.resources.emoji_symbols
 import fr.husi.resources.enable
+import fr.husi.resources.encrypted
 import fr.husi.resources.enhanced_encryption
 import fr.husi.resources.hop_interval
 import fr.husi.resources.hysteria2_disable_chrome_parrot
@@ -60,7 +64,6 @@ import fr.husi.resources.hysteria_auth_type
 import fr.husi.resources.hysteria_bbr_profile
 import fr.husi.resources.hysteria_bbr_profile_aggressive
 import fr.husi.resources.hysteria_bbr_profile_conservative
-import fr.husi.resources.hysteria_bbr_profile_standard
 import fr.husi.resources.hysteria_hop_interval_range_hint
 import fr.husi.resources.hysteria_obfs
 import fr.husi.resources.layers
@@ -70,7 +73,6 @@ import fr.husi.resources.mutual_tls
 import fr.husi.resources.nfc
 import fr.husi.resources.not_set
 import fr.husi.resources.password
-import fr.husi.resources.plugin_disabled
 import fr.husi.resources.profile_config
 import fr.husi.resources.profile_name
 import fr.husi.resources.protocol
@@ -90,6 +92,7 @@ import fr.husi.resources.security
 import fr.husi.resources.server_address
 import fr.husi.resources.server_port
 import fr.husi.resources.sni
+import fr.husi.resources.standard
 import fr.husi.resources.texture
 import fr.husi.resources.timelapse
 import fr.husi.resources.toc
@@ -103,14 +106,10 @@ import fr.husi.resources.wb_sunny
 import fr.husi.ui.NavRoutes
 import fr.husi.ui.StringOrRes
 import fr.husi.ui.stringOrRes
-import me.zhanghai.compose.preference.ListPreference
 import me.zhanghai.compose.preference.ListPreferenceType
-import me.zhanghai.compose.preference.SwitchPreference
-import me.zhanghai.compose.preference.TextFieldPreference
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HysteriaSettingsScreen(
     profileId: Long,
@@ -154,7 +153,6 @@ private fun LazyListScope.hysteriaSettings(
             summary = { Text(contentOrUnset(uiState.name)) },
             valueToText = { it },
         )
-        PreferenceDivider()
         ListPreference(
             value = uiState.protocolVersion,
             values = listOf(HysteriaBean.PROTOCOL_VERSION_1, HysteriaBean.PROTOCOL_VERSION_2),
@@ -183,7 +181,6 @@ private fun LazyListScope.hysteriaSettings(
             summary = { Text(contentOrUnset(uiState.address)) },
             valueToText = { it },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.ports,
             onValueChange = { viewModel.setPorts(it) },
@@ -198,7 +195,6 @@ private fun LazyListScope.hysteriaSettings(
             summary = { Text(contentOrUnset(uiState.ports)) },
             valueToText = { it },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.hopInterval,
             onValueChange = { viewModel.setHopInterval(it) },
@@ -210,19 +206,17 @@ private fun LazyListScope.hysteriaSettings(
             },
             summary = { Text(contentOrUnset(uiState.hopInterval)) },
             valueToText = { it },
-            textField = { value, onValueChange, onOk ->
+            textField = { state, onOk ->
                 HopIntervalTextField(
-                    value = value,
-                    onValueChange = onValueChange,
+                    state = state,
                     onOk = onOk,
                     supportRange = uiState.protocolVersion == HysteriaBean.PROTOCOL_VERSION_2,
                 )
             },
         )
-        PreferenceDivider()
         if (uiState.protocolVersion == HysteriaBean.PROTOCOL_VERSION_2) {
             fun obfsTypeName(type: String): StringOrRes = when (type) {
-                HysteriaBean.OBFS_TYPE_NONE -> StringOrRes.Res(Res.string.plugin_disabled)
+                HysteriaBean.OBFS_TYPE_NONE -> StringOrRes.Res(Res.string.disabled)
                 HysteriaBean.OBFS_TYPE_SALAMANDER -> StringOrRes.Direct("Salamander")
                 HysteriaBean.OBFS_TYPE_GECKO -> StringOrRes.Direct("Gecko")
                 else -> StringOrRes.Direct(type)
@@ -247,7 +241,6 @@ private fun LazyListScope.hysteriaSettings(
                 valueToText = { AnnotatedString(stringOrRes(obfsTypeName(it))) },
             )
             if (uiState.obfsType == HysteriaBean.OBFS_TYPE_GECKO) {
-                PreferenceDivider()
                 TextFieldPreference(
                     value = uiState.geckoMinPacketSize,
                     onValueChange = { viewModel.setGeckoMinPacketSize(it) },
@@ -261,11 +254,10 @@ private fun LazyListScope.hysteriaSettings(
                     },
                     summary = { Text(contentOrUnset(uiState.geckoMinPacketSize)) },
                     valueToText = { it.toString() },
-                    textField = { value, onValueChange, onOk ->
-                        UIntegerTextField(value, onValueChange, onOk)
+                    textField = { state, onOk ->
+                        UIntegerTextField(state, onOk)
                     },
                 )
-                PreferenceDivider()
                 TextFieldPreference(
                     value = uiState.geckoMaxPacketSize,
                     onValueChange = { viewModel.setGeckoMaxPacketSize(it) },
@@ -274,13 +266,12 @@ private fun LazyListScope.hysteriaSettings(
                     icon = { Spacer(Modifier.size(24.dp)) },
                     summary = { Text(contentOrUnset(uiState.geckoMaxPacketSize)) },
                     valueToText = { it.toString() },
-                    textField = { value, onValueChange, onOk ->
-                        UIntegerTextField(value, onValueChange, onOk)
+                    textField = { state, onOk ->
+                        UIntegerTextField(state, onOk)
                     },
                 )
             }
         }
-        PreferenceDivider()
         PasswordPreference(
             value = uiState.obfsPassword,
             onValueChange = { viewModel.setObfsPassword(it) },
@@ -292,9 +283,8 @@ private fun LazyListScope.hysteriaSettings(
             },
         )
         if (uiState.protocolVersion == HysteriaBean.PROTOCOL_VERSION_1) {
-            PreferenceDivider()
             fun authTypeName(type: Int): StringOrRes = when (type) {
-                HysteriaBean.TYPE_NONE -> StringOrRes.Res(Res.string.plugin_disabled)
+                HysteriaBean.TYPE_NONE -> StringOrRes.Res(Res.string.disabled)
                 HysteriaBean.TYPE_STRING -> StringOrRes.Direct("STRING")
                 HysteriaBean.TYPE_BASE64 -> StringOrRes.Direct("BASE64")
                 else -> error("impossible")
@@ -319,7 +309,6 @@ private fun LazyListScope.hysteriaSettings(
             uiState.authType != HysteriaBean.TYPE_NONE ||
             uiState.protocolVersion == HysteriaBean.PROTOCOL_VERSION_2
         ) {
-            PreferenceDivider()
             val titleRes = if (uiState.protocolVersion == HysteriaBean.PROTOCOL_VERSION_2) {
                 Res.string.password
             } else {
@@ -332,7 +321,6 @@ private fun LazyListScope.hysteriaSettings(
             )
         }
         if (uiState.protocolVersion == HysteriaBean.PROTOCOL_VERSION_1) {
-            PreferenceDivider()
             val protocolNames = remember {
                 listOf(
                     "UDP",
@@ -356,7 +344,6 @@ private fun LazyListScope.hysteriaSettings(
                 valueToText = { AnnotatedString(protocolNames[it]) },
             )
         }
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.sni,
             onValueChange = { viewModel.setSni(it) },
@@ -369,7 +356,6 @@ private fun LazyListScope.hysteriaSettings(
             valueToText = { it },
         )
         if (uiState.protocolVersion == HysteriaBean.PROTOCOL_VERSION_1) {
-            PreferenceDivider()
             TextFieldPreference(
                 value = uiState.alpn,
                 onValueChange = { viewModel.setAlpn(it) },
@@ -380,12 +366,11 @@ private fun LazyListScope.hysteriaSettings(
                 },
                 summary = { Text(contentOrUnset(uiState.alpn)) },
                 valueToText = { it },
-                textField = { value, onValueChange, onOk ->
-                    MultilineTextField(value, onValueChange, onOk)
+                textField = { state, onOk ->
+                    MultilineTextField(state, onOk)
                 },
             )
         }
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.certificates,
             onValueChange = { viewModel.setCertificates(it) },
@@ -400,11 +385,28 @@ private fun LazyListScope.hysteriaSettings(
             },
             summary = { Text(contentOrUnset(uiState.certificates)) },
             valueToText = { it },
-            textField = { value, onValueChange, onOk ->
-                MultilineTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                MultilineTextField(state, onOk)
             },
         )
-        PreferenceDivider()
+        TextFieldPreference(
+            value = uiState.certificateSha256,
+            onValueChange = { viewModel.setCertificateSha256(it) },
+            title = { Text(stringResource(Res.string.certificate_sha256)) },
+            textToValue = { it },
+            icon = {
+                MaskedIcon(
+                    Res.drawable.encrypted,
+                    color = IconMaskColors.IconLightGreen,
+                    shape = IconMaskShapes.credential(),
+                )
+            },
+            summary = { Text(contentOrUnset(uiState.certificateSha256)) },
+            valueToText = { it },
+            textField = { state, onOk ->
+                MultilineTextField(state, onOk)
+            },
+        )
         TextFieldPreference(
             value = uiState.certPublicKeySha256,
             onValueChange = { viewModel.setCertPublicKeySha256(it) },
@@ -415,11 +417,10 @@ private fun LazyListScope.hysteriaSettings(
             },
             summary = { Text(contentOrUnset(uiState.certPublicKeySha256)) },
             valueToText = { it },
-            textField = { value, onValueChange, onOk ->
-                MultilineTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                MultilineTextField(state, onOk)
             },
         )
-        PreferenceDivider()
         SwitchPreference(
             value = uiState.allowInsecure,
             onValueChange = { viewModel.setAllowInsecure(it) },
@@ -433,7 +434,6 @@ private fun LazyListScope.hysteriaSettings(
                 )
             },
         )
-        PreferenceDivider()
         SwitchPreference(
             value = uiState.disableSNI,
             onValueChange = { viewModel.setDisableSNI(it) },
@@ -465,11 +465,10 @@ private fun LazyListScope.hysteriaSettings(
                 Text(text)
             },
             valueToText = { it.toString() },
-            textField = { value, onValueChange, onOk ->
-                UIntegerTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                UIntegerTextField(state, onOk)
             },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.connectionReceiveWindow,
             onValueChange = { viewModel.setConnectionReceiveWindow(it) },
@@ -488,11 +487,10 @@ private fun LazyListScope.hysteriaSettings(
                 Text(text)
             },
             valueToText = { it.toString() },
-            textField = { value, onValueChange, onOk ->
-                UIntegerTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                UIntegerTextField(state, onOk)
             },
         )
-        PreferenceDivider()
         SwitchPreference(
             value = uiState.disableMtuDiscovery,
             onValueChange = { viewModel.setDisableMtuDiscovery(it) },
@@ -506,7 +504,6 @@ private fun LazyListScope.hysteriaSettings(
             },
         )
         if (uiState.protocolVersion == HysteriaBean.PROTOCOL_VERSION_2) {
-            PreferenceDivider()
             SwitchPreference(
                 value = uiState.disableChromeParrot,
                 onValueChange = { viewModel.setDisableChromeParrot(it) },
@@ -517,7 +514,6 @@ private fun LazyListScope.hysteriaSettings(
                 },
             )
         }
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.idleTimeout,
             onValueChange = { viewModel.setIdleTimeout(it) },
@@ -529,11 +525,10 @@ private fun LazyListScope.hysteriaSettings(
             },
             summary = { Text(contentOrUnset(uiState.idleTimeout)) },
             valueToText = { it },
-            textField = { value, onValueChange, onOk ->
-                DurationTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                DurationTextField(state, onOk)
             },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.keepAlivePeriod,
             onValueChange = { viewModel.setKeepAlivePeriod(it) },
@@ -544,11 +539,10 @@ private fun LazyListScope.hysteriaSettings(
             },
             summary = { Text(contentOrUnset(uiState.keepAlivePeriod)) },
             valueToText = { it },
-            textField = { value, onValueChange, onOk ->
-                DurationTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                DurationTextField(state, onOk)
             },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.maxConcurrentStreams,
             onValueChange = { viewModel.setMaxConcurrentStreams(it) },
@@ -567,11 +561,10 @@ private fun LazyListScope.hysteriaSettings(
                 Text(text)
             },
             valueToText = { it.toString() },
-            textField = { value, onValueChange, onOk ->
-                UIntegerTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                UIntegerTextField(state, onOk)
             },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.initialPacketSize,
             onValueChange = { viewModel.setInitialPacketSize(it) },
@@ -590,8 +583,8 @@ private fun LazyListScope.hysteriaSettings(
                 Text(text)
             },
             valueToText = { it.toString() },
-            textField = { value, onValueChange, onOk ->
-                UIntegerTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                UIntegerTextField(state, onOk)
             },
         )
     }
@@ -615,11 +608,10 @@ private fun LazyListScope.hysteriaSettings(
                 },
                 summary = { Text(contentOrUnset(uiState.clientCert)) },
                 valueToText = { it },
-                textField = { value, onValueChange, onOk ->
-                    MultilineTextField(value, onValueChange, onOk)
+                textField = { state, onOk ->
+                    MultilineTextField(state, onOk)
                 },
             )
-            PreferenceDivider()
             TextFieldPreference(
                 value = uiState.clientKey,
                 onValueChange = { viewModel.setClientKey(it) },
@@ -634,11 +626,10 @@ private fun LazyListScope.hysteriaSettings(
                 },
                 summary = { Text(contentOrUnset(uiState.clientKey)) },
                 valueToText = { it },
-                textField = { value, onValueChange, onOk ->
-                    MultilineTextField(value, onValueChange, onOk)
+                textField = { state, onOk ->
+                    MultilineTextField(state, onOk)
                 },
             )
-            PreferenceDivider()
             val hysteriaCongestionControls = remember {
                 listOf(
                     HysteriaBean.CONGESTION_CONTROL_BBR,
@@ -670,7 +661,7 @@ private fun LazyListScope.hysteriaSettings(
             if (uiState.congestionControl == HysteriaBean.CONGESTION_CONTROL_BBR) {
                 fun bbrProfileName(profile: Int): StringResource = when (profile) {
                     HysteriaBean.BBR_PROFILE_CONSERVATIVE -> Res.string.hysteria_bbr_profile_conservative
-                    HysteriaBean.BBR_PROFILE_STANDARD -> Res.string.hysteria_bbr_profile_standard
+                    HysteriaBean.BBR_PROFILE_STANDARD -> Res.string.standard
                     HysteriaBean.BBR_PROFILE_AGGRESSIVE -> Res.string.hysteria_bbr_profile_aggressive
                     else -> error("impossible")
                 }
@@ -705,7 +696,6 @@ private fun LazyListScope.hysteriaSettings(
                 MaskedIcon(Res.drawable.security, IconMaskColors.IconCoral, IconMaskShapes.risk())
             },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.echConfig,
             onValueChange = { viewModel.setEchConfig(it) },
@@ -717,11 +707,10 @@ private fun LazyListScope.hysteriaSettings(
             enabled = uiState.ech,
             summary = { Text(contentOrUnset(uiState.echConfig)) },
             valueToText = { it },
-            textField = { value, onValueChange, onOk ->
-                MultilineTextField(value, onValueChange, onOk)
+            textField = { state, onOk ->
+                MultilineTextField(state, onOk)
             },
         )
-        PreferenceDivider()
         TextFieldPreference(
             value = uiState.echQueryServerName,
             onValueChange = { viewModel.setEchQueryServerName(it) },
@@ -739,13 +728,12 @@ private fun LazyListScope.hysteriaSettings(
 
 @Composable
 private fun HopIntervalTextField(
-    value: TextFieldValue,
-    onValueChange: (TextFieldValue) -> Unit,
+    state: TextFieldState,
     onOk: () -> Unit,
     supportRange: Boolean,
 ) {
     if (!supportRange) {
-        DurationTextField(value, onValueChange, onOk)
+        DurationTextField(state, onOk)
         return
     }
 
@@ -756,8 +744,7 @@ private fun HopIntervalTextField(
             style = MaterialTheme.typography.bodySmall,
         )
         ValidatedTextField(
-            value = value,
-            onValueChange = onValueChange,
+            state = state,
             onOk = onOk,
             validator = { text ->
                 when {
@@ -770,7 +757,7 @@ private fun HopIntervalTextField(
                             "Duration range is incomplete"
                         } else try {
                             for (part in parts) {
-                                Libcore.parseDuration(part)
+                                parseGoDuration(part)
                             }
                             null
                         } catch (e: Exception) {

@@ -45,16 +45,18 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import fr.husi.compose.BackHandler
-import fr.husi.compose.SimpleIconButton
 import fr.husi.compose.CapsuleTopBar
+import fr.husi.compose.SimpleIconButton
 import fr.husi.compose.TextButton
 import fr.husi.compose.material3.Button
 import fr.husi.compose.material3.ButtonDefaults
 import fr.husi.compose.material3.Card
+import fr.husi.compose.material3.ScrollableDropdownMenuPopup
 import fr.husi.compose.material3.Text
 import fr.husi.compose.paddingExceptBottom
-import fr.husi.libcore.Libcore
+import fr.husi.core.NatBehaviour
+import fr.husi.core.StunPhase
+import fr.husi.core.remote.RemoteControlManager
 import fr.husi.resources.Res
 import fr.husi.resources.arrow_back
 import fr.husi.resources.available
@@ -63,6 +65,12 @@ import fr.husi.resources.cancel
 import fr.husi.resources.error
 import fr.husi.resources.error_title
 import fr.husi.resources.latency
+import fr.husi.resources.loading
+import fr.husi.resources.more
+import fr.husi.resources.more_vert
+import fr.husi.resources.nat_address_and_port_dependent
+import fr.husi.resources.nat_address_dependent
+import fr.husi.resources.nat_endpoint_independent
 import fr.husi.resources.nat_external_address
 import fr.husi.resources.nat_filtering
 import fr.husi.resources.nat_mapping
@@ -70,26 +78,25 @@ import fr.husi.resources.nat_result_hint
 import fr.husi.resources.nat_stun_server_hint
 import fr.husi.resources.nat_type_detection
 import fr.husi.resources.nat_type_not_supported
-import fr.husi.resources.route_proxy
 import fr.husi.resources.start
-import fr.husi.resources.stun_attest_loading
 import fr.husi.resources.stun_test
-import fr.husi.ui.ensurePreviewRepository
+import fr.husi.resources.unknown
+import fr.husi.ui.PreviewContainer
+import fr.husi.ui.remote.RemoteTargetMenuSection
 import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.vectorResource
+import org.koin.compose.koinInject
 
 @Composable
 internal fun StunScreen(
     modifier: Modifier = Modifier,
-    viewModel: StunScreenViewModel = viewModel { StunScreenViewModel() },
     onBackPress: () -> Unit,
+    onOpenRemoteControl: () -> Unit,
+    remoteControl: RemoteControlManager = koinInject(),
+    viewModel: StunScreenViewModel = viewModel {
+        StunScreenViewModel(remoteControl = remoteControl)
+    },
 ) {
-    fun exit() {
-        viewModel.cancel()
-        onBackPress()
-    }
-    BackHandler(true, ::exit)
-
     var alertMessage by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         viewModel.uiEvent.collect { event ->
@@ -100,6 +107,8 @@ internal fun StunScreen(
     }
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val targetConnected by remoteControl.targetConnected.collectAsStateWithLifecycle()
+    var expandMenu by remember { mutableStateOf(false) }
 
     val keyboardController = LocalSoftwareKeyboardController.current
 
@@ -111,14 +120,37 @@ internal fun StunScreen(
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             CapsuleTopBar(
+                hazeState = null,
                 navigationIcon = {
                     SimpleIconButton(
                         imageVector = vectorResource(Res.drawable.arrow_back),
                         contentDescription = stringResource(Res.string.back),
-                        onClick = ::exit,
+                        onClick = onBackPress,
                     )
                 },
                 title = { Text(stringResource(Res.string.stun_test)) },
+                actions = {
+                    CapsuleActionButton {
+                        Box {
+                            SimpleIconButton(
+                                imageVector = vectorResource(Res.drawable.more_vert),
+                                contentDescription = stringResource(Res.string.more),
+                                onClick = { expandMenu = true },
+                            )
+                            ScrollableDropdownMenuPopup(
+                                expanded = expandMenu,
+                                onDismissRequest = { expandMenu = false },
+                            ) {
+                                RemoteTargetMenuSection(
+                                    groupIndex = 0,
+                                    groupCount = 1,
+                                    onManage = onOpenRemoteControl,
+                                    onDismiss = { expandMenu = false },
+                                )
+                            }
+                        }
+                    }
+                },
                 windowInsets = windowInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
                 scrollBehavior = scrollBehavior,
             )
@@ -143,15 +175,15 @@ internal fun StunScreen(
                     label = { Text(stringResource(Res.string.nat_stun_server_hint)) },
                     singleLine = true,
                 )
-                OutlinedTextField(
-                    value = uiState.proxy,
-                    onValueChange = { viewModel.setProxy(it) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(8.dp),
-                    label = { Text(stringResource(Res.string.route_proxy)) },
-                    singleLine = true,
-                )
+                if (targetConnected) {
+                    OutboundSelector(
+                        selectedTag = uiState.outboundTag,
+                        onSelect = { viewModel.setOutboundTag(it) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(8.dp),
+                    )
+                }
             }
 
             Row(
@@ -175,7 +207,7 @@ internal fun StunScreen(
                     Button(
                         onClick = {
                             keyboardController?.hide()
-                            viewModel.doTest()
+                            viewModel.doTest(targetConnected)
                         },
                         modifier = Modifier.padding(horizontal = 24.dp),
                     ) {
@@ -239,7 +271,7 @@ private fun StunReportContent(
                 )
                 if (isDoing) {
                     Text(
-                        text = stringResource(Res.string.stun_attest_loading),
+                        text = stringResource(Res.string.loading),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium,
                     )
@@ -267,22 +299,16 @@ private fun StunReportContent(
             } else {
                 ResultLine(
                     label = stringResource(Res.string.nat_mapping),
-                    value = if (isDoing) {
-                        null
-                    } else {
-                        Libcore.formatNATMapping(report.natMapping)
-                    },
-                    color = natMappingColor(report.natMapping),
+                    value = natBehaviourLabel(report.mapping)
+                        .takeIf { report.phase > StunPhase.NatMapping },
+                    color = natBehaviourColor(report.mapping),
                 )
                 HorizontalDivider(modifier = Modifier.fillMaxWidth())
                 ResultLine(
                     label = stringResource(Res.string.nat_filtering),
-                    value = if (isDoing) {
-                        null
-                    } else {
-                        Libcore.formatNATFiltering(report.natFiltering)
-                    },
-                    color = natFilteringColor(report.natFiltering),
+                    value = natBehaviourLabel(report.filtering)
+                        .takeIf { report.phase > StunPhase.NatFiltering },
+                    color = natBehaviourColor(report.filtering),
                 )
             }
         }
@@ -383,28 +409,33 @@ private fun PendingIndicator(modifier: Modifier = Modifier) {
     )
 }
 
-private fun natMappingColor(value: Int): Color = when (value) {
-    Libcore.NATMappingEndpointIndependent -> Color.Green
-    Libcore.NATMappingAddressDependent -> Color.Yellow
-    Libcore.NATMappingAddressAndPortDependent -> Color.Red
-    else -> Color.Unspecified
-}
+@Composable
+private fun natBehaviourLabel(value: NatBehaviour): String = stringResource(
+    when (value) {
+        NatBehaviour.Unknown -> Res.string.unknown
+        NatBehaviour.EndpointIndependent -> Res.string.nat_endpoint_independent
+        NatBehaviour.AddressDependent -> Res.string.nat_address_dependent
+        NatBehaviour.AddressAndPortDependent -> Res.string.nat_address_and_port_dependent
+    },
+)
 
-private fun natFilteringColor(value: Int): Color = when (value) {
-    Libcore.NATFilteringEndpointIndependent -> Color.Green
-    Libcore.NATFilteringAddressDependent -> Color.Yellow
-    Libcore.NATFilteringAddressAndPortDependent -> Color.Red
-    else -> Color.Unspecified
+private fun natBehaviourColor(value: NatBehaviour): Color = when (value) {
+    NatBehaviour.EndpointIndependent -> Color.Green
+    NatBehaviour.AddressDependent -> Color.Yellow
+    NatBehaviour.AddressAndPortDependent -> Color.Red
+    NatBehaviour.Unknown -> Color.Unspecified
 }
 
 @Preview
 @Composable
 private fun PreviewStunScreen() {
-    ensurePreviewRepository()
-    val viewModel = viewModel { StunScreenViewModel() }
+    PreviewContainer {
+        val viewModel = viewModel { StunScreenViewModel() }
 
-    StunScreen(
-        viewModel = viewModel,
-        onBackPress = {},
-    )
+        StunScreen(
+            viewModel = viewModel,
+            onBackPress = {},
+            onOpenRemoteControl = {},
+        )
+    }
 }

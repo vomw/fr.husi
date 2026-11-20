@@ -9,6 +9,8 @@ DESKTOP_METADATA_FILE="$ROOT_DIR/release/desktop/package-metadata.sh"
 JAR_DIR_DEFAULT="$ROOT_DIR/composeApp/build/compose/jars"
 OUTPUT_DIR_DEFAULT="$ROOT_DIR/composeApp/build/compose/packages/macos"
 PREBUILT_ICON_DEFAULT="$ROOT_DIR/release/macos/desktop/icon.icns"
+# Room needs a libsqliteJni for the target, and androidx sqlite-bundled has none for osx_x64.
+DARWIN_AMD64_SQLITE_ISSUE="https://issuetracker.google.com/issues/495864182"
 PACKAGE_NAME_PLACEHOLDER="__HUSI_PACKAGE_NAME__"
 APP_NAME_PLACEHOLDER="__HUSI_APP_NAME__"
 APP_DESCRIPTION_PLACEHOLDER="__HUSI_APP_DESCRIPTION__"
@@ -33,7 +35,7 @@ error() {
 usage() {
     cat <<EOF
 Usage:
-  $(basename "$0") [--target <platform/arch>] [--input-jar <file>] [--launcher-bin <file>] [--output-dir <dir>]
+  $(basename "$0") [--target <platform/arch>] [--input-jar <file>] [--launcher-bin <file>] [--core-bin <file>] [--output-dir <dir>]
   $(basename "$0") --check-tools [--target <platform/arch>]
 
 Description:
@@ -42,7 +44,8 @@ Description:
 Defaults:
   --target       host darwin/<arch>
   --input-jar    newest matching jar under $JAR_DIR_DEFAULT
-  --launcher-bin $ROOT_DIR/launcher/zig-out/bin/launcher-macos-<x86_64|aarch64>
+  --launcher-bin $ROOT_DIR/launcher/zig-out/bin/launcher-macos-aarch64
+  --core-bin     $ROOT_DIR/libcore/build/darwin_arm64/husi-core
   --output-dir   $OUTPUT_DIR_DEFAULT
   icon asset     $PREBUILT_ICON_DEFAULT
 
@@ -102,7 +105,9 @@ source_desktop_metadata() {
         exit 1
     fi
 
-    # shellcheck disable=SC1090
+    # Named so that shellcheck can follow it; the path is only dynamic because
+    # it is anchored at the repository root.
+    # shellcheck source=../desktop/package-metadata.sh
     source "$DESKTOP_METADATA_FILE"
 }
 
@@ -198,13 +203,14 @@ normalize_arch() {
     value="$(echo "$1" | tr '[:upper:]' '[:lower:]')"
     case "$value" in
         amd64|x86_64)
-            echo "amd64"
+            error "darwin/amd64 is dropped: androidx sqlite-bundled has no osx_x64 binary, see $DARWIN_AMD64_SQLITE_ISSUE"
+            exit 1
             ;;
         arm64|aarch64)
             echo "arm64"
             ;;
         *)
-            error "Unsupported arch '$1'. Use amd64 or arm64."
+            error "Unsupported arch '$1'. Use arm64."
             exit 1
             ;;
     esac
@@ -228,10 +234,6 @@ resolve_target() {
 
 resolve_arch() {
     case "$TARGET_ARCH" in
-        amd64)
-            JAR_ARCH="x64"
-            LAUNCHER_MACHINE="x86_64"
-            ;;
         arm64)
             JAR_ARCH="arm64"
             LAUNCHER_MACHINE="aarch64"
@@ -329,20 +331,24 @@ resolve_input_jar() {
     fi
 
     local latest=""
+    local candidate=""
     local -a matches=()
     shopt -s nullglob
-    matches=("$JAR_DIR_DEFAULT"/${PACKAGE_NAME}-darwin-${JAR_ARCH}-*.jar)
+    # Everything but the wildcard stays quoted, so only the glob expands.
+    matches=("$JAR_DIR_DEFAULT/${PACKAGE_NAME}-darwin-${JAR_ARCH}-"*.jar)
     shopt -u nullglob
-    if [[ "${#matches[@]}" -gt 0 ]]; then
-        latest="$(ls -t "${matches[@]}" 2>/dev/null | head -n 1)"
-    fi
+    for candidate in "${matches[@]}"; do
+        if [[ -z "$latest" || "$candidate" -nt "$latest" ]]; then
+            latest="$candidate"
+        fi
+    done
     if [[ -n "$latest" ]]; then
         INPUT_JAR="$latest"
         return
     fi
 
     error "No matching desktop jar found in $JAR_DIR_DEFAULT"
-    error "Build one first: ./gradlew -p composeApp packageUberJarForCurrentOS -PdesktopTarget=darwin/$TARGET_ARCH"
+    error "Build one first: ./gradlew -p composeApp packageReleaseUberJarForCurrentOS -PdesktopTarget=darwin/$TARGET_ARCH"
     exit 1
 }
 
@@ -369,6 +375,30 @@ resolve_launcher_bin() {
     exit 1
 }
 
+resolve_core_bin() {
+    local requested="$1"
+    local default_path="$ROOT_DIR/libcore/build/${TARGET_PLATFORM}_${TARGET_ARCH}/husi-core"
+
+    if [[ -n "$requested" ]]; then
+        if [[ ! -f "$requested" ]]; then
+            error "Core host binary not found: $requested"
+            exit 1
+        fi
+        INPUT_CORE_BIN="$requested"
+        return
+    fi
+
+    if [[ -f "$default_path" ]]; then
+        INPUT_CORE_BIN="$default_path"
+        return
+    fi
+
+    error "Core host binary not found: $default_path"
+    error "Build one first: make core_desktop DESKTOP_TARGETS=${TARGET_PLATFORM}/${TARGET_ARCH}"
+    exit 1
+}
+
+
 normalize_macos_bundle_version() {
     local version="$1"
     local numbers=()
@@ -385,8 +415,10 @@ normalize_macos_bundle_version() {
 
 render_info_plist_strings() {
     local locale_dir="$1"
-    local app_name="$2"
-    local app_description="$3"
+    # Named for the locale they belong to, so they do not read as stray
+    # lowercase spellings of the APP_NAME / APP_DESCRIPTION defaults.
+    local localized_name="$2"
+    local localized_description="$3"
     local template_file="$ROOT_DIR/release/macos/desktop/InfoPlist.strings"
     local output_file="$locale_dir/InfoPlist.strings"
 
@@ -394,8 +426,8 @@ render_info_plist_strings() {
     render_template \
         "$template_file" \
         "$output_file" \
-        "$APP_NAME_PLACEHOLDER" "$app_name" \
-        "$APP_DESCRIPTION_PLACEHOLDER" "$app_description"
+        "$APP_NAME_PLACEHOLDER" "$localized_name" \
+        "$APP_DESCRIPTION_PLACEHOLDER" "$localized_description"
 }
 
 prepare_app_bundle() {
@@ -415,6 +447,8 @@ prepare_app_bundle() {
     cp "$INPUT_JAR" "$app_dir/$PACKAGE_NAME.jar"
     cp "$INPUT_LAUNCHER_BIN" "$macos_dir/$executable_name"
     chmod 755 "$macos_dir/$executable_name"
+    cp "$INPUT_CORE_BIN" "$macos_dir/husi-core"
+    chmod 755 "$macos_dir/husi-core"
     cp "$ROOT_DIR/release/linux/desktop/desktop-java-opts.conf" "$macos_dir/desktop-java-opts.conf.template"
     cp "$ROOT_DIR/release/linux/desktop/desktop-app-args.conf" "$macos_dir/desktop-app-args.conf.template"
     cp "$ICON_ICNS" "$resources_dir/$icon_name"
@@ -504,6 +538,7 @@ TARGET_PLATFORM=""
 TARGET_ARCH=""
 INPUT_JAR=""
 INPUT_LAUNCHER_BIN=""
+INPUT_CORE_BIN=""
 OUTPUT_DIR="$OUTPUT_DIR_DEFAULT"
 CHECK_TOOLS=0
 HOST_OS=""
@@ -526,6 +561,11 @@ while [[ $# -gt 0 ]]; do
         --launcher-bin)
             require_arg "$1" "${2:-}"
             INPUT_LAUNCHER_BIN="$2"
+            shift 2
+            ;;
+        --core-bin)
+            require_arg "$1" "${2:-}"
+            INPUT_CORE_BIN="$2"
             shift 2
             ;;
         -o|--output-dir)
@@ -565,6 +605,7 @@ fi
 
 resolve_input_jar "$INPUT_JAR"
 resolve_launcher_bin "$INPUT_LAUNCHER_BIN"
+resolve_core_bin "$INPUT_CORE_BIN"
 mkdir -p "$OUTPUT_DIR"
 
 work_dir="$(mktemp -d)"

@@ -1,20 +1,19 @@
 package fr.husi.bg
 
 import fr.husi.RuleProvider
-import io.mockk.every
-import io.mockk.mockk
-import io.mockk.verify
+import fr.husi.test.HusiHttpKoinTest
 import kotlinx.coroutines.test.runTest
 import java.io.File
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-class RouteAssetUpdatesTest {
+class RouteAssetUpdatesTest : HusiHttpKoinTest() {
 
     private val dummyFiles = listOf(File("geoip.version.txt"), File("geosite.version.txt"))
 
@@ -117,14 +116,6 @@ class RouteAssetUpdatesTest {
     // region URL construction
 
     @Test
-    fun `githubApiReleaseUrl includes repository full name`() {
-        assertEquals(
-            "https://api.github.com/repos/SagerNet/sing-geoip/releases/latest",
-            githubApiReleaseUrl("SagerNet/sing-geoip"),
-        )
-    }
-
-    @Test
     fun `githubCodloadTarGzUrl includes full name and branch`() {
         assertEquals(
             "https://codeload.github.com/SagerNet/sing-geosite/tar.gz/refs/heads/rule-set-unstable",
@@ -156,8 +147,7 @@ class RouteAssetUpdatesTest {
             repository = GithubRepository(author = "SagerNet", name = "sing-geoip"),
             versionFile = versionFile,
         )
-        val remoteSource = mockk<RemoteSource>()
-        every { remoteSource.fetchString(any()) } returns """{"tag_name":"202605161045"}"""
+        fakeHttp.nextResponseContent = """{"tag_name":"202605161045"}""".encodeToByteArray()
         val updater = GithubAssetUpdater(
             versionFiles = listOf(versionFile),
             updateProgress = {},
@@ -165,14 +155,14 @@ class RouteAssetUpdatesTest {
             destinationDir = dir,
             sources = listOf(source),
             useUnstableBranch = false,
-            remoteSource = remoteSource,
+            httpFetcher = fakeHttp,
         )
 
         val updates = updater.check()
 
         assertEquals(1, updates.size)
         assertEquals("202605161045", (updates[0] as UpdateInfo.Github).newVersion)
-        verify { remoteSource.fetchString(githubApiReleaseUrl("SagerNet/sing-geoip")) }
+        assertContains(fakeHttp.requests.map { it.url }, githubApiLatestReleaseUrl("SagerNet/sing-geoip"))
     }
 
     @Test
@@ -183,8 +173,7 @@ class RouteAssetUpdatesTest {
             repository = GithubRepository(author = "SagerNet", name = "sing-geoip"),
             versionFile = versionFile,
         )
-        val remoteSource = mockk<RemoteSource>()
-        every { remoteSource.fetchString(any()) } returns """{"tag_name":"202605161045"}"""
+        fakeHttp.nextResponseContent = """{"tag_name":"202605161045"}""".encodeToByteArray()
         val updater = GithubAssetUpdater(
             versionFiles = listOf(versionFile),
             updateProgress = {},
@@ -192,7 +181,7 @@ class RouteAssetUpdatesTest {
             destinationDir = dir,
             sources = listOf(source),
             useUnstableBranch = false,
-            remoteSource = remoteSource,
+            httpFetcher = fakeHttp,
         )
 
         assertTrue(updater.check().isEmpty())
@@ -205,8 +194,7 @@ class RouteAssetUpdatesTest {
             repository = GithubRepository(author = "SagerNet", name = "sing-geoip"),
             versionFile = dir.resolve("geoip.version.txt"),
         )
-        val remoteSource = mockk<RemoteSource>()
-        every { remoteSource.fetchString(any()) } returns """{"tag_name":""}"""
+        fakeHttp.nextResponseContent = """{"tag_name":""}""".encodeToByteArray()
         val updater = GithubAssetUpdater(
             versionFiles = emptyList(),
             updateProgress = {},
@@ -214,7 +202,7 @@ class RouteAssetUpdatesTest {
             destinationDir = dir,
             sources = listOf(source),
             useUnstableBranch = false,
-            remoteSource = remoteSource,
+            httpFetcher = fakeHttp,
         )
 
         assertTrue(updater.check().isEmpty())
@@ -236,8 +224,7 @@ class RouteAssetUpdatesTest {
                 vf2,
             ),
         )
-        val remoteSource = mockk<RemoteSource>()
-        every { remoteSource.fetchString(any()) } returns """{"tag_name":"202605161045"}"""
+        fakeHttp.nextResponseContent = """{"tag_name":"202605161045"}""".encodeToByteArray()
         val updater = GithubAssetUpdater(
             versionFiles = listOf(vf1, vf2),
             updateProgress = {},
@@ -245,13 +232,13 @@ class RouteAssetUpdatesTest {
             destinationDir = dir,
             sources = sources,
             useUnstableBranch = true,
-            remoteSource = remoteSource,
+            httpFetcher = fakeHttp,
         )
 
         updater.check()
 
-        verify { remoteSource.fetchString(githubApiReleaseUrl("SagerNet/sing-geoip")) }
-        verify { remoteSource.fetchString(githubApiReleaseUrl("SagerNet/sing-geosite")) }
+        assertContains(fakeHttp.requests.map { it.url }, githubApiLatestReleaseUrl("SagerNet/sing-geoip"))
+        assertContains(fakeHttp.requests.map { it.url }, githubApiLatestReleaseUrl("SagerNet/sing-geosite"))
     }
 
     // endregion
@@ -267,22 +254,21 @@ class RouteAssetUpdatesTest {
             assetName = "sing-box.zip",
             versionFile = versionFile,
         )
-        val remoteSource = mockk<RemoteSource>()
-        every { remoteSource.fetchString(any()) } returns """{"tag_name":"202605161045"}"""
+        fakeHttp.nextResponseContent = """{"tag_name":"202605161045"}""".encodeToByteArray()
         val updater = GithubReleaseZipUpdater(
             versionFiles = listOf(versionFile),
             updateProgress = {},
             cacheDir = dir,
             destinationDir = dir,
             source = source,
-            remoteSource = remoteSource,
+            httpFetcher = fakeHttp,
         )
 
         val updates = updater.check()
 
         assertEquals(1, updates.size)
         assertEquals("202605161045", (updates[0] as UpdateInfo.Github).newVersion)
-        verify { remoteSource.fetchString(githubApiReleaseUrl("runetfreedom/russia-v2ray-rules-dat")) }
+        assertContains(fakeHttp.requests.map { it.url }, githubApiLatestReleaseUrl("runetfreedom/russia-v2ray-rules-dat"))
     }
 
     @Test
@@ -294,15 +280,14 @@ class RouteAssetUpdatesTest {
             assetName = "sing-box.zip",
             versionFile = versionFile,
         )
-        val remoteSource = mockk<RemoteSource>()
-        every { remoteSource.fetchString(any()) } returns """{"tag_name":"202605161045"}"""
+        fakeHttp.nextResponseContent = """{"tag_name":"202605161045"}""".encodeToByteArray()
         val updater = GithubReleaseZipUpdater(
             versionFiles = listOf(versionFile),
             updateProgress = {},
             cacheDir = dir,
             destinationDir = dir,
             source = source,
-            remoteSource = remoteSource,
+            httpFetcher = fakeHttp,
         )
 
         assertTrue(updater.check().isEmpty())
@@ -322,7 +307,7 @@ class RouteAssetUpdatesTest {
             cacheDir = dir,
             destinationDir = dir,
             links = links,
-            remoteSource = mockk(relaxed = true),
+            httpFetcher = fakeHttp,
         )
 
         val updates = updater.check()
@@ -341,10 +326,55 @@ class RouteAssetUpdatesTest {
             cacheDir = dir,
             destinationDir = dir,
             links = emptyList(),
-            remoteSource = mockk(relaxed = true),
+            httpFetcher = fakeHttp,
         )
 
         assertTrue(updater.check().isEmpty())
+    }
+
+    // endregion
+
+    // region migrateCustomRouteAssets
+
+    @Test
+    fun `migrateCustomRouteAssets moves known files out of geo and leaves unknown files`() {
+        val dir = createTempDir()
+        val geoDir = routeGeoDir(dir).also { it.mkdirs() }
+        geoDir.resolve("custom.srs").writeText("mine")
+        geoDir.resolve("geosite-cn.srs").writeText("managed")
+
+        migrateCustomRouteAssets(dir, listOf("custom.srs"))
+
+        val customDir = routeCustomGeoDir(dir)
+        assertFalse(geoDir.resolve("custom.srs").exists())
+        assertTrue(customDir.resolve("custom.srs").isFile)
+        assertEquals("mine", customDir.resolve("custom.srs").readText())
+        assertTrue(geoDir.resolve("geosite-cn.srs").isFile)
+        assertEquals("managed", geoDir.resolve("geosite-cn.srs").readText())
+    }
+
+    @Test
+    fun `migrateCustomRouteAssets is a no-op when destination already exists`() {
+        val dir = createTempDir()
+        val geoDir = routeGeoDir(dir).also { it.mkdirs() }
+        val customDir = routeCustomGeoDir(dir).also { it.mkdirs() }
+        geoDir.resolve("custom.srs").writeText("old")
+        customDir.resolve("custom.srs").writeText("already")
+
+        migrateCustomRouteAssets(dir, listOf("custom.srs"))
+
+        assertTrue(geoDir.resolve("custom.srs").isFile)
+        assertEquals("old", geoDir.resolve("custom.srs").readText())
+        assertEquals("already", customDir.resolve("custom.srs").readText())
+    }
+
+    @Test
+    fun `migrateCustomRouteAssets does not throw when geo is missing`() {
+        val dir = createTempDir()
+
+        migrateCustomRouteAssets(dir, listOf("custom.srs"))
+
+        assertFalse(routeCustomGeoDir(dir).exists())
     }
 
     // endregion

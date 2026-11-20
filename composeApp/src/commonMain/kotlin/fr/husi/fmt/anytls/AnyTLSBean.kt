@@ -1,11 +1,11 @@
 package fr.husi.fmt.anytls
 
 import kotlinx.serialization.Serializable as KxsSerializable
-import com.esotericsoftware.kryo.io.ByteBufferInput
-import com.esotericsoftware.kryo.io.ByteBufferOutput
 import fr.husi.fmt.AbstractBean
-import fr.husi.fmt.KryoConverters
+import fr.husi.fmt.BeanConverters
 import fr.husi.fmt.ValidateResult
+import fr.husi.io.BinaryInput
+import fr.husi.io.BinaryOutput
 import fr.husi.resources.Res
 import fr.husi.resources.warn_insecure
 
@@ -34,6 +34,7 @@ class AnyTLSBean : AbstractBean() {
     var serverName: String = ""
     var alpn: String = ""
     var certificates: String = ""
+    var certificateSha256: String = ""
     var certPublicKeySha256: String = ""
     var utlsFingerprint: String = ""
     var allowInsecure: Boolean = false
@@ -64,8 +65,8 @@ class AnyTLSBean : AbstractBean() {
         return ValidateResult.Secure.Continue
     }
 
-    override fun serialize(output: ByteBufferOutput) {
-        output.writeInt(9)
+    override fun serialize(output: BinaryOutput) {
+        output.writeInt(10)
 
         // version 0
         super.serialize(output)
@@ -110,9 +111,12 @@ class AnyTLSBean : AbstractBean() {
         // version 9
         output.writeBoolean(disableReuse)
         output.writeString(clientMetadata)
+
+        // version 10
+        output.writeString(certificateSha256)
     }
 
-    override fun deserialize(input: ByteBufferInput) {
+    override fun deserialize(input: BinaryInput) {
         val version = input.readInt()
         super.deserialize(input)
         password = input.readString()
@@ -165,10 +169,14 @@ class AnyTLSBean : AbstractBean() {
             disableReuse = input.readBoolean()
             clientMetadata = input.readString()
         }
+
+        if (version >= 10) {
+            certificateSha256 = input.readString()
+        }
     }
 
     override fun clone(): AnyTLSBean {
-        return KryoConverters.deserialize(AnyTLSBean(), KryoConverters.serialize(this))
+        return BeanConverters.deserialize(AnyTLSBean(), BeanConverters.serialize(this))
     }
 
     override fun applyFeatureSettings(other: AbstractBean) {

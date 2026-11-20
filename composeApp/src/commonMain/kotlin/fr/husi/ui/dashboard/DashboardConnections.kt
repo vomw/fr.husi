@@ -19,7 +19,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import fr.husi.compose.material3.Text
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -30,20 +29,27 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import fr.husi.compose.BoxedVerticalScrollbar
 import fr.husi.compose.fadingEdge
+import fr.husi.compose.rememberSwipeToDismissBoxStateUnsaveable
 import fr.husi.compose.theme.LogColors
-import fr.husi.libcore.Libcore
+import fr.husi.ktx.formatBytes
 import fr.husi.resources.Res
-import fr.husi.resources.connection_status_active
+import fr.husi.resources.active
+import fr.husi.resources.connection_empty_active
+import fr.husi.resources.connection_empty_all
+import fr.husi.resources.connection_empty_closed
+import fr.husi.resources.connection_empty_no_status
+import fr.husi.resources.connection_empty_search
+import fr.husi.resources.connection_speed
 import fr.husi.resources.connection_status_closed
 import fr.husi.resources.delete_forever
 import fr.husi.resources.traffic
 import io.github.oikvpqya.compose.fastscroller.material3.defaultMaterialScrollbarStyle
 import io.github.oikvpqya.compose.fastscroller.rememberScrollbarAdapter
+import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.vectorResource
 
@@ -51,17 +57,28 @@ import org.jetbrains.compose.resources.vectorResource
 internal fun DashboardConnectionsScreen(
     modifier: Modifier = Modifier,
     uiState: DashboardState,
-    bottomPadding: Dp,
+    contentPadding: PaddingValues,
     resolveProcessInfo: suspend (String?, Int) -> ProcessInfo?,
     closeConnection: (uuid: String) -> Unit,
-    openDetail: (uuid: String) -> Unit,
-    onVisibleChange: (Boolean) -> Unit,
+    onConnectionClick: (uuid: String) -> Unit,
 ) {
+    if (uiState.connections.isEmpty()) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .padding(contentPadding),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = stringResource(uiState.emptyConnectionsReason.message),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        return
+    }
+
     val itemSpacing = 12.dp
     val listState = rememberLazyListState()
-    LaunchedEffect(Unit) {
-        onVisibleChange(true)
-    }
 
     Box(
         modifier = modifier.fillMaxSize(),
@@ -73,7 +90,7 @@ internal fun DashboardConnectionsScreen(
                     .fillMaxHeight()
                     .fadingEdge(listState),
                 state = listState,
-                contentPadding = PaddingValues(bottom = bottomPadding),
+                contentPadding = contentPadding,
                 verticalArrangement = Arrangement.spacedBy(itemSpacing),
             ) {
                 items(
@@ -81,7 +98,7 @@ internal fun DashboardConnectionsScreen(
                     key = { it.uuid },
                     contentType = { 0 },
                 ) { connection ->
-                    val swipState = rememberSwipeToDismissBoxState()
+                    val swipState = rememberSwipeToDismissBoxStateUnsaveable(connection.uuid)
                     SwipeToDismissBox(
                         state = swipState,
                         backgroundContent = {
@@ -109,14 +126,16 @@ internal fun DashboardConnectionsScreen(
                         ConnectionCard(
                             connection = connection,
                             resolveProcessInfo = resolveProcessInfo,
-                            openDetail = openDetail,
+                            onConnectionClick = onConnectionClick,
                         )
                     }
                 }
             }
 
             BoxedVerticalScrollbar(
-                modifier = Modifier.fillMaxHeight(),
+                modifier = Modifier
+                    .padding(contentPadding)
+                    .fillMaxHeight(),
                 adapter = rememberScrollbarAdapter(scrollState = listState),
                 style = defaultMaterialScrollbarStyle().copy(
                     thickness = 12.dp,
@@ -126,12 +145,21 @@ internal fun DashboardConnectionsScreen(
     }
 }
 
+private val EmptyConnectionsReason.message: StringResource
+    get() = when (this) {
+        EmptyConnectionsReason.NO_CONNECTIONS -> Res.string.connection_empty_all
+        EmptyConnectionsReason.NO_ACTIVE -> Res.string.connection_empty_active
+        EmptyConnectionsReason.NO_CLOSED -> Res.string.connection_empty_closed
+        EmptyConnectionsReason.NO_MATCH -> Res.string.connection_empty_search
+        EmptyConnectionsReason.NO_STATUS_SELECTED -> Res.string.connection_empty_no_status
+    }
+
 @Composable
 private fun ConnectionCard(
     modifier: Modifier = Modifier,
     connection: ConnectionDetailState,
     resolveProcessInfo: suspend (String?, Int) -> ProcessInfo?,
-    openDetail: (id: String) -> Unit,
+    onConnectionClick: (uuid: String) -> Unit,
 ) {
     val process = connection.processes?.firstOrNull()
     val uid = connection.uid
@@ -142,7 +170,7 @@ private fun ConnectionCard(
     }
 
     ElevatedCard(
-        onClick = { openDetail(connection.uuid) },
+        onClick = { onConnectionClick(connection.uuid) },
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 4.dp),
@@ -193,8 +221,17 @@ private fun ConnectionCard(
                 Text(
                     text = stringResource(
                         Res.string.traffic,
-                        Libcore.formatBytes(connection.uploadTotal),
-                        Libcore.formatBytes(connection.downloadTotal),
+                        connection.uploadTotal.formatBytes(),
+                        connection.downloadTotal.formatBytes(),
+                    ),
+                    fontSize = 14.sp,
+                )
+
+                Text(
+                    text = stringResource(
+                        Res.string.connection_speed,
+                        connection.uploadSpeed.formatBytes(),
+                        connection.downloadSpeed.formatBytes(),
                     ),
                     fontSize = 14.sp,
                 )
@@ -204,7 +241,7 @@ private fun ConnectionCard(
                         if (connection.isClosed) {
                             Res.string.connection_status_closed
                         } else {
-                            Res.string.connection_status_active
+                            Res.string.active
                         },
                     ),
                     fontSize = 14.sp,

@@ -8,13 +8,17 @@ import android.content.IntentFilter
 import android.content.res.Configuration
 import android.os.Build
 import android.os.StrictMode
+import fr.husi.Key
 import fr.husi.bg.AppChangeReceiver
 import fr.husi.bg.DefaultNetworkMonitor
 import fr.husi.bg.RouteAssetUpdater
 import fr.husi.bg.SubscriptionUpdater
+import fr.husi.bg.migrateCustomRouteAssets
 import fr.husi.compose.clearClipboardImageCache
 import fr.husi.database.DataStore
+import fr.husi.database.SagerDatabase
 import fr.husi.di.initHusiKoin
+import fr.husi.ktx.Logs
 import fr.husi.ktx.invariantDirectoryPathString
 import fr.husi.ktx.runOnDefaultDispatcher
 import fr.husi.ktx.runOnIoDispatcher
@@ -22,12 +26,14 @@ import fr.husi.libcore.Libcore
 import fr.husi.libcore.loadCA
 import fr.husi.repository.AndroidRepository
 import fr.husi.repository.SagerRepository
+import fr.husi.tailscale.TaildropSendService
 import fr.husi.utils.CrashHandler
 import fr.husi.utils.PackageCache
-import fr.husi.utils.copyBundledRuleSetAssetsIfNeeded
+import fr.husi.utils.installBundledRuleSets
 import go.Seq
 import kotlinx.coroutines.DEBUG_PROPERTY_NAME
 import kotlinx.coroutines.DEBUG_PROPERTY_VALUE_ON
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import java.io.File
 import androidx.work.Configuration as WorkConfiguration
@@ -60,9 +66,11 @@ class Application : Application(),
             clearClipboardImageCache(cacheDir)
         }
 
+        if (isMainProcess) TaildropSendService.observe(this)
+
         if (isMainProcess) runOnDefaultDispatcher {
             // The component state may drift from the preference, e.g. after a backup restore.
-            val hidden = DataStore.hideLauncherIcon
+            val hidden = DataStore.hideLauncherIcon.get()
             if (LauncherIcon.hidden != hidden) LauncherIcon.hidden = hidden
         }
 
@@ -72,28 +80,25 @@ class Application : Application(),
             }
         }
 
-        Seq.setContext(this)
         runOnDefaultDispatcher {
             repository.updateNotificationChannels()
         }
 
-        // init core
         externalAssets.mkdirs()
-        if (isBgProcess && DataStore.rulesProvider == RuleProvider.OFFICIAL) {
-            runBlocking { copyBundledRuleSetAssetsIfNeeded() }
+        val isDebug = runBlocking { DataStore.advancedFeature(Key.ADVANCED_DEBUG) } != null
+        if (!isDebug) {
+            Logs.openFile(externalAssets.resolve(LOG_FILE_NAME), DataStore.logLevel.getBlocking())
         }
-        Libcore.initCore(
-            isBgProcess,
-            !isBgProcess,
-            cacheDir.invariantDirectoryPathString(),
-            filesDir.invariantDirectoryPathString(),
-            externalAssets.invariantDirectoryPathString(),
-            DataStore.logMaxLine,
-            DataStore.logLevel,
-            DataStore.rulesProvider == 0,
-            DataStore.isExpert,
-        )
-        loadCA(DataStore.certProvider)
+        runBlocking {
+            if (isBgProcess && DataStore.rulesProvider.get() == RuleProvider.OFFICIAL) {
+                installBundledRuleSets()
+            }
+            migrateCustomRouteAssets(
+                externalAssets,
+                SagerDatabase.assetDao.getAll().first().map { it.name },
+            )
+        }
+        if (isBgProcess) initCore(isDebug)
 
         if (isMainProcess) runOnDefaultDispatcher {
             runCatching {
@@ -116,7 +121,7 @@ class Application : Application(),
             repository.boxService?.start()
         }
 
-        if (DataStore.isExpert) StrictMode.setVmPolicy(
+        if (isDebug) StrictMode.setVmPolicy(
             StrictMode.VmPolicy.Builder()
                 .detectLeakedSqlLiteObjects()
                 .detectLeakedClosableObjects()
@@ -124,6 +129,20 @@ class Application : Application(),
                 .penaltyLog()
                 .build(),
         )
+    }
+
+    private fun initCore(isDebug: Boolean) {
+        Seq.setContext(this)
+        Libcore.initCore(
+            cacheDir.invariantDirectoryPathString(),
+            filesDir.invariantDirectoryPathString(),
+            externalAssets.invariantDirectoryPathString(),
+            DataStore.logMaxLine.getBlocking(),
+            DataStore.logLevel.getBlocking(),
+            isDebug,
+        )
+        Logs.attachCore()
+        loadCA(DataStore.certProvider.getBlocking())
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {

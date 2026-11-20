@@ -2,8 +2,9 @@ package fr.husi.utils
 
 import fr.husi.BuildConfig
 import fr.husi.database.DataStore
-import fr.husi.ktx.currentUtcReportTimestamp
+import fr.husi.ktx.DisplayTime
 import kotlinx.coroutines.runBlocking
+import kotlin.time.Clock
 
 object CrashReport {
 
@@ -27,11 +28,16 @@ object CrashReport {
         return format
     }
 
-    fun buildReportHeader(): String {
+    fun buildEnvironmentReport(): String {
         var report = ""
-        report += "husi ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) ${BuildConfig.FLAVOR.uppercase()}\n"
-        report += "Date: ${getCurrentMilliSecondUTCTimeStamp()}\n\n"
+        report += "husi ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})\n"
+        report += "Date: ${DisplayTime.utcDateTime(Clock.System.now())}\n\n"
         report += buildPlatformSystemInfoReport()
+        return report
+    }
+
+    fun buildReportHeader(): String {
+        var report = buildEnvironmentReport()
 
         try {
             report += "Settings: \n"
@@ -45,10 +51,6 @@ object CrashReport {
         report += "\n\n"
 
         return report
-    }
-
-    private fun getCurrentMilliSecondUTCTimeStamp(): String {
-        return currentUtcReportTimestamp()
     }
 
 }

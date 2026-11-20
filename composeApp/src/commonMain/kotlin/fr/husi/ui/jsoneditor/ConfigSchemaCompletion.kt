@@ -34,6 +34,8 @@ class ConfigSchemaCompleter(
     private val jsonEngine: ConfigJsonEngine = ConfigJsonEngine(),
 ) {
 
+    private val variantsByReference = mutableMapOf<String, List<JsonObject>>()
+
     fun complete(text: String, cursor: Int): List<ConfigSchemaCompletion> {
         val context = scan(jsonEngine.document(text), cursor)
         if (!context.isInString && context.prefix.isEmpty()) return emptyList()
@@ -138,10 +140,10 @@ class ConfigSchemaCompleter(
 
         for (token in document.tokens) {
             if (token.start >= safeCursor) break
-            if (token.type == ConfigJsonTokenType.STRING) {
+            if (token.type.isStringLiteral) {
                 val stringIsKey = !frames.last().isArray &&
                     previousMeaningful(text, token.start - 1) in setOf('{', ',')
-                val isClosed = token.end - token.start >= 2 && text[token.end - 1] == '"'
+                val isClosed = token.isTerminated
                 val isInside = if (isClosed) safeCursor < token.end else safeCursor <= token.end
                 if (isInside) {
                     val contentStart = token.start + 1
@@ -177,7 +179,7 @@ class ConfigSchemaCompleter(
                     val childSchema = if (parent.isArray) {
                         itemsOf(parent.schema)
                     } else {
-                        parent.pendingKey?.let { key -> propertiesOf(parent.schema)[key] }
+                        parent.pendingKey?.let { key -> propertyOf(parent.schema, key) }
                     } ?: JsonObject(emptyMap())
                     frames += SchemaFrame(childSchema, isArray = text[token.start] == '[')
                 }
@@ -210,7 +212,7 @@ class ConfigSchemaCompleter(
     private fun valueSchema(frame: SchemaFrame): JsonObject = if (frame.isArray) {
         itemsOf(frame.schema) ?: JsonObject(emptyMap())
     } else {
-        frame.pendingKey?.let { key -> propertiesOf(frame.schema)[key] } ?: JsonObject(emptyMap())
+        frame.pendingKey?.let { key -> propertyOf(frame.schema, key) } ?: JsonObject(emptyMap())
     }
 
     private fun propertiesOf(schema: JsonObject): Map<String, JsonObject> = variants(schema)
@@ -221,6 +223,14 @@ class ConfigSchemaCompleter(
         }
         .groupBy({ it.first }, { it.second })
         .mapValues { (_, schemas) -> combine(schemas) }
+
+    /** Looks up one property without building the whole [propertiesOf] map, which the scan would discard. */
+    private fun propertyOf(schema: JsonObject, name: String): JsonObject? {
+        val schemas = variants(schema).mapNotNull { variant ->
+            (variant["properties"] as? JsonObject)?.get(name) as? JsonObject
+        }
+        return schemas.takeIf { it.isNotEmpty() }?.let(::combine)
+    }
 
     private fun itemsOf(schema: JsonObject): JsonObject? {
         val schemas = variants(schema).mapNotNull { it["items"] as? JsonObject }
@@ -237,8 +247,15 @@ class ConfigSchemaCompleter(
     ): List<JsonObject> {
         val reference = schema[$$"$ref"]?.jsonPrimitiveContent()
         if (reference != null && reference !in resolving) {
+            if (resolving.isEmpty()) {
+                variantsByReference[reference]?.let { return it }
+            }
             val resolved = resolveReference(reference)
-            if (resolved != null) return variants(resolved, resolving + reference)
+            if (resolved != null) {
+                val expanded = variants(resolved, resolving + reference)
+                if (resolving.isEmpty()) variantsByReference[reference] = expanded
+                return expanded
+            }
         }
 
         val base = JsonObject(schema.filterKeys { it !in schemaCompositionKeys })
