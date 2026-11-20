@@ -58,6 +58,12 @@ jobs:
 
       - uses: burrunan/gradle-cache-action@v3
 
+      # This modifies only the disposable Actions checkout. Keeping the Gradle
+      # namespace/source package intact avoids breaking generated R classes.
+      - name: Namespace the Android fork for side-by-side installation
+        shell: bash
+        run: python3 .github/scripts/fork_android_identity.py --suffix vomw
+
       - name: Cache route assets
         id: cache-assets
         uses: actions/cache@v6
