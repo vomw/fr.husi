@@ -36,7 +36,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
@@ -266,7 +265,6 @@ private fun RuleSetMatchDialogContent(
     WindowedDialog(
         onDismissRequest = onDismissRequest,
         title = stringResource(Res.string.rule_set_match),
-        windowSize = DpSize(520.dp, 640.dp),
         buttons = {
             TextButton(stringResource(Res.string.close), onDismissRequest)
         },

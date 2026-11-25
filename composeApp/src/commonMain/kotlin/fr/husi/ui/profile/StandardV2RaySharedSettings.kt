@@ -19,7 +19,6 @@ import fr.husi.compose.preferenceGroup
 import fr.husi.fmt.SingBoxOptions
 import fr.husi.ktx.contentOrUnset
 import fr.husi.ktx.intListN
-import fr.husi.platform.PlatformInfo
 import fr.husi.resources.Res
 import fr.husi.resources.allow_insecure
 import fr.husi.resources.allow_insecure_sum
@@ -392,38 +391,6 @@ internal fun LazyListScope.tlsSettings(
                 summary = { Text(contentOrUnset(state.realityShortID)) },
                 valueToText = { it },
             )
-            if (!PlatformInfo.isAndroid) {
-                TextFieldPreference(
-                    value = state.tlsSpoof,
-                    onValueChange = { viewModel.setTlsSpoof(it) },
-                    title = { Text(stringResource(Res.string.tls_spoof)) },
-                    textToValue = { it },
-                    icon = {
-                        MaskedIcon(
-                            Res.drawable.domino_mask,
-                            color = IconMaskColors.IconWarmGray,
-                        )
-                    },
-                    summary = { Text(contentOrUnset(state.tlsSpoof)) },
-                    valueToText = { it },
-                )
-                ListPreference(
-                    value = state.tlsSpoofMethod,
-                    values = tlsSpoofMethod,
-                    onValueChange = { viewModel.setTlsSpoofMethod(it) },
-                    title = { Text(stringResource(Res.string.tls_spoof_method)) },
-                    enabled = state.tlsSpoof.isNotBlank(),
-                    icon = {
-                        MaskedIcon(
-                            Res.drawable.computer_cancel,
-                            color = IconMaskColors.IconLightYellow,
-                        )
-                    },
-                    summary = { Text(contentOrUnset(state.tlsSpoofMethod)) },
-                    type = ListPreferenceType.DROPDOWN_MENU,
-                    valueToText = { AnnotatedString(it) },
-                )
-            }
         }
 
         item("category_ech") { PreferenceCategory(text = { Text(stringResource(Res.string.ech)) }) }

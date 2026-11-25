@@ -76,7 +76,6 @@ import fr.husi.database.RuleEntity.Companion.OUTBOUND_BRIDGE
 import fr.husi.database.RuleEntity.Companion.OUTBOUND_DIRECT
 import fr.husi.database.RuleEntity.Companion.OUTBOUND_PROXY
 import fr.husi.fmt.SingBoxOptions
-import fr.husi.platform.PlatformInfo
 import fr.husi.repository.resolveRepository
 import fr.husi.resources.Res
 import fr.husi.resources.add_road
@@ -564,11 +563,7 @@ private fun RuleEntity.summary(): String {
     if (protocol.isNotEmpty()) summary += "protocol: $protocol"
     if (clientType.isNotEmpty()) summary += "client: $clientType"
     if (packages.isNotEmpty()) {
-        summary += if (PlatformInfo.isAndroid) {
-            pluralStringResource(Res.plurals.apps_message, packages.size, packages.size)
-        } else {
-            "${stringResource(Res.string.process)}: ${packages.joinToString(", ")}"
-        }
+        summary += pluralStringResource(Res.plurals.apps_message, packages.size, packages.size)
     }
     if (packageNameRegex.isNotBlank()) summary += "packageNameRegex: $packageNameRegex"
     if (ssid.isNotBlank()) summary += "ssid: $ssid"

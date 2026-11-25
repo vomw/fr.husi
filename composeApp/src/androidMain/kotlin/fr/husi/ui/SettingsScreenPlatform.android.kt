@@ -95,10 +95,6 @@ internal actual fun AutoConnectPreference(showMessage: (String) -> Unit) {
     )
 }
 
-@Composable
-internal actual fun PlatformDaemonSettingsGroup(showMessage: (String) -> Unit) {
-}
-
 internal actual fun LazyListScope.platformAppUpdateSettings() {
     appUpdateSettings()
 }

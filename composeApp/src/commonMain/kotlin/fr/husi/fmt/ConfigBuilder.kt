@@ -96,7 +96,6 @@ import fr.husi.ktx.showToast
 import fr.husi.ktx.toJsonElementKxs
 import fr.husi.ktx.toJsonMapKxs
 import fr.husi.logLevelString
-import fr.husi.platform.PlatformInfo
 import fr.husi.repository.resolveRepository
 import io.github.xchacha20_poly1305.kpuri.Url
 import kotlinx.coroutines.flow.first
@@ -679,7 +678,7 @@ suspend fun buildConfig(
                 )
             }
 
-            if (PlatformInfo.isAndroid && allowAccess) {
+            if (allowAccess) {
                 DataStore.anchorSSID.get().blankAsNull()?.let { allowedSSIDs ->
                     platformServices.add(
                         SingBoxOptions.Service_AnchorOptions().apply {
@@ -704,9 +703,6 @@ suspend fun buildConfig(
                 Inbound_TunOptions().apply {
                     type = SingBoxOptions.TYPE_TUN
                     tag = TAG_TUN
-                    if (PlatformInfo.isLinux) {
-                        multi_queue = true
-                    }
                     mtu = DataStore.mtu.get()
                     // Hijack intercepts port 53 at the TUN layer and calls
                     // router.HijackDNSPacket (with searchProcessInfo) directly,
@@ -757,12 +753,6 @@ suspend fun buildConfig(
             auto_detect_interface = true
             rules = mutableListOf()
             rule_set = mutableListOf()
-            // Android always searches processes through the platform interface,
-            // so this option only means something on desktop.
-            // https://github.com/SagerNet/sing-box/commit/4b1b00a4f6729a027a653f417cda0701c6a32934
-            if (!PlatformInfo.isAndroid && !forTest && DataStore.forcedSearchProcess.get()) {
-                find_process = true
-            }
         }
 
         // returns outbound tag
@@ -1124,7 +1114,7 @@ suspend fun buildConfig(
         for (rule in extraRules) {
             val (packageNames, processRules) = parseRuleProcessRules(
                 rule.packages,
-                defaultToPackage = PlatformInfo.isAndroid,
+                defaultToPackage = true,
             )
             val packageNameRegexes = rule.packageNameRegex.blankAsNull()?.split("\n").orEmpty()
             if (!rule.invert && !rule.routesDirect()) {
@@ -1507,13 +1497,6 @@ suspend fun buildConfig(
                 type = SingBoxOptions.TYPE_BLOCK
             }.asKxsMap(),
         )
-        if (!PlatformInfo.isAndroid && route!!.rules!!.any { it["outbound"] == TAG_BRIDGE }) outbounds!!.add(
-            Outbound().apply {
-                tag = TAG_BRIDGE
-                type = SingBoxOptions.TYPE_BRIDGE
-            }.asKxsMap(),
-        )
-
         if (!forTest) localDNSPort?.let {
             inbounds!!.add(
                 0,

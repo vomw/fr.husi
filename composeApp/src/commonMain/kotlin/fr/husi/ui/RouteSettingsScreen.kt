@@ -78,7 +78,6 @@ import fr.husi.fmt.RuleItem
 import fr.husi.fmt.SingBoxOptions
 import fr.husi.ktx.blankAsNull
 import fr.husi.ktx.contentOrUnset
-import fr.husi.platform.PlatformInfo
 import fr.husi.repository.resolveRepository
 import fr.husi.resources.Res
 import fr.husi.resources.add_road
@@ -362,16 +361,12 @@ internal fun RouteSettingsScreen(
                     }
                 },
                 onSelectApps = { packages ->
-                    if (PlatformInfo.isAndroid) {
-                        onOpenAppList(
-                            NavRoutes.AppList(
-                                initialPackages = packages,
-                                resultKey = appListResultKey,
-                            ),
-                        )
-                    } else {
-                        viewModel.setPackages(packages)
-                    }
+                    onOpenAppList(
+                        NavRoutes.AppList(
+                            initialPackages = packages,
+                            resultKey = appListResultKey,
+                        ),
+                    )
                 },
             )
         }
@@ -476,9 +471,6 @@ private fun RouteSettings(
                 add(RuleEntity.OUTBOUND_PROXY)
                 add(RuleEntity.OUTBOUND_DIRECT)
                 add(RuleEntity.OUTBOUND_BLOCK)
-                if (!PlatformInfo.isAndroid) {
-                    add(RuleEntity.OUTBOUND_BRIDGE)
-                }
                 add(CUSTOM_OUTBOUND_OPTION)
             }
 
@@ -498,22 +490,20 @@ private fun RouteSettings(
                     valueToText = { it },
                 )
                 AppSelectPreference(uiState.packages, onSelectApps)
-                if (PlatformInfo.isAndroid) {
-                    TextFieldPreference(
-                        value = uiState.packageNameRegex,
-                        onValueChange = { viewModel.setPackageNameRegex(it) },
-                        title = { Text(stringResource(Res.string.package_name_regex)) },
-                        textToValue = { it },
-                        icon = {
-                            MaskedIcon(
-                                resource = Res.drawable.fiber_smart_record,
-                                color = IconMaskColors.IconCyan,
-                            )
-                        },
-                        summary = { Text(contentOrUnset(uiState.packageNameRegex)) },
-                        valueToText = { it },
-                    )
-                }
+                TextFieldPreference(
+                    value = uiState.packageNameRegex,
+                    onValueChange = { viewModel.setPackageNameRegex(it) },
+                    title = { Text(stringResource(Res.string.package_name_regex)) },
+                    textToValue = { it },
+                    icon = {
+                        MaskedIcon(
+                            resource = Res.drawable.fiber_smart_record,
+                            color = IconMaskColors.IconCyan,
+                        )
+                    },
+                    summary = { Text(contentOrUnset(uiState.packageNameRegex)) },
+                    valueToText = { it },
+                )
                 MultiSelectListPreference(
                     value = uiState.networkType,
                     onValueChange = { viewModel.setNetworkType(it) },
@@ -540,9 +530,6 @@ private fun RouteSettings(
                     onValueChange = { viewModel.setAction(it) },
                     values = buildList {
                         add(SingBoxOptions.ACTION_ROUTE)
-                        if (PlatformInfo.isLinux) {
-                            add(SingBoxOptions.ACTION_BYPASS)
-                        }
                         add(SingBoxOptions.ACTION_ROUTE_OPTIONS)
                         add(SingBoxOptions.ACTION_SNIFF)
                         add(SingBoxOptions.ACTION_RESOLVE)
@@ -968,38 +955,6 @@ private fun RouteSettings(
                                 )
                             },
                         )
-                        if (!PlatformInfo.isAndroid) {
-                            TextFieldPreference(
-                                value = uiState.tlsSpoof,
-                                onValueChange = { viewModel.setTlsSpoof(it) },
-                                title = { Text(stringResource(Res.string.tls_spoof)) },
-                                textToValue = { it },
-                                icon = {
-                                    MaskedIcon(
-                                        Res.drawable.domino_mask,
-                                        color = IconMaskColors.IconWarmGray,
-                                    )
-                                },
-                                summary = { Text(contentOrUnset(uiState.tlsSpoof)) },
-                                valueToText = { it },
-                            )
-                            ListPreference(
-                                value = uiState.tlsSpoofMethod,
-                                values = tlsSpoofMethod,
-                                onValueChange = { viewModel.setTlsSpoofMethod(it) },
-                                title = { Text(stringResource(Res.string.tls_spoof_method)) },
-                                enabled = uiState.tlsSpoof.isNotBlank(),
-                                icon = {
-                                    MaskedIcon(
-                                        Res.drawable.computer_cancel,
-                                        color = IconMaskColors.IconCyan,
-                                    )
-                                },
-                                summary = { Text(contentOrUnset(uiState.tlsSpoofMethod)) },
-                                type = ListPreferenceType.DROPDOWN_MENU,
-                                valueToText = { AnnotatedString(it) },
-                            )
-                        }
                     }
                 }
 

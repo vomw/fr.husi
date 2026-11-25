@@ -4,15 +4,9 @@ import com.android.build.api.dsl.ApplicationExtension
 import com.android.build.api.dsl.CommonExtension
 import com.android.build.api.variant.ApplicationAndroidComponentsExtension
 import org.gradle.api.JavaVersion
-import org.gradle.api.DefaultTask
-import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.Project
-import org.gradle.api.provider.Property
 import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.Exec
-import org.gradle.api.tasks.Input
-import org.gradle.api.tasks.OutputDirectory
-import org.gradle.api.tasks.TaskAction
 import org.gradle.kotlin.dsl.getByType
 import org.gradle.kotlin.dsl.register
 import java.io.File
@@ -47,7 +41,6 @@ fun Project.requireFlavor(): String {
 
     return ""
 }
-
 private fun parseProperties(content: String): Properties =
     Properties().also { properties ->
         properties.load(content.byteInputStream())
@@ -74,7 +67,6 @@ private fun Project.localProperties(): Provider<Properties> {
         }
     }.orElse(fromFile)
 }
-
 fun Project.requireLocalProperty(key: String): Provider<String> =
     localProperties().map { properties -> properties.getProperty(key) }.orElse("")
 
@@ -154,7 +146,6 @@ fun Project.setupCommon() {
         }
     }
 }
-
 fun Project.setupKotlinCommon() {
     setupCommon()
 }
@@ -229,7 +220,6 @@ fun Project.setupAppCommon() {
         }
     }
 }
-
 fun Project.setupApp() {
     val pkgName = requireMetadata("PACKAGE_NAME").get()
     val verName = requireMetadata("VERSION_NAME").get()
@@ -402,54 +392,4 @@ private fun Project.registerApkRenamer(
         }
     }
 }
-
-private fun writePlatformInfo(
-    outputDir: File,
-    packageName: String,
-    fileName: String,
-    platform: String,
-) {
-    val dir = outputDir.resolve(packageName.replace('.', '/'))
-    dir.mkdirs()
-    dir.resolve(fileName).writeText(
-        """
-        |package $packageName
-        |
-        |actual object PlatformInfo {
-        |    actual val platform: Platform = Platform.$platform
-        |    actual val isAndroid: Boolean
-        |        get() = platform == Platform.Android
-        |    actual val isLinux: Boolean
-        |        get() = platform == Platform.Linux
-        |    actual val isMacOs: Boolean
-        |        get() = platform == Platform.MacOs
-        |    actual val isWindows: Boolean
-        |        get() = platform == Platform.Windows
-        |}
-        """.trimMargin(),
-    )
-}
-
-abstract class GeneratePlatformInfoTask : DefaultTask() {
-    @get:OutputDirectory
-    abstract val outputDir: DirectoryProperty
-
-    @get:Input
-    abstract val packageName: Property<String>
-
-    @get:Input
-    abstract val fileName: Property<String>
-
-    @get:Input
-    abstract val platform: Property<String>
-
-    @TaskAction
-    fun generate() {
-        writePlatformInfo(
-            outputDir = outputDir.get().asFile,
-            packageName = packageName.get(),
-            fileName = fileName.get(),
-            platform = platform.get(),
-        )
-    }
-}
+// End of Android-only build helpers.

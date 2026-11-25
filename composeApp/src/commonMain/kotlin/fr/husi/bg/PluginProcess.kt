@@ -15,7 +15,6 @@ import fr.husi.fmt.naive.buildNaiveConfig
 import fr.husi.fmt.protectPath
 import fr.husi.fmt.shadowquic.ShadowQUICBean
 import fr.husi.fmt.shadowquic.buildShadowQUICConfig
-import fr.husi.platform.PlatformInfo
 import fr.husi.plugin.PluginManager
 import fr.husi.proto.v1.PluginProcessSpec
 import fr.husi.proto.v1.pluginFile
@@ -155,8 +154,7 @@ fun buildPluginSpecs(
                             if (logLevel > 0) "warn" else "error",
                         )
                     }
-                    if (PlatformInfo.isAndroid &&
-                        bean.protocolVersion == HysteriaBean.PROTOCOL_VERSION_2 &&
+                    if (bean.protocolVersion == HysteriaBean.PROTOCOL_VERSION_2 &&
                         bean.protocol == HysteriaBean.PROTOCOL_FAKETCP
                     ) {
                         commands.addAll(0, listOf("su", "-c"))

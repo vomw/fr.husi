@@ -22,7 +22,6 @@ import fr.husi.fmt.socks.SOCKSBean
 import fr.husi.fmt.tailscale.TailcatBean
 import fr.husi.fmt.tailscale.TailscaleBean
 import fr.husi.ktx.applyDefaultValues
-import fr.husi.platform.PlatformInfo
 import fr.husi.test.HusiKoinTest
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -1773,84 +1772,6 @@ class ConfigBuilderTest : HusiKoinTest() {
     }
 
     @Test
-    fun `buildConfig should follow tun auto redirect setting on desktop`() = runBlocking {
-        DataStore.serviceMode.set(Key.MODE_VPN)
-
-        val group = ProxyGroup(name = "group").applyDefaultValues()
-        group.id = SagerDatabase.groupDao.createGroup(group)
-
-        val proxy = createSocksProxy(
-            groupId = group.id,
-            order = 1,
-            name = "main",
-            host = "1.1.1.1",
-            port = 1080,
-        )
-
-        DataStore.tunAutoRedirect.set(true)
-        val enabledTunInbound = parseTunInbound(buildConfig(proxy))
-        if (PlatformInfo.isLinux) {
-            assertEquals("true", enabledTunInbound["auto_redirect"]?.jsonPrimitive?.content)
-        } else {
-            assertEquals(null, enabledTunInbound["auto_redirect"])
-        }
-
-        DataStore.tunAutoRedirect.set(false)
-        val disabledTunInbound = parseTunInbound(buildConfig(proxy))
-        assertEquals(null, disabledTunInbound["auto_redirect"])
-    }
-
-    @Test
-    fun `buildConfig should forward tun interface name on desktop`() = runBlocking {
-        DataStore.serviceMode.set(Key.MODE_VPN)
-
-        val group = ProxyGroup(name = "group").applyDefaultValues()
-        group.id = SagerDatabase.groupDao.createGroup(group)
-
-        val proxy = createSocksProxy(
-            groupId = group.id,
-            order = 1,
-            name = "main",
-            host = "1.1.1.1",
-            port = 1080,
-        )
-
-        DataStore.tunInterfaceName.set("tun0")
-        val configuredTunInbound = parseTunInbound(buildConfig(proxy))
-        assertEquals("tun0", configuredTunInbound["interface_name"]?.jsonPrimitive?.content)
-
-        DataStore.tunInterfaceName.set("")
-        val defaultTunInbound = parseTunInbound(buildConfig(proxy))
-        assertEquals(null, defaultTunInbound["interface_name"])
-    }
-
-    @Test
-    fun `buildConfig should force process search only on desktop`() = runBlocking {
-        val group = ProxyGroup(name = "group").applyDefaultValues()
-        group.id = SagerDatabase.groupDao.createGroup(group)
-
-        val proxy = createSocksProxy(
-            groupId = group.id,
-            order = 1,
-            name = "main",
-            host = "1.1.1.1",
-            port = 1080,
-        )
-
-        DataStore.forcedSearchProcess.set(true)
-        val forcedRoute = parseRouteOptions(buildConfig(proxy))
-        if (PlatformInfo.isAndroid) {
-            assertEquals(null, forcedRoute["find_process"])
-        } else {
-            assertEquals("true", forcedRoute["find_process"]?.jsonPrimitive?.content)
-        }
-
-        DataStore.forcedSearchProcess.set(false)
-        val defaultRoute = parseRouteOptions(buildConfig(proxy))
-        assertEquals(null, defaultRoute["find_process"])
-    }
-
-    @Test
     fun `buildConfig should migrate response-based direct DNS rules to evaluate then route`() = runBlocking {
         disableFakeDns()
 
@@ -2895,13 +2816,8 @@ class ConfigBuilderTest : HusiKoinTest() {
         val result = buildConfig(proxy)
         val pluginPort = result.metadata.externalIndex.single().chain.keys.single()
 
-        if (PlatformInfo.isAndroid || PlatformInfo.isLinux) {
-            assertEquals(setOf(pluginPort), result.metadata.protectedPluginPorts)
-            assertTrue(parseInbounds(result).none { it["tag"]?.jsonPrimitive?.content == "c-0-mapping-${proxy.id}" })
-        } else {
-            assertTrue(result.metadata.protectedPluginPorts.isEmpty())
-            assertTrue(parseInbounds(result).any { it["tag"]?.jsonPrimitive?.content == "c-0-mapping-${proxy.id}" })
-        }
+        assertEquals(setOf(pluginPort), result.metadata.protectedPluginPorts)
+        assertTrue(parseInbounds(result).none { it["tag"]?.jsonPrimitive?.content == "c-0-mapping-${proxy.id}" })
     }
 
     @Test
@@ -2982,7 +2898,7 @@ class ConfigBuilderTest : HusiKoinTest() {
     }
 
     @Test
-    fun `buildConfig should map a plugin whose protect client is Android-only off Android under VPN`() = runBlocking {
+    fun `buildConfig should map a plugin whose protect client runs under VPN`() = runBlocking {
         DataStore.serviceMode.set(Key.MODE_VPN)
 
         val group = ProxyGroup(name = "group").applyDefaultValues()
@@ -2999,13 +2915,8 @@ class ConfigBuilderTest : HusiKoinTest() {
         val result = buildConfig(proxy)
         val bean = result.metadata.externalIndex.single().chain.values.single().requireBean()
 
-        if (PlatformInfo.isAndroid) {
-            assertEquals(1, result.metadata.protectedPluginPorts.size)
-            assertEquals("1.1.1.1", bean.finalAddress)
-        } else {
-            assertTrue(result.metadata.protectedPluginPorts.isEmpty())
-            assertEquals(LOCALHOST4, bean.finalAddress)
-        }
+        assertEquals(1, result.metadata.protectedPluginPorts.size)
+        assertEquals("1.1.1.1", bean.finalAddress)
     }
 
     private suspend fun usePluginForJuicity() {

@@ -42,9 +42,6 @@ object Key {
 
     const val PERSIST_ACROSS_REBOOT = "isAutoConnect"
 
-    const val REMEMBER_WINDOW_SIZE = "rememberWindowSize"
-    const val WINDOW_WIDTH = "windowWidth"
-    const val WINDOW_HEIGHT = "windowHeight"
 
     const val ADVANCED_FEATURES = "advancedFeatures"
 
@@ -184,7 +181,6 @@ object Key {
 
     const val RULES_FIRST_CREATE = "rulesFirstCreate"
 
-    const val DESKTOP_NAV_RAIL_WIDTH = "desktopNavRailWidth"
 
     const val ACTIVE_REMOTE_SERVER_ID = "activeRemoteServerId"
 

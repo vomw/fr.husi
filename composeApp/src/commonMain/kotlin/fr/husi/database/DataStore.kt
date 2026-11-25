@@ -22,7 +22,6 @@ import fr.husi.database.preference.port
 import fr.husi.database.preference.preferenceStoreScope
 import fr.husi.database.preference.string
 import fr.husi.database.preference.stringSet
-import fr.husi.platform.PlatformInfo
 import fr.husi.repository.resolveRepository
 import fr.husi.utils.AppVersion
 import kotlinx.coroutines.flow.Flow
@@ -163,7 +162,7 @@ object DataStore {
     val networkPreferredInterfaces = configurationStore.stringSet(Key.NETWORK_PREFERRED_INTERFACES)
     val forcedSearchProcess = configurationStore.boolean(Key.FORCED_SEARCH_PROCESS) { false }
 
-    val disableTcpKeepAlive = configurationStore.boolean(Key.DISABLE_TCP_KEEP_ALIVE) { PlatformInfo.isAndroid }
+    val disableTcpKeepAlive = configurationStore.boolean(Key.DISABLE_TCP_KEEP_ALIVE) { true }
     val tcpKeepAliveIdle = configurationStore.string(Key.TCP_KEEP_ALIVE_IDLE) { "5m" }
     val tcpKeepAliveInterval = configurationStore.string(Key.TCP_KEEP_ALIVE_INTERVAL_0) { "75s" }
     val mtu = configurationStore.int(Key.MTU) { 9000 }
@@ -251,11 +250,6 @@ object DataStore {
 
     val persistAcrossReboot = configurationStore.boolean(Key.PERSIST_ACROSS_REBOOT) { false }
 
-    // Desktop window size in dp; 0 means nothing has been recorded yet.
-    val rememberWindowSize = configurationStore.boolean(Key.REMEMBER_WINDOW_SIZE) { false }
-    val windowWidth = configurationStore.int(Key.WINDOW_WIDTH)
-    val windowHeight = configurationStore.int(Key.WINDOW_HEIGHT)
-
     val appendHttpProxy = configurationStore.boolean(Key.APPEND_HTTP_PROXY)
     val systemProxy = configurationStore.boolean(Key.SYSTEM_PROXY)
     val httpProxyBypass = configurationStore.string(Key.HTTP_PROXY_BYPASS) { DEFAULT_HTTP_BYPASS }
@@ -308,8 +302,6 @@ object DataStore {
     val customPluginPrefix = configurationStore.string(Key.CUSTOM_PLUGIN_PREFIX)
 
     val rulesFirstCreate = configurationStore.boolean(Key.RULES_FIRST_CREATE)
-
-    val desktopNavRailWidth = configurationStore.int(Key.DESKTOP_NAV_RAIL_WIDTH) { 220 }
 
     val activeRemoteServerId = configurationStore.long(Key.ACTIVE_REMOTE_SERVER_ID)
 

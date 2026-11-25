@@ -54,7 +54,6 @@ import fr.husi.database.preference.PreferenceProxy
 import fr.husi.ktx.contentOrUnset
 import fr.husi.ktx.intListN
 import fr.husi.logLevelString
-import fr.husi.platform.PlatformInfo
 import fr.husi.repository.resolveRepository
 import fr.husi.resources.Res
 import fr.husi.resources.allow_apps_bypass_vpn
@@ -169,7 +168,7 @@ private fun ColorPickerPreference(
                         text = stringResource(Res.string.theme),
                         style = MaterialTheme.typography.headlineSmall,
                     )
-                    if (PlatformInfo.isAndroid) Text(
+                    Text(
                         text = stringResource(Res.string.long_click_to_see_name),
                         modifier = Modifier.padding(bottom = 16.dp),
                         style = MaterialTheme.typography.labelSmallEmphasized,

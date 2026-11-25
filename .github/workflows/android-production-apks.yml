@@ -19,7 +19,10 @@ jobs:
           submodules: recursive
       - uses: ./.github/actions/load-build-versions
       - uses: ./.github/actions/setup-ndk
-      - uses: ./.github/actions/setup-jbr
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
       - uses: ./.github/actions/gradle-cache
         with:
           read-only: 'true'

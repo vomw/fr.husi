@@ -30,7 +30,6 @@ import fr.husi.resources.auth_verifying
 import fr.husi.resources.later
 import fr.husi.resources.openvpn_authentication
 import fr.husi.resources.share_qr_nfc
-import fr.husi.ui.AuthDialogWindowSize
 import fr.husi.ui.LocalSnackbarEmitter
 import fr.husi.ui.SnackbarEmitter
 import fr.husi.ui.StringOrRes
@@ -105,7 +104,6 @@ fun OpenVPNAuthDialog(
     WindowedDialog(
         onDismissRequest = ::dismiss,
         title = stringResource(Res.string.openvpn_authentication),
-        windowSize = AuthDialogWindowSize,
         buttons = {
             val snackbar = LocalSnackbarEmitter.current
             val uriHandler = LocalUriHandler.current

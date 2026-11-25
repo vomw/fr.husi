@@ -17,7 +17,6 @@ import fr.husi.compose.UIntegerTextField
 import fr.husi.compose.material3.Text
 import fr.husi.compose.preferenceGroup
 import fr.husi.ktx.contentOrUnset
-import fr.husi.platform.PlatformInfo
 import fr.husi.resources.Res
 import fr.husi.resources.allow_insecure
 import fr.husi.resources.alpn
@@ -310,41 +309,6 @@ private fun LazyListScope.trustTunnelSettings(
             type = ListPreferenceType.DROPDOWN_MENU,
             valueToText = { AnnotatedString(it) },
         )
-    }
-    if (!PlatformInfo.isAndroid) {
-        preferenceGroup(key = "tls_spoof") {
-            TextFieldPreference(
-                value = uiState.tlsSpoof,
-                onValueChange = { viewModel.setTlsSpoof(it) },
-                title = { Text(stringResource(Res.string.tls_spoof)) },
-                textToValue = { it },
-                enabled = !uiState.quic,
-                icon = {
-                    MaskedIcon(
-                        resource = Res.drawable.domino_mask,
-                        color = IconMaskColors.IconWarmGray,
-                    )
-                },
-                summary = { Text(contentOrUnset(uiState.tlsSpoof)) },
-                valueToText = { it },
-            )
-            ListPreference(
-                value = uiState.tlsSpoofMethod,
-                values = tlsSpoofMethod,
-                onValueChange = { viewModel.setTlsSpoofMethod(it) },
-                title = { Text(stringResource(Res.string.tls_spoof_method)) },
-                enabled = !uiState.quic && uiState.tlsSpoof.isNotBlank(),
-                icon = {
-                    MaskedIcon(
-                        resource = Res.drawable.computer_cancel,
-                        color = IconMaskColors.IconLightYellow,
-                    )
-                },
-                summary = { Text(contentOrUnset(uiState.tlsSpoofMethod)) },
-                type = ListPreferenceType.DROPDOWN_MENU,
-                valueToText = { AnnotatedString(it) },
-            )
-        }
     }
     preferenceGroup(key = "tls_fragment") {
         SwitchPreference(

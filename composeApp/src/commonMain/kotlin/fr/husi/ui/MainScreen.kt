@@ -47,7 +47,6 @@ import fr.husi.ktx.restartApplication
 import fr.husi.ktx.runOnDefaultDispatcher
 import fr.husi.permission.AppPermission
 import fr.husi.permission.LocalPermissionPlatform
-import fr.husi.platform.PlatformInfo
 import fr.husi.repository.resolveRepository
 import fr.husi.resources.Res
 import fr.husi.resources.access_local_network_denied
@@ -428,13 +427,7 @@ private fun MainScreenContent(
                         confirmButton = {
                             TextButton(stringResource(Res.string.action_download)) {
                                 showServiceAlert = null
-                                uriHandler.openUri(
-                                    if (PlatformInfo.isAndroid) {
-                                        plugin.downloadSource.apk
-                                    } else {
-                                        plugin.downloadSource.binary
-                                    },
-                                )
+                                uriHandler.openUri(plugin.downloadSource.apk)
                             }
                         },
                         dismissButton = {

@@ -18,13 +18,6 @@ components:
     filemask: composeApp/src/androidMain/composeResources/values-*/strings.xml
     template: composeApp/src/androidMain/composeResources/values/strings.xml
     file_format: cmp-resource
-  - name: Desktop
-    slug: desktop
-    project: husi
-    repo: weblate://husi/husi
-    filemask: composeApp/src/desktopMain/composeResources/values-*/strings.xml
-    template: composeApp/src/desktopMain/composeResources/values/strings.xml
-    file_format: cmp-resource
   - name: Android system
     slug: android-system
     project: husi

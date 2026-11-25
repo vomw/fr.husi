@@ -26,7 +26,6 @@ import fr.husi.resources.auth_submit
 import fr.husi.resources.auth_verifying
 import fr.husi.resources.later
 import fr.husi.resources.openconnect_authentication
-import fr.husi.ui.AuthDialogWindowSize
 import fr.husi.ui.LocalSnackbarEmitter
 import fr.husi.ui.SnackbarEmitter
 import fr.husi.ui.StringOrRes
@@ -111,7 +110,6 @@ fun OpenConnectAuthDialog(
     WindowedDialog(
         onDismissRequest = ::dismiss,
         title = stringResource(Res.string.openconnect_authentication),
-        windowSize = AuthDialogWindowSize,
         buttons = {
             val snackbar = LocalSnackbarEmitter.current
             TextButton(stringResource(Res.string.later), onClick = ::dismiss)

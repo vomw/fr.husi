@@ -13,7 +13,6 @@ on:
       - composeApp/**
       - gradle/**
       - gradle.properties
-      - launcher/**
       - libcore/**
       - library/**
       - Makefile
@@ -30,7 +29,6 @@ on:
       - composeApp/**
       - gradle/**
       - gradle.properties
-      - launcher/**
       - libcore/**
       - library/**
       - Makefile
@@ -83,7 +81,10 @@ jobs:
           submodules: recursive
       - uses: ./.github/actions/load-build-versions
       - uses: ./.github/actions/setup-ndk
-      - uses: ./.github/actions/setup-jbr
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
       - uses: ./.github/actions/gradle-cache
         with:
           read-only: 'true'
@@ -120,24 +121,17 @@ jobs:
         run: make proto
       - name: Check the generated tree is up to date
         run: git diff --exit-code && test -z "$(git status --porcelain)"
-      - uses: ./.github/actions/setup-jbr
-      - uses: ./.github/actions/gradle-cache
-      - uses: ./.github/actions/setup-zig
+      - uses: actions/setup-java@v5
         with:
-          cache-name: test
-          cache-hash: ${{ hashFiles('launcher/**') }}
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+      - uses: ./.github/actions/gradle-cache
       - name: Test libcore
         working-directory: libcore
         run: go test -v -count=1 ./...
-      - name: Build husi-core
-        run: make core_desktop
-      - name: Test Zig projects
-        run: make test_zig
       - name: Test Kotlin
         id: kotlin-tests
-        env:
-          BUILD_PLUGIN: none
-        run: ./gradlew :composeApp:allTests --build-cache
+        run: make test_gradle
       - name: Upload Kotlin test report
         if: failure() && steps.kotlin-tests.outcome == 'failure'
         uses: actions/upload-artifact@v7

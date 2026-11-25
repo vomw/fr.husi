@@ -23,7 +23,6 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
-import fr.husi.platform.PlatformInfo
 import io.github.xchacha20_poly1305.libghostty.GhosttyTerminalSession
 import io.github.xchacha20_poly1305.libghostty.compose.GhosttyContentPaddingMode
 import io.github.xchacha20_poly1305.libghostty.compose.GhosttyJumpToBottomButton
@@ -47,7 +46,7 @@ fun TerminalPane(
     contentPadding: PaddingValues = PaddingValues(0.dp),
     overlay: @Composable BoxScope.() -> Unit = {},
 ) {
-    val showExtraKeys = PlatformInfo.isAndroid
+    val showExtraKeys = true
     var extraKeysHeightPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current

@@ -5,7 +5,6 @@ import fr.husi.fmt.listable
 import fr.husi.ktx.JSONMap
 import fr.husi.ktx.blankAsNull
 import fr.husi.ktx.listByLineOrComma
-import fr.husi.platform.PlatformInfo
 
 fun buildSingBoxEndpointTailscaleBean(
     bean: TailscaleBean,
@@ -28,14 +27,6 @@ fun buildSingBoxEndpointTailscaleBean(
         advertise_exit_node = bean.advertiseExitNode.takeIf { it }
         advertise_tags = bean.advertiseTags.blankAsNull()?.listByLineOrComma()?.toMutableList()
         listen_port = bean.listenPort.takeIf { it > 0 }
-        if (!PlatformInfo.isAndroid) {
-            taildrop_directory = bean.taildropDirectory.blankAsNull()
-            if (bean.sshServer) {
-                ssh_server = SingBoxOptions.TailscaleSSHServerOptions().apply {
-                    enabled = true
-                }
-            }
-        }
     }
 }
 

@@ -51,7 +51,6 @@ import fr.husi.compose.withNavigation
 import fr.husi.database.DataStore
 import fr.husi.fmt.PluginEntry
 import fr.husi.ktx.restartApplication
-import fr.husi.platform.PlatformInfo
 import fr.husi.resources.Res
 import fr.husi.resources.arrow_back
 import fr.husi.resources.back
@@ -216,7 +215,7 @@ private fun LazyListScope.installedPlugins(
 }
 
 private val PluginEntry.platformDownloadUri: String
-    get() = if (PlatformInfo.isAndroid) downloadSource.apk else downloadSource.binary
+    get() = downloadSource.apk
 
 private fun LazyListScope.notInstalledPlugins(
     plugins: List<PluginEntry>,

@@ -18,7 +18,6 @@ import fr.husi.compose.material3.Text
 import fr.husi.compose.preferenceGroup
 import fr.husi.database.DataStore
 import fr.husi.ktx.contentOrUnset
-import fr.husi.platform.PlatformInfo
 import fr.husi.resources.Res
 import fr.husi.resources.add_road
 import fr.husi.resources.code
@@ -291,38 +290,4 @@ private fun LazyListScope.tailscaleSettings(
         )
     }
 
-    // Android has no SSH server support, and serves received files from the default directory
-    // through its documents provider.
-    if (PlatformInfo.isAndroid) return
-
-    preferenceGroup {
-        if (isSSHServerEnabled) {
-            SwitchPreference(
-                value = uiState.sshServer,
-                onValueChange = { viewModel.setSSHServer(it) },
-                title = { Text(stringResource(Res.string.tailscale_ssh_server)) },
-                icon = {
-                    MaskedIcon(
-                        Res.drawable.code,
-                        color = IconMaskColors.IconCoral,
-                        shape = IconMaskShapes.risk(),
-                    )
-                },
-            )
-        }
-        TextFieldPreference(
-            value = uiState.taildropDirectory,
-            onValueChange = { viewModel.setTaildropDirectory(it) },
-            title = { Text(stringResource(Res.string.taildrop_directory)) },
-            textToValue = { it },
-            icon = {
-                MaskedIcon(
-                    Res.drawable.download,
-                    color = IconMaskColors.IconLightGreen,
-                )
-            },
-            summary = { Text(contentOrUnset(uiState.taildropDirectory)) },
-            valueToText = { it },
-        )
-    }
 }

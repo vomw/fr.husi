@@ -42,13 +42,6 @@ internal expect fun rememberAppLanguageController(defaultTag: String): AppLangua
 @Composable
 internal expect fun AutoConnectPreference(showMessage: (String) -> Unit)
 
-/**
- * Desktop-only system-daemon rows (install / update / start-at-boot).
- * Android renders nothing; the Daemon settings page is only reachable on desktop.
- */
-@Composable
-internal expect fun PlatformDaemonSettingsGroup(showMessage: (String) -> Unit)
-
 internal expect fun LazyListScope.platformAppUpdateSettings()
 
 @Composable

@@ -52,7 +52,6 @@ import fr.husi.resources.system_daemon
 import fr.husi.ui.LocalSnackbarEmitter
 import fr.husi.ui.NavRoutes
 import fr.husi.ui.StringOrRes
-import fr.husi.ui.PlatformDaemonSettingsGroup
 import fr.husi.ui.platformAppUpdateSettings
 import io.github.oikvpqya.compose.fastscroller.material3.defaultMaterialScrollbarStyle
 import io.github.oikvpqya.compose.fastscroller.rememberScrollbarAdapter
@@ -111,7 +110,6 @@ fun SettingsPageScreen(
 
     val title = when (kind) {
         NavRoutes.SettingsPage.Kind.General -> Res.string.general_settings
-        NavRoutes.SettingsPage.Kind.Daemon -> Res.string.system_daemon
         NavRoutes.SettingsPage.Kind.Route -> Res.string.route_options
         NavRoutes.SettingsPage.Kind.Protocol -> Res.string.protocol_settings
         NavRoutes.SettingsPage.Kind.Dns -> Res.string.cag_dns
@@ -161,13 +159,6 @@ fun SettingsPageScreen(
                             GeneralSettingsGroup(
                                 needReload = { needReload() },
                                 needRestart = { needRestart() },
-                                showMessage = { message ->
-                                    snackbar.show(StringOrRes.Direct(message))
-                                },
-                            )
-                        }
-                        NavRoutes.SettingsPage.Kind.Daemon -> preferenceGroup {
-                            PlatformDaemonSettingsGroup(
                                 showMessage = { message ->
                                     snackbar.show(StringOrRes.Direct(message))
                                 },

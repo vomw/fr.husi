@@ -36,7 +36,6 @@ import androidx.compose.ui.util.fastCoerceAtLeast
 import androidx.compose.ui.util.fastCoerceAtMost
 import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.zIndex
-import fr.husi.platform.PlatformInfo
 import kotlin.math.roundToInt
 
 // A card is Small (four columns) or Wide (eight), so the column count is a multiple of four and
@@ -188,21 +187,12 @@ internal fun DashboardWidgetGrid(
                                 currentOnOrderChange(orderedWidgets)
                             }
 
-                            if (PlatformInfo.isAndroid) {
-                                detectDragGesturesAfterLongPress(
-                                    onDragStart = onDragStart,
-                                    onDrag = onDrag,
-                                    onDragEnd = onDragStop,
-                                    onDragCancel = onDragStop,
-                                )
-                            } else {
-                                detectDragGestures(
-                                    onDragStart = onDragStart,
-                                    onDrag = onDrag,
-                                    onDragEnd = onDragStop,
-                                    onDragCancel = onDragStop,
-                                )
-                            }
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = onDragStart,
+                                onDrag = onDrag,
+                                onDragEnd = onDragStop,
+                                onDragCancel = onDragStop,
+                            )
                         }
                     } else {
                         null

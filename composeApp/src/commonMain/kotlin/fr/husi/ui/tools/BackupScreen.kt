@@ -72,7 +72,6 @@ import fr.husi.ktx.Logs
 import fr.husi.ktx.formatBytes
 import fr.husi.ktx.readableMessage
 import fr.husi.net.WebDAVEntry
-import fr.husi.platform.PlatformInfo
 import fr.husi.repository.resolveRepository
 import fr.husi.resources.Res
 import fr.husi.resources.action_export
@@ -273,23 +272,21 @@ internal fun BackupScreen(
                         ) {
                             Text(stringResource(Res.string.action_export))
                         }
-                        if (PlatformInfo.isAndroid) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Button(
-                                onClick = {
-                                    viewModel.share(
-                                        launch = { file ->
-                                            shareBackupFile(file)
-                                        },
-                                        onFailed = { message ->
-                                            showSnackbar(message)
-                                        },
-                                    )
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Text(stringResource(Res.string.share))
-                            }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                viewModel.share(
+                                    launch = { file ->
+                                        shareBackupFile(file)
+                                    },
+                                    onFailed = { message ->
+                                        showSnackbar(message)
+                                    },
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(stringResource(Res.string.share))
                         }
                     }
                 }

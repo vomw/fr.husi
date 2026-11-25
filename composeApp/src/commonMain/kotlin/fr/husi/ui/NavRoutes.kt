@@ -70,7 +70,6 @@ sealed class NavRoutes : NavKey {
         @Serializable
         enum class Kind {
             General,
-            Daemon,
             Route,
             Protocol,
             Dns,

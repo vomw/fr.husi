@@ -27,7 +27,6 @@ import fr.husi.ktx.listByLineIgnoringComments
 import fr.husi.ktx.readableMessage
 import fr.husi.ktx.runOnDefaultDispatcher
 import fr.husi.ktx.runOnIoDispatcher
-import fr.husi.platform.PlatformInfo
 import fr.husi.proto.daemon.ConnectionEvent
 import fr.husi.proto.daemon.ConnectionEventType
 import fr.husi.proto.daemon.ConnectionEvents
@@ -342,23 +341,6 @@ class DashboardViewModel(
         viewModelScope.launch {
             remoteControl?.session?.collect { session ->
                 uiState.update { it.copy(isRemote = session != null) }
-            }
-        }
-        if (!PlatformInfo.isAndroid) {
-            viewModelScope.launch {
-                combine(
-                    DataStore.systemProxy.flow(),
-                    DataStore.mixedPort.flow(),
-                    DataStore.hasInboundAuthFlow(),
-                ) { enabled, mixedPort, hasInboundAuth ->
-                    SystemProxyState(
-                        enabled = enabled,
-                        mixedPort = mixedPort,
-                        hasInboundAuth = hasInboundAuth,
-                    )
-                }.collect { systemProxyState ->
-                    uiState.update { it.copy(systemProxy = systemProxyState) }
-                }
             }
         }
         viewModelScope.launch {

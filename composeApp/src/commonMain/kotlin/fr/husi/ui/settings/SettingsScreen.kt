@@ -27,7 +27,6 @@ import fr.husi.compose.SagerFabClearance
 import fr.husi.compose.plus
 import fr.husi.compose.withNavigation
 import fr.husi.database.DataStore
-import fr.husi.platform.PlatformInfo
 import fr.husi.resources.Res
 import fr.husi.resources.app_update_settings
 import fr.husi.resources.backup
@@ -102,18 +101,6 @@ fun SettingsScreen(
                             },
                             onClick = { openSettingsPage(NavRoutes.SettingsPage.Kind.General) },
                         )
-                        if (!PlatformInfo.isAndroid) {
-                            Preference(
-                                title = { Text(stringResource(Res.string.system_daemon)) },
-                                icon = {
-                                    MaskedIcon(
-                                        Res.drawable.developer_mode,
-                                        color = IconMaskColors.IconLavender,
-                                    )
-                                },
-                                onClick = { openSettingsPage(NavRoutes.SettingsPage.Kind.Daemon) },
-                            )
-                        }
                         Preference(
                             title = { Text(stringResource(Res.string.route_options)) },
                             icon = {
@@ -174,18 +161,16 @@ fun SettingsScreen(
                             },
                             onClick = { openSettingsPage(NavRoutes.SettingsPage.Kind.Ntp) },
                         )
-                        if (PlatformInfo.isAndroid) {
-                            Preference(
-                                title = { Text(stringResource(Res.string.app_update_settings)) },
-                                icon = {
-                                    MaskedIcon(
-                                        Res.drawable.update,
-                                        color = IconMaskColors.IconLightGreen,
-                                    )
-                                },
-                                onClick = { openSettingsPage(NavRoutes.SettingsPage.Kind.AppUpdate) },
-                            )
-                        }
+                        Preference(
+                            title = { Text(stringResource(Res.string.app_update_settings)) },
+                            icon = {
+                                MaskedIcon(
+                                    Res.drawable.update,
+                                    color = IconMaskColors.IconLightGreen,
+                                )
+                            },
+                            onClick = { openSettingsPage(NavRoutes.SettingsPage.Kind.AppUpdate) },
+                        )
                     }
 
                     item { PreferenceCategory(text = { Text(stringResource(Res.string.more)) }) }

@@ -6,7 +6,6 @@ import fr.husi.fmt.BeanConverters
 import fr.husi.fmt.ValidateResult
 import fr.husi.io.BinaryInput
 import fr.husi.io.BinaryOutput
-import fr.husi.platform.PlatformInfo
 import fr.husi.resources.Res
 import fr.husi.resources.warn_insecure
 
@@ -36,7 +35,7 @@ class JuicityBean : AbstractBean() {
     // public String congestionControl;
     var pinSHA256: String = ""
 
-    override val canSelfProtect get() = PlatformInfo.isAndroid || PlatformInfo.isLinux
+    override val canSelfProtect get() = true
 
     override fun isInsecure(): ValidateResult {
         val result = super.isInsecure()

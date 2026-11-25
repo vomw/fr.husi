@@ -4,11 +4,9 @@ import fr.husi.fmt.BeanConverters
 import fr.husi.fmt.SingBoxOptions
 import fr.husi.fmt.parseOutbound
 import fr.husi.ktx.JSONMap
-import fr.husi.platform.PlatformInfo
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
-import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -48,11 +46,7 @@ class TailscaleFmtTest {
         assertEquals<List<String>?>(listOf("tag:a", "tag:b"), endpoint.advertise_tags)
         assertEquals(41641, endpoint.listen_port)
         assertEquals(true, endpoint.ssh_server?.enabled)
-        if (PlatformInfo.isAndroid) {
-            assertNotEquals("/home/user/Taildrop", endpoint.taildrop_directory)
-        } else {
-            assertEquals("/home/user/Taildrop", endpoint.taildrop_directory)
-        }
+        assertNull(endpoint.taildrop_directory)
     }
 
     @Test
