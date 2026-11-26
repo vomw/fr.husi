@@ -10,6 +10,7 @@ reachable without instrumentation tests and crash telemetry.
 
 | ID | Severity | Trigger | Failure |
 |---|---|---|---|
+| CR-0 | Critical — confirmed | Creating `GroupScreenViewModel` while its first group/count flow emits synchronously. | Main-thread NPE while locking an uninitialized `Mutex`; the Group screen crashes. |
 | CR-1 | High | A rule is deleted while its editor route remains in the navigation back stack, or state restoration opens a removed rule. | Null-pointer exception while creating `RouteSettingsViewModel`. |
 | CR-2 | High | Importing a syntactically valid backup containing corrupt legacy settings parcel data. | An uncaught exception from a global coroutine; the import remains marked as running and may terminate the process through the uncaught-exception handler. |
 | CR-3 | Medium | A package is removed, disabled, or becomes unavailable while the App Manager or VPN scanner processes a cached `PackageInfo`. | Null-pointer exception or package-resource exception in the UI/background scan. |
@@ -17,6 +18,45 @@ reachable without instrumentation tests and crash telemetry.
 | CR-5 | Low | The settings composable is hosted by a non-`Activity` `Context` (for example, a test, preview, or unusual context wrapper). | Null-pointer exception after changing the theme. |
 | CR-6 | Low | The export callback runs after the backing exported value was cleared or replaced. | Null-pointer exception while writing the selected backup file. |
 | CR-7 | Low | A profile screen is restored with a route/type mismatch after database migration, data corruption, or an invalid deep link. | `ClassCastException` in a profile settings composable. |
+
+## CR-0: Group screen launches a coroutine before its mutex is initialized
+
+**Status:** confirmed by `husi_crash67249205038270596.log` on Android 15
+(Redmi Note 8, app 2.3.4 / version code 551).
+
+The fatal exception is on the main thread:
+
+```text
+java.lang.NullPointerException: Attempt to invoke interface method
+'kotlinx.coroutines.sync.Mutex.lock(...)' on a null object reference
+    at fr.husi.ui.GroupScreenViewModel.reloadGroups(...:71)
+    at fr.husi.ui.GroupScreenViewModel.<init>(...:27)
+```
+
+**Root cause:** `GroupScreenViewModel` declares its `init` block before
+`hiddenGroupAccess` and `hiddenGroup`:
+
+- `composeApp/src/commonMain/kotlin/fr/husi/ui/GroupScreenViewModel.kt:60-87`
+  starts collecting the groups/counts flows and calls `reloadGroups`.
+- `GroupScreenViewModel.kt:90-92` initializes the `Mutex` used by
+  `reloadGroups`.
+- `GroupScreenViewModel.kt:94-110` immediately dereferences that mutex.
+
+`viewModelScope.launch` may start immediately on the main dispatcher. When the
+database flows already have a value, the collection can reach `reloadGroups`
+before Kotlin has initialized the properties declared after the `init` block.
+The log's constructor-to-collector stack proves that ordering occurred in the
+field build that crashed.
+
+**Fix:** move `deleteTimer`, `hiddenGroupAccess`, and `hiddenGroup` above the
+`init` block. This makes all state used by either collector available before a
+coroutine can be scheduled. As extra hardening, use a named initialization
+function invoked after all property declarations rather than relying on source
+order.
+
+**Regression test:** add a `GroupScreenViewModel` test with hot/immediately
+emitting group and count flows. Construct the ViewModel repeatedly and assert
+that it publishes its first `GroupUiState` without an uncaught exception.
 
 ## CR-1: stale route editor dereferences a missing rule
 
@@ -142,9 +182,11 @@ deleted/changed profile type.
 
 ## Recommended order
 
-1. Fix CR-1 and CR-2 first: they are reachable from persisted/user-supplied
+1. Fix CR-0 immediately: it is a confirmed main-thread crash on normal Group
+   screen creation.
+2. Fix CR-1 and CR-2 next: they are reachable from persisted/user-supplied
    state and have no recovery path today.
-2. Harden CR-3 before supporting package-change-heavy devices or long scans.
-3. Remove the volatile Activity Result state in CR-4.
-4. Address CR-5 through CR-7 as defensive hardening alongside Compose and
+3. Harden CR-3 before supporting package-change-heavy devices or long scans.
+4. Remove the volatile Activity Result state in CR-4.
+5. Address CR-5 through CR-7 as defensive hardening alongside Compose and
    navigation tests.
