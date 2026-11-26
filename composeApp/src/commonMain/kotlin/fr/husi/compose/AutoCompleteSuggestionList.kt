@@ -59,7 +59,7 @@ fun <T> AutoCompleteSuggestionList(
                 top + height > offset + viewportHeight -> top + height - viewportHeight
                 else -> return@collect
             }
-            scrollState.animateScrollTo(target.coerceAtLeast(0))
+            scrollState.scrollTo(target.coerceAtLeast(0))
         }
     }
 

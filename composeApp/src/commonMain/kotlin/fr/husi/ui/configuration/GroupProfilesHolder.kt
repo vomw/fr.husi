@@ -171,7 +171,7 @@ internal fun GroupHolderScreen(
 
     LaunchedEffect(uiState.scrollIndex) {
         uiState.scrollIndex?.let { index ->
-            dragDropListState.lazyListState.animateScrollToItem(index)
+            dragDropListState.lazyListState.scrollToItem(index)
             viewModel.consumeScrollIndex()
         }
     }
@@ -310,8 +310,7 @@ internal fun GroupHolderScreen(
         ) { index, item ->
             DraggableSwipeableItem(
                 modifier = Modifier
-                    .padding(4.dp)
-                    .animateDraggableSwipeableItem(),
+                    .padding(4.dp),
                 colors = DraggableSwipeableItemColors.createRemembered(
                     containerBackgroundColor = Color.Transparent,
                     containerBackgroundColorWhileDragged = Color.Transparent,

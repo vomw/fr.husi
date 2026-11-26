@@ -42,6 +42,7 @@ import fr.husi.compose.CapsuleSearchInputField
 import fr.husi.compose.CapsuleSearchTopBar
 import fr.husi.compose.SimpleIconButton
 import fr.husi.compose.SwipeableSnackbarHost
+import fr.husi.compose.collapseImmediately
 import fr.husi.compose.material3.Icon
 import fr.husi.compose.material3.PrimaryScrollableTabRow
 import fr.husi.compose.material3.Tab
@@ -155,7 +156,7 @@ fun ProfilePickerContent(
                         contentDescription = stringResource(Res.string.cancel),
                         onClick = {
                             state.viewModel.clearSearchQuery()
-                            scope.launch { searchBarState.animateToCollapsed() }
+                            scope.launch { searchBarState.collapseImmediately() }
                         },
                     )
                 }
@@ -228,7 +229,7 @@ fun ProfilePickerContent(
                     preSelected = state.preSelected,
                     showActions = false,
                     onProfileSelect = { id ->
-                        scope.launch { searchBarState.animateToCollapsed() }
+                        scope.launch { searchBarState.collapseImmediately() }
                         onSelected(id)
                     },
                     contentPadding = PaddingValues(),

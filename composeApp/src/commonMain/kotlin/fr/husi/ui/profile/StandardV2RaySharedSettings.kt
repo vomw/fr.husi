@@ -1,6 +1,5 @@
 package fr.husi.ui.profile
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.ui.text.AnnotatedString
@@ -506,7 +505,7 @@ internal fun LazyListScope.muxSettings(
                 )
             },
         )
-        AnimatedVisibility(visible = state.enableMux) {
+        if (state.enableMux) {
             Column(verticalArrangement = PreferenceGroupDefaults.itemArrangement) {
                 SwitchPreference(
                     value = state.brutal,

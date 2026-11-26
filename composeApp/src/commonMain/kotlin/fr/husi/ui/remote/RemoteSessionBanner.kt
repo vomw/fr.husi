@@ -1,6 +1,5 @@
 package fr.husi.ui.remote
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -58,7 +57,7 @@ fun RemoteSessionBanner(
     remoteControl: RemoteControlManager = koinInject(),
 ) {
     val session by remoteControl.session.collectAsStateWithLifecycle()
-    AnimatedVisibility(visible = session != null, modifier = modifier) {
+    if (session != null) {
         session?.let { current ->
             RemoteSessionBannerContent(
                 session = current,

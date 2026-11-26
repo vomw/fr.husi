@@ -136,7 +136,7 @@ private fun LazyListScope.chainSettings(
             onIndicesChangedViaDragAndDrop = { viewModel.submitReorder(it) },
         ) { i, profile ->
             DraggableSwipeableItem(
-                modifier = Modifier.animateDraggableSwipeableItem(),
+                modifier = Modifier,
                 colors =
                     DraggableSwipeableItemColors.createRemembered(
                         containerBackgroundColor = Color.Transparent,

@@ -63,6 +63,7 @@ import fr.husi.compose.BoxedVerticalScrollbar
 import fr.husi.compose.CapsuleSearchInputField
 import fr.husi.compose.CapsuleSearchTopBar
 import fr.husi.compose.SagerFabClearance
+import fr.husi.compose.collapseImmediately
 import fr.husi.compose.SheetActionRow
 import fr.husi.compose.SimpleIconButton
 import fr.husi.compose.ansiEscape
@@ -194,7 +195,7 @@ fun LogcatScreen(
                         contentDescription = stringResource(Res.string.cancel),
                         onClick = {
                             viewModel.clearSearchQuery()
-                            scope.launch { searchBarState.animateToCollapsed() }
+                            scope.launch { searchBarState.collapseImmediately() }
                         },
                     )
                 }
@@ -238,7 +239,7 @@ fun LogcatScreen(
                                     if (terminalSession != null) {
                                         terminalState.scrollToBottom()
                                     } else if (uiState.logs.isNotEmpty()) scope.launch {
-                                        listState.animateScrollToItem(uiState.logs.lastIndex)
+                                        listState.scrollToItem(uiState.logs.lastIndex)
                                     }
                                 },
                             )

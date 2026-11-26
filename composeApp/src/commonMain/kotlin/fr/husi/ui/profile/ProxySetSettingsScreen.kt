@@ -302,7 +302,7 @@ private fun LazyListScope.proxySetSettings(
             onIndicesChangedViaDragAndDrop = { viewModel.submitReorder(it) },
         ) { i, provider ->
             DraggableSwipeableItem(
-                modifier = Modifier.animateDraggableSwipeableItem(),
+                modifier = Modifier,
                 colors =
                     DraggableSwipeableItemColors.createRemembered(
                         containerBackgroundColor = Color.Transparent,

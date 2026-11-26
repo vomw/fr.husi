@@ -1,6 +1,5 @@
 package fr.husi.compose
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,7 +35,7 @@ fun ConnectionStatsBar(
     onTestConnection: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    AnimatedVisibility(visible = status.state.connected) {
+    if (status.state.connected) {
         Surface(
             onClick = onTestConnection,
             modifier = modifier

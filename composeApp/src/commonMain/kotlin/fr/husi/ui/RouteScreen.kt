@@ -276,7 +276,7 @@ fun RouteScreen(
                 when (item) {
                     is RouteListItem.Notification -> {
                         DraggableSwipeableItem(
-                            modifier = Modifier.animateDraggableSwipeableItem(),
+                            modifier = Modifier,
                             colors = DraggableSwipeableItemColors.createRemembered(
                                 containerBackgroundColor = Color.Transparent,
                                 containerBackgroundColorWhileDragged = Color.Transparent,
@@ -292,7 +292,7 @@ fun RouteScreen(
                         val rule = item.entity
 
                         DraggableSwipeableItem(
-                            modifier = Modifier.animateDraggableSwipeableItem(),
+                            modifier = Modifier,
                             colors = DraggableSwipeableItemColors.createRemembered(
                                 containerBackgroundColor = Color.Transparent,
                                 containerBackgroundColorWhileDragged = Color.Transparent,

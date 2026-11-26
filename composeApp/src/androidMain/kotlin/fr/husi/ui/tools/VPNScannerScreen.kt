@@ -84,7 +84,7 @@ internal actual fun VPNScannerScreen(
     }
     LaunchedEffect(uiState.appInfos.size) {
         if (uiState.appInfos.isNotEmpty()) {
-            listState.animateScrollToItem(uiState.appInfos.lastIndex)
+            listState.scrollToItem(uiState.appInfos.lastIndex)
         }
     }
 

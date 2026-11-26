@@ -2,11 +2,7 @@
 
 package fr.husi.compose
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -305,14 +301,10 @@ fun CapsuleHeader(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val topAppBarColors = TopAppBarDefaults.topAppBarColors()
-    val appBarContainerColor by animateColorAsState(
-        targetValue = lerp(
-            topAppBarColors.containerColor,
-            topAppBarColors.scrolledContainerColor,
-            scrollBehavior.state.overlappedFraction.fastCoerceIn(0f, 1f),
-        ),
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-        label = "appBarContainerColor",
+    val appBarContainerColor = lerp(
+        topAppBarColors.containerColor,
+        topAppBarColors.scrolledContainerColor,
+        scrollBehavior.state.overlappedFraction.fastCoerceIn(0f, 1f),
     )
     Column(
         modifier = modifier
@@ -454,7 +446,6 @@ private fun MarqueeWithFadingEdges(content: @Composable () -> Unit) {
                     Modifier
                 },
             )
-            .basicMarquee(),
     ) {
         Box(modifier = Modifier.onSizeChanged { contentWidth = it.width }) {
             content()

@@ -357,7 +357,7 @@ object PreferenceGroupDefaults {
     /** Distance from the group's left edge to a [PreferenceCategory] title. */
     val CategoryTitleIndent = 8.dp
 
-    /** Arrangement for a nested column of rows, such as the body of an `AnimatedVisibility`. */
+    /** Arrangement for a nested column of rows. */
     val itemArrangement: Arrangement.Vertical = Arrangement.spacedBy(ItemSpacing)
 }
 

@@ -5,8 +5,6 @@ import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import androidx.collection.ArraySet
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -63,6 +61,7 @@ import dev.chrisbanes.haze.rememberHazeState
 import fr.husi.compose.CapsuleHeader
 import fr.husi.compose.CapsuleTopBar
 import fr.husi.compose.SimpleIconButton
+import fr.husi.compose.collapseImmediately
 import fr.husi.compose.material3.Card
 import fr.husi.compose.material3.Icon
 import fr.husi.compose.material3.Switch
@@ -358,7 +357,7 @@ internal fun AppListScaffold(
             searchBarState = searchBarState,
             onSearch = {
                 scope.launch {
-                    searchBarState.animateToCollapsed()
+                    searchBarState.collapseImmediately()
                 }
             },
             leadingIcon = {
@@ -371,7 +370,7 @@ internal fun AppListScaffold(
                         contentDescription = stringResource(Res.string.cancel),
                         onClick = {
                             textFieldState.setTextAndPlaceCursorAtEnd("")
-                            scope.launch { searchBarState.animateToCollapsed() }
+                            scope.launch { searchBarState.collapseImmediately() }
                         },
                     )
                 }
@@ -467,12 +466,8 @@ internal fun AppListScaffold(
             }
         },
     ) { innerPadding ->
-        Crossfade(
-            targetState = isLoading,
-            animationSpec = tween(durationMillis = 300),
-            modifier = Modifier.hazeSource(hazeState),
-        ) { loading ->
-            if (loading) {
+        Box(modifier = Modifier.hazeSource(hazeState)) {
+            if (isLoading) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()

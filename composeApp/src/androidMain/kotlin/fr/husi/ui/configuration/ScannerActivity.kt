@@ -13,12 +13,6 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.core.SurfaceRequest
 import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -413,21 +407,11 @@ private fun QrFinderOverlay(
     val density = LocalDensity.current
     val linePx = with(density) { lineThickness.toPx() }
 
-    val transition = rememberInfiniteTransition(label = "qr-line")
-    val animY by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = box.height(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1400, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "qr-line-y",
-    )
 
     Canvas(
         modifier = modifier.fillMaxSize(),
     ) {
-        val y = box.top + animY
+        val y = box.centerY()
         val startX = box.left + 8f
         val endX = box.right - 8f
 

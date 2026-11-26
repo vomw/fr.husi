@@ -60,6 +60,7 @@ import fr.husi.compose.DropdownMenuSectionHeader
 import fr.husi.compose.SagerFabClearance
 import fr.husi.compose.SimpleIconButton
 import fr.husi.compose.TextButton
+import fr.husi.compose.collapseImmediately
 import fr.husi.compose.material3.Checkbox
 import fr.husi.compose.material3.Icon
 import fr.husi.compose.material3.PrimaryTabRow
@@ -191,7 +192,7 @@ fun DashboardScreen(
                         contentDescription = stringResource(Res.string.cancel),
                         onClick = {
                             dashboardViewModel.clearSearchQuery()
-                            scope.launch { searchBarState.animateToCollapsed() }
+                            scope.launch { searchBarState.collapseImmediately() }
                         },
                     )
                 }
@@ -234,7 +235,7 @@ fun DashboardScreen(
                         contentDescription = stringResource(Res.string.cancel),
                         onClick = {
                             dashboardViewModel.clearProxySetSearch()
-                            scope.launch { proxySetSearchBarState.animateToCollapsed() }
+                            scope.launch { proxySetSearchBarState.collapseImmediately() }
                         },
                     )
                 }
@@ -249,7 +250,7 @@ fun DashboardScreen(
         if (pagerState.currentPage != PAGE_STATUS) isEditingDashboard = false
         if (pagerState.currentPage != PAGE_PROXY_SET) {
             dashboardViewModel.clearProxySetSearch()
-            proxySetSearchBarState.animateToCollapsed()
+            proxySetSearchBarState.collapseImmediately()
         }
     }
 
@@ -268,7 +269,7 @@ fun DashboardScreen(
 
     LaunchedEffect(uiState.proxySetQuery.searchingProxyGroup) {
         if (uiState.proxySetQuery.searchingProxyGroup != null) {
-            proxySetSearchBarState.animateToCollapsed()
+            proxySetSearchBarState.collapseImmediately()
         }
     }
 
@@ -511,7 +512,7 @@ fun DashboardScreen(
                             selected = pagerState.currentPage == PAGE_STATUS,
                             onClick = {
                                 scope.launch {
-                                    pagerState.animateScrollToPage(PAGE_STATUS)
+                                    pagerState.scrollToPage(PAGE_STATUS)
                                 }
                             },
                         )
@@ -520,7 +521,7 @@ fun DashboardScreen(
                             selected = pagerState.currentPage == PAGE_CONNECTIONS,
                             onClick = {
                                 scope.launch {
-                                    pagerState.animateScrollToPage(PAGE_CONNECTIONS)
+                                    pagerState.scrollToPage(PAGE_CONNECTIONS)
                                 }
                             },
                         )
@@ -529,7 +530,7 @@ fun DashboardScreen(
                             selected = pagerState.currentPage == PAGE_PROXY_SET,
                             onClick = {
                                 scope.launch {
-                                    pagerState.animateScrollToPage(PAGE_PROXY_SET)
+                                    pagerState.scrollToPage(PAGE_PROXY_SET)
                                 }
                             },
                         )

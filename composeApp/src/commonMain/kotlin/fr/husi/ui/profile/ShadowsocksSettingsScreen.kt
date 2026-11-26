@@ -1,6 +1,5 @@
 package fr.husi.ui.profile
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -226,7 +225,7 @@ private fun LazyListScope.shadowsocksSettings(
                 )
             },
         )
-        AnimatedVisibility(visible = uiState.enableMux) {
+        if (uiState.enableMux) {
             Column(verticalArrangement = PreferenceGroupDefaults.itemArrangement) {
                 SwitchPreference(
                     value = uiState.brutal,

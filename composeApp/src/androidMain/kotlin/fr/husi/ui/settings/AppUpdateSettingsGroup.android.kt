@@ -1,6 +1,5 @@
 package fr.husi.ui.settings
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -140,7 +139,7 @@ private fun AppUpdateSettingsGroup() {
         summary = { Text(stringResource(Res.string.app_update_auto_check_sum)) },
     )
 
-    AnimatedVisibility(visible = autoCheck) {
+    if (autoCheck) {
         SwitchPreference(
             value = onlyWhenConnected,
             onValueChange = { DataStore.appUpdateOnlyWhenConnected.setBlocking(it) },

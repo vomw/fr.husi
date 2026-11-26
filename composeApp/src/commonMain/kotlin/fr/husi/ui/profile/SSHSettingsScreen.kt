@@ -1,6 +1,5 @@
 package fr.husi.ui.profile
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
@@ -159,7 +158,7 @@ private fun LazyListScope.sshSettings(uiState: SshUiState, viewModel: SSHSetting
             type = ListPreferenceType.DROPDOWN_MENU,
             valueToText = { AnnotatedString(stringResource(authType(it))) },
         )
-        AnimatedVisibility(visible = uiState.authType == SSHBean.AUTH_TYPE_PASSWORD) {
+        if (uiState.authType == SSHBean.AUTH_TYPE_PASSWORD) {
             Column(verticalArrangement = PreferenceGroupDefaults.itemArrangement) {
                 PasswordPreference(
                     value = uiState.password,
@@ -167,7 +166,7 @@ private fun LazyListScope.sshSettings(uiState: SshUiState, viewModel: SSHSetting
                 )
             }
         }
-        AnimatedVisibility(visible = uiState.authType == SSHBean.AUTH_TYPE_PRIVATE_KEY) {
+        if (uiState.authType == SSHBean.AUTH_TYPE_PRIVATE_KEY) {
             Column(verticalArrangement = PreferenceGroupDefaults.itemArrangement) {
                 TextFieldPreference(
                     value = uiState.privateKey,

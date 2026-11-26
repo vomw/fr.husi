@@ -76,6 +76,7 @@ import fr.husi.compose.paddingHorizontal
 import fr.husi.compose.ClipboardContent
 import fr.husi.compose.CapsuleSearchInputField
 import fr.husi.compose.CapsuleSearchTopBar
+import fr.husi.compose.collapseImmediately
 import fr.husi.compose.DropdownMenuAction
 import fr.husi.compose.DropdownMenuActions
 import fr.husi.compose.QRCodeDialog
@@ -85,6 +86,7 @@ import fr.husi.compose.SimpleIconButton
 import fr.husi.compose.TextButton
 import fr.husi.compose.colorForUrlTestDelay
 import fr.husi.compose.decodeQRCode
+import fr.husi.compose.expandImmediately
 import fr.husi.compose.getFirstContent
 import fr.husi.compose.material3.Icon
 import fr.husi.compose.material3.PrimaryScrollableTabRow
@@ -277,7 +279,7 @@ fun ConfigurationScreen(
                         contentDescription = stringResource(Res.string.cancel),
                         onClick = {
                             vm.clearSearchQuery()
-                            scope.launch { searchBarState.animateToCollapsed() }
+                            scope.launch { searchBarState.collapseImmediately() }
                         },
                     )
                 }
@@ -370,13 +372,13 @@ fun ConfigurationScreen(
     fun scrollToSelectedProxyAcrossGroups() {
         focusManager.clearFocus()
         scope.launch {
-            searchBarState.animateToCollapsed()
+            searchBarState.collapseImmediately()
             val proxyId = DataStore.selectedProxy.get()
             val groupId = vm.proxyGroupId(proxyId) ?: return@launch
             val page = uiState.groups.indexOfFirst { it.id == groupId }
             if (page < 0) return@launch
             if (pagerState.currentPage != page) {
-                pagerState.animateScrollToPage(page)
+                pagerState.scrollToPage(page)
             }
             vm.scrollToProxy(groupId, proxyId, fallbackToTop = true)
         }
@@ -409,13 +411,13 @@ fun ConfigurationScreen(
                     is KeyAction.SwitchTab -> {
                         val target = pagerState.currentPage + action.delta
                         if (target in 0 until pagerState.pageCount) {
-                            scope.launch { pagerState.animateScrollToPage(target) }
+                            scope.launch { pagerState.scrollToPage(target) }
                         }
                         true
                     }
 
                     KeyAction.OpenSearch -> {
-                        scope.launch { searchBarState.animateToExpanded() }
+                        scope.launch { searchBarState.expandImmediately() }
                         true
                     }
                 }
@@ -430,7 +432,7 @@ fun ConfigurationScreen(
                     inputField = searchInputField,
                     navigationIcon = null,
                     onSearchPillClick = {
-                        scope.launch { searchBarState.animateToExpanded() }
+                        scope.launch { searchBarState.expandImmediately() }
                     },
                     onSearchPillLongPress = ::scrollToSelectedProxyAcrossGroups,
                     actions = {
@@ -649,7 +651,7 @@ fun ConfigurationScreen(
                                             fallbackToTop = true,
                                         )
                                     } else {
-                                        pagerState.animateScrollToPage(index)
+                                        pagerState.scrollToPage(index)
                                     }
                                 }
                             },
@@ -701,16 +703,16 @@ fun ConfigurationScreen(
                 canHoldFocus = false,
                 onProfileSelect = { id ->
                     vm.onProfileSelect(id)
-                    expandedScope.launch { searchBarState.animateToCollapsed() }
+                    expandedScope.launch { searchBarState.collapseImmediately() }
                 },
                 onOpenProfileEditor = onOpenProfileEditor?.let { callback ->
                     { route ->
-                        expandedScope.launch { searchBarState.animateToCollapsed() }
+                        expandedScope.launch { searchBarState.collapseImmediately() }
                         callback(route)
                     }
                 },
                 showQR = { name, url ->
-                    expandedScope.launch { searchBarState.animateToCollapsed() }
+                    expandedScope.launch { searchBarState.collapseImmediately() }
                     // QR dialog will be shown in the parent composition
                 },
                 onCopySuccess = {
@@ -794,8 +796,8 @@ fun ConfigurationContent(
                         viewModel = pageViewModel,
                         showActions = showActions,
                         contentPadding = contentPadding,
-                        // Focusing a page brings it into view, so a page passed during an
-                        // animated jump must not take focus or it cancels the jump.
+                        // Focusing a non-settled page brings it into view and can interrupt
+                        // the selected-page update.
                         canHoldFocus = canHoldFocus && pagerState.settledPage == page,
                         onProfileSelect = onProfileSelect,
                         onOpenProfileEditor = onOpenProfileEditor,

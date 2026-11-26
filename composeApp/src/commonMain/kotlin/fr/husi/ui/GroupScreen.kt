@@ -242,7 +242,7 @@ fun GroupScreen(
                 val removable = !groupState.group.ungrouped && !groupState.isUpdating
 
                 DraggableSwipeableItem(
-                    modifier = Modifier.animateDraggableSwipeableItem(),
+                    modifier = Modifier,
                     colors = DraggableSwipeableItemColors.createRemembered(
                         containerBackgroundColor = Color.Transparent,
                         containerBackgroundColorWhileDragged = Color.Transparent,

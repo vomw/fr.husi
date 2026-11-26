@@ -1,15 +1,5 @@
 package fr.husi.compose
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.SizeTransform
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -132,21 +122,7 @@ private fun OrderedSelectIndicator(
     number: Int,
 ) {
     val indicatorShape = RoundedCornerShape(6.dp)
-    val fillProgress by animateFloatAsState(
-        targetValue = if (selected) 1f else 0f,
-        animationSpec = if (selected) {
-            spring(
-                dampingRatio = Spring.DampingRatioMediumBouncy,
-                stiffness = Spring.StiffnessMediumLow,
-            )
-        } else {
-            spring(
-                dampingRatio = Spring.DampingRatioNoBouncy,
-                stiffness = Spring.StiffnessMedium,
-            )
-        },
-        label = "indicatorFill",
-    )
+    val fillProgress = if (selected) 1f else 0f
 
     var lastNumber by remember { mutableIntStateOf(1) }
     if (number > 0) lastNumber = number
@@ -179,25 +155,11 @@ private fun OrderedSelectIndicator(
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            AnimatedContent(
-                targetState = lastNumber,
-                transitionSpec = {
-                    if (targetState > initialState) {
-                        (slideInVertically { it / 2 } + fadeIn()) togetherWith
-                                (slideOutVertically { -it / 2 } + fadeOut())
-                    } else {
-                        (slideInVertically { -it / 2 } + fadeIn()) togetherWith
-                                (slideOutVertically { it / 2 } + fadeOut())
-                    } using SizeTransform(clip = false)
-                },
-                label = "indicatorNumber",
-            ) { order ->
-                Text(
-                    text = order.toString(),
-                    color = AlertDialogDefaults.containerColor,
-                    style = MaterialTheme.typography.labelLarge,
-                )
-            }
+            Text(
+                text = lastNumber.toString(),
+                color = AlertDialogDefaults.containerColor,
+                style = MaterialTheme.typography.labelLarge,
+            )
         }
     }
 }

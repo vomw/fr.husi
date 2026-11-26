@@ -1,10 +1,5 @@
 package fr.husi.ui.dashboard
 
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -35,7 +30,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -185,7 +179,7 @@ internal fun ConnectionDetailSheet(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 item("connection") {
-                    ConnectionGroupCard(isShaking = isSelecting) {
+                    ConnectionGroupCard {
                         ConnectionField(
                             field = Res.string.connection_status,
                             isSelecting = isSelecting,
@@ -298,7 +292,7 @@ internal fun ConnectionDetailSheet(
                 }
 
                 item("address") {
-                    ConnectionGroupCard(isShaking = isSelecting) {
+                    ConnectionGroupCard {
                         ConnectionField(
                             field = Res.string.source_address,
                             isSelecting = isSelecting,
@@ -370,7 +364,7 @@ internal fun ConnectionDetailSheet(
                     }
                     val processLabel = processInfo?.label.blankAsNull()
                     val openProcessAppInfo = rememberOpenProcessAppInfo(process)
-                    ConnectionGroupCard(isShaking = isSelecting) {
+                    ConnectionGroupCard {
                         ConnectionField(
                             field = Res.string.process,
                             isSelecting = isSelecting,
@@ -431,25 +425,10 @@ private fun buildProcessText(uid: Int, process: String?): String {
 @Composable
 private fun ConnectionGroupCard(
     modifier: Modifier = Modifier,
-    isShaking: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "shake")
-    val rotation by infiniteTransition.animateFloat(
-        initialValue = -0.5f,
-        targetValue = 0.5f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(80),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "rotation",
-    )
     OutlinedCard(
-        modifier = modifier
-            .fillMaxWidth()
-            .graphicsLayer {
-                rotationZ = if (isShaking) rotation else 0f
-            },
+        modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.outlinedCardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
         ),

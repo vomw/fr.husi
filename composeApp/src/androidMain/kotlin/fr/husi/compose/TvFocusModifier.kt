@@ -1,10 +1,7 @@
 package fr.husi.compose
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.border
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -20,10 +17,8 @@ fun Modifier.tvFocusBorder(
     shape: Shape? = null,
 ): Modifier = composed {
     var isFocused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (isFocused) 1.05f else 1f)
-    val borderColor by animateColorAsState(
-        if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
-    )
+    val scale = if (isFocused) 1.05f else 1f
+    val borderColor = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent
     val resolvedShape = shape ?: MaterialTheme.shapes.small
     this
         .onFocusChanged { isFocused = it.isFocused }

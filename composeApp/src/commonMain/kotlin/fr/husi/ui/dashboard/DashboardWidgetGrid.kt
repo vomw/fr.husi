@@ -1,11 +1,5 @@
 package fr.husi.ui.dashboard
 
-import androidx.compose.animation.animateBounds
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Box
@@ -106,8 +100,6 @@ internal fun placeDashboardGridItems(
 }
 
 private const val DRAGGING_WIDGET_SCALE = 1.02f
-private const val SHAKE_DEGREES = 0.5f
-
 @Composable
 internal fun DashboardWidgetGrid(
     widgets: List<DashboardWidget>,
@@ -124,16 +116,6 @@ internal fun DashboardWidgetGrid(
     var draggingWidget by remember { mutableStateOf<DashboardWidget?>(null) }
     var grabOffset by remember { mutableStateOf(Offset.Zero) }
     var fingerPosition by remember { mutableStateOf(Offset.Zero) }
-
-    val shakeRotation by rememberInfiniteTransition(label = "shake").animateFloat(
-        initialValue = -SHAKE_DEGREES,
-        targetValue = SHAKE_DEGREES,
-        animationSpec = infiniteRepeatable(
-            animation = tween(80),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "rotation",
-    )
 
     LookaheadScope {
         val lookaheadScope = this
@@ -155,14 +137,6 @@ internal fun DashboardWidgetGrid(
                             }
                     } else {
                         Modifier
-                            .animateBounds(lookaheadScope)
-                            .graphicsLayer {
-                                rotationZ = if (isReorderable) {
-                                    shakeRotation
-                                } else {
-                                    0f
-                                }
-                            }
                     }
 
                     val dragShieldModifier: Modifier? = if (isReorderable) {

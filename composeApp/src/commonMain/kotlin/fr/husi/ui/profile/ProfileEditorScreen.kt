@@ -567,7 +567,7 @@ private fun <T : AbstractBean> ProfileSettingsMainColumn(
             listState.layoutInfo.visibleItemsInfo
                 .indexOfFirst { it.key == scrollToKey }
                 .takeIf { it >= 0 }?.let {
-                    listState.animateScrollToItem(it)
+                    listState.scrollToItem(it)
                     scrollToKey = null
                 }
         }

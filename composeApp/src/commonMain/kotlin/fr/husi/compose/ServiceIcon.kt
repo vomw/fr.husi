@@ -4,4 +4,4 @@ import androidx.compose.runtime.Composable
 import fr.husi.bg.ServiceState
 
 @Composable
-expect fun AnimatedServiceIcon(state: ServiceState, contentDescription: String)
+expect fun ServiceIcon(state: ServiceState, contentDescription: String)

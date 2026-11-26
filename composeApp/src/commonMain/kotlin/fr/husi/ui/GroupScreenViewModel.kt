@@ -57,6 +57,10 @@ class GroupScreenViewModel : ViewModel() {
     val uiState: StateFlow<GroupUiState>
         field = MutableStateFlow(GroupUiState())
 
+    private var deleteTimer: Job? = null
+    private val hiddenGroupAccess = Mutex()
+    private val hiddenGroup = mutableSetOf<Long>()
+
     init {
         viewModelScope.launch {
             SagerDatabase.groupDao.allGroups().collectLatest { groups ->
@@ -86,10 +90,6 @@ class GroupScreenViewModel : ViewModel() {
             }
         }
     }
-
-    private var deleteTimer: Job? = null
-    private val hiddenGroupAccess = Mutex()
-    private val hiddenGroup = mutableSetOf<Long>()
 
     private suspend fun reloadGroups(groupsWithCounts: List<Pair<ProxyGroup, Long>>) =
         hiddenGroupAccess.withLock {

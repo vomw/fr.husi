@@ -1,8 +1,5 @@
 package fr.husi.ui.tools
 
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -268,24 +265,19 @@ private fun GetCertContent(
             OutlinedCard(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .animateContentSize(),
+                    .padding(horizontal = 16.dp),
             ) {
                 Column(
                     modifier = Modifier
                         .padding(16.dp)
                         .fillMaxWidth(),
                 ) {
-                    Crossfade(
-                        targetState = uiState.isDoing,
-                        animationSpec = tween(durationMillis = 300),
-                    ) { isDoing ->
-                        if (isDoing) {
+                    if (uiState.isDoing) {
                             Box(
                                 modifier = Modifier.fillMaxWidth(),
                                 contentAlignment = Alignment.Center,
                             ) { LoadingIndicator() }
-                        } else {
+                    } else {
                             Column {
                                 CopyButton {
                                     copyToClipboard(uiState.cert)
@@ -298,7 +290,6 @@ private fun GetCertContent(
                                     )
                                 }
                             }
-                        }
                     }
                 }
             }

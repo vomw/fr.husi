@@ -14,9 +14,8 @@ import fr.husi.database.ProxyGroup
 /**
  * Two-way binding between [pagerState] and a stored group selection.
  *
- * Both directions use [PagerState.settledPage], never `currentPage`. An animated jump passes
- * through intermediate pages; reporting those would write a selection that arrives back after
- * the pager has moved on, and the restore direction would then pull the pager back to it.
+ * Both directions use [PagerState.settledPage], never `currentPage`. This avoids reporting a
+ * transient page while the pager is settling, which could otherwise restore a stale selection.
  */
 @Composable
 internal fun GroupPagerSelectionSync(

@@ -1,6 +1,5 @@
 package fr.husi.compose.material3
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -344,7 +343,7 @@ private object MaterialPlatformMaterialApi : PlatformMaterialApi {
             bottomBar = {
                 Column {
                     bottomBar()
-                    AnimatedVisibility(visible = showNavigation) {
+                    if (showNavigation) {
                         ShortNavigationBar {
                             items.forEach { item ->
                                 ShortNavigationBarItem(

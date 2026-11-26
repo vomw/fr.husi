@@ -1,7 +1,5 @@
 package fr.husi.ui.dashboard
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -11,8 +9,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -24,7 +20,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastCoerceAtLeast
-import androidx.compose.ui.util.fastCoerceAtMost
 import androidx.compose.ui.util.fastCoerceIn
 import fr.husi.compose.material3.Text
 import fr.husi.ktx.formatBytes
@@ -118,7 +113,6 @@ private fun SpeedCard(
             LineChart(
                 data = history,
                 lineColor = lineColor,
-                animate = false,
                 valueCeiling = valueCeiling,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -134,21 +128,8 @@ private fun LineChart(
     modifier: Modifier = Modifier,
     lineColor: Color = MaterialTheme.colorScheme.primary,
     gridColor: Color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-    animate: Boolean = true,
     valueCeiling: Float? = null,
 ) {
-    val animationProgress = remember { Animatable(if (animate) 0f else 1f) }
-
-    LaunchedEffect(data) {
-        if (animate) {
-            animationProgress.snapTo(0f)
-            animationProgress.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(durationMillis = 300),
-            )
-        }
-    }
-
     Canvas(
         modifier = modifier
             .fillMaxWidth()
@@ -181,15 +162,9 @@ private fun LineChart(
             Offset(x, height * (1 - normalizedValue))
         }
 
-        val progress = if (animate) animationProgress.value else 1f
-        val visibleCount = maxOf(
-            2,
-            ((points.size - 1) * progress).toInt() + 1,
-        ).fastCoerceAtMost(points.size)
-
         val path = Path()
         path.moveTo(points[0].x, points[0].y)
-        for (i in 1 until visibleCount) {
+        for (i in 1 until points.size) {
             path.lineTo(points[i].x, points[i].y)
         }
 
@@ -203,7 +178,7 @@ private fun LineChart(
             ),
         )
 
-        val lastPoint = points[visibleCount - 1]
+        val lastPoint = points.last()
         val fillPath = Path()
         fillPath.addPath(path)
         fillPath.lineTo(lastPoint.x, height)

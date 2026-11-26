@@ -44,7 +44,7 @@ internal actual fun AppListScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     // Selections apply without a confirm step, so the result goes out whenever the screen leaves,
-    // however it was dismissed. Not intercepting back keeps the predictive back animation.
+    // however it was dismissed. Not intercepting back retains the platform back behavior.
     DisposableEffect(viewModel, resultBus, resultKey) {
         onDispose {
             resultBus.sendResult<Set<String>>(resultKey, viewModel.allPackages().toSet())
