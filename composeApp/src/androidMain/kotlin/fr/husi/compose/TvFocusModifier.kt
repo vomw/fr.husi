@@ -2,6 +2,7 @@ package fr.husi.compose
 
 import androidx.compose.foundation.border
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
