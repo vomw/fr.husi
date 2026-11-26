@@ -1,0 +1,150 @@
+# Android crash-risk review
+
+Reviewed: current working tree, including the Android-only conversion and the
+connected-state bar changes. This is a static review: findings are ranked by
+whether an exception can escape an Android lifecycle callback, Compose event,
+or unhandled coroutine. It cannot prove that a device-specific path is
+reachable without instrumentation tests and crash telemetry.
+
+## Findings
+
+| ID | Severity | Trigger | Failure |
+|---|---|---|---|
+| CR-1 | High | A rule is deleted while its editor route remains in the navigation back stack, or state restoration opens a removed rule. | Null-pointer exception while creating `RouteSettingsViewModel`. |
+| CR-2 | High | Importing a syntactically valid backup containing corrupt legacy settings parcel data. | An uncaught exception from a global coroutine; the import remains marked as running and may terminate the process through the uncaught-exception handler. |
+| CR-3 | Medium | A package is removed, disabled, or becomes unavailable while the App Manager or VPN scanner processes a cached `PackageInfo`. | Null-pointer exception or package-resource exception in the UI/background scan. |
+| CR-4 | Medium | Android recreates or otherwise re-enters a VPN consent launch without the contract's in-memory cached intent. | Null-pointer exception in `StartService.createIntent`. |
+| CR-5 | Low | The settings composable is hosted by a non-`Activity` `Context` (for example, a test, preview, or unusual context wrapper). | Null-pointer exception after changing the theme. |
+| CR-6 | Low | The export callback runs after the backing exported value was cleared or replaced. | Null-pointer exception while writing the selected backup file. |
+| CR-7 | Low | A profile screen is restored with a route/type mismatch after database migration, data corruption, or an invalid deep link. | `ClassCastException` in a profile settings composable. |
+
+## CR-1: stale route editor dereferences a missing rule
+
+**Evidence:** `composeApp/src/commonMain/kotlin/fr/husi/ui/RouteSettingsViewModel.kt:135-141`
+loads an existing entity with:
+
+```kotlin
+runBlocking { SagerDatabase.rulesDao.getById(id) }!!
+```
+
+The editor route accepts an ID, while deletion and navigation are independent
+operations. A stale saved navigation entry, a concurrent delete, or a restore
+after a backup import can therefore turn an expected missing row into an NPE
+during ViewModel construction.
+
+**Fix:** load asynchronously, treat a missing entity as a normal result, show a
+"rule no longer exists" message, and pop the editor route. Do not use
+`runBlocking` on the ViewModel creation path. Add a test that deletes a rule
+before constructing/recreating the editor for its ID.
+
+## CR-2: legacy settings import trusts parcel payloads and uses an unowned coroutine
+
+**Evidence:**
+
+- `composeApp/src/androidMain/kotlin/fr/husi/ui/tools/LegacySettingsImport.android.kt:12-23`
+  force-casts JSON, Base64-decodes every entry, and unmarshals it into a Parcel
+  without validating the entry or protecting `Parcel.recycle()` with `finally`.
+- `composeApp/src/commonMain/kotlin/fr/husi/ui/tools/BackupViewModel.kt:289-347`
+  calls that importer from `finishInput`.
+- `composeApp/src/commonMain/kotlin/fr/husi/ktx/Asyncs.kt:15-16` implements
+  `runOnDefaultDispatcher` with `GlobalScope.launch`, so the work has neither a
+  ViewModel lifecycle nor a local exception handler.
+
+A backup can pass the outer JSON/version check but still contain a bad Base64
+string, a non-primitive item, or an invalid/truncated Parcel. Those exceptions
+escape `finishInput`; `isImporting` is never reset on failure.
+
+**Fix:** perform imports in `viewModelScope.launch`, wrap the whole import in
+`try/catch/finally`, return a user-visible error, and always clear
+`isImporting`. Validate `JsonPrimitive`/Base64 input and use
+`Parcel.obtain().use`-equivalent `try/finally` recycling. Add malformed legacy
+settings fixtures (bad Base64, wrong JSON shape, truncated Parcel).
+
+## CR-3: package scans dereference mutable package-manager snapshots
+
+**Evidence:**
+
+- `composeApp/src/androidMain/kotlin/fr/husi/ui/AbstractAppList.kt:129-190` and
+  `AppManagerViewModel.kt:73-164` repeatedly use `packageInfo.applicationInfo!!`.
+- `composeApp/src/androidMain/kotlin/fr/husi/ui/tools/VPNScannerScreenViewModel.kt:101-151`
+  uses the same assertion for icon loading and APK access.
+
+Package install/remove/disable events can occur after `PackageCache` takes its
+snapshot and while either scan is running. `PackageInfo.applicationInfo` is
+nullable in the platform API; additionally, loading a label/icon or opening the
+APK can fail after an uninstall. The App Manager path has no per-package
+exception boundary, so one stale entry can cancel the scan and surface an
+uncaught exception.
+
+**Fix:** snapshot only complete entries (`applicationInfo ?: continue`) and
+wrap each package's label/icon/APK work in `runCatching`. Skip unavailable
+packages, log at debug/warn level, and continue scanning. Add a package-source
+abstraction/fake that returns a package without `applicationInfo` and one that
+throws `NameNotFoundException` during icon access.
+
+## CR-4: VPN consent contract depends on volatile cached state
+
+**Evidence:** `composeApp/src/androidMain/kotlin/fr/husi/ui/VpnRequestActivity.kt:58-75` stores
+the system consent `Intent` in `cachedIntent`, then `createIntent` executes
+`cachedIntent!!`.
+
+This only works if the Activity Result contract instance that receives
+`getSynchronousResult` is the same instance that immediately receives
+`createIntent`. Activity recreation, pending-result restoration, or an
+unexpected duplicate launch violates that implicit contract and crashes at the
+assertion.
+
+**Fix:** remove the mutable cache. In `createIntent`, call `VpnService.prepare`
+again and return its result; if it is unexpectedly null, return an explicit
+failed/cancelled result through a purpose-built contract or finish safely. Add
+an instrumentation test covering recreation while the VPN consent sheet is
+pending.
+
+## CR-5: theme changes assume an Activity context
+
+**Evidence:** `composeApp/src/androidMain/kotlin/fr/husi/ui/SettingsScreenPlatform.android.kt:115`
+uses `context.findActivity<Activity>()!!.recreate()`.
+
+`findActivity` intentionally returns nullable (`ktx/AndroidUtils.kt:69-76`), so
+the assertion is inconsistent with its API. Production navigation normally
+provides an Activity, but test, preview, or wrapped contexts can make this a
+direct crash.
+
+**Fix:** use `context.findActivity<Activity>()?.recreate()` and keep the theme
+change even if no host Activity is available. Add a Compose test using a
+non-Activity context wrapper.
+
+## CR-6: backup export callback reads a non-null value twice
+
+**Evidence:** `composeApp/src/commonMain/kotlin/fr/husi/ui/tools/BackupScreen.kt:147-166`
+launches the file-saver callback and later evaluates `uiState.exported!!`.
+The value is independently cleared by `postExport`; lifecycle changes or a
+second export can make the callback observe null.
+
+**Fix:** capture the exported text in the `LaunchedEffect` and pass it to a
+callback/state object tied to that request. In the callback, treat a missing
+payload as cancellation rather than asserting non-null.
+
+## CR-7: profile settings rely on unchecked UI-state casts
+
+**Evidence:** examples include
+`uiState as WireGuardUiState` in
+`composeApp/src/commonMain/kotlin/fr/husi/ui/profile/WireGuardSettingsScreen.kt:63`,
+`VMessUiState` in `VMessSettingsScreen.kt:58`, and `VLESSUiState` in
+`VLESSSettingsScreen.kt:52`.
+
+The casts are valid for the normal in-app route, but a stale saved route or an
+invalid profile type creates a synchronous Compose `ClassCastException`.
+
+**Fix:** make the scaffold generic over the concrete state type or use a safe
+cast with an error UI and navigation recovery. Add restoration tests for a
+deleted/changed profile type.
+
+## Recommended order
+
+1. Fix CR-1 and CR-2 first: they are reachable from persisted/user-supplied
+   state and have no recovery path today.
+2. Harden CR-3 before supporting package-change-heavy devices or long scans.
+3. Remove the volatile Activity Result state in CR-4.
+4. Address CR-5 through CR-7 as defensive hardening alongside Compose and
+   navigation tests.
