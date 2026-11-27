@@ -112,7 +112,7 @@ internal actual fun rememberApplyNightMode(): (Int) -> Unit {
                     else -> AppCompatDelegate.MODE_NIGHT_AUTO_BATTERY
                 },
             )
-            context.findActivity<Activity>()!!.recreate()
+            context.findActivity<Activity>()?.recreate()
         }
     }
 }

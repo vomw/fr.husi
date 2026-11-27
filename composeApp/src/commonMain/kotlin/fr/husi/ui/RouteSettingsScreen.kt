@@ -194,8 +194,17 @@ internal fun RouteSettingsScreen(
     },
 ) {
     val isDirty by viewModel.isDirty.collectAsState()
+    val missingRule by viewModel.missingRule.collectAsStateWithLifecycle()
+    val snackbar = LocalSnackbarEmitter.current
     var showBackAlert by remember { mutableStateOf(false) }
     BackHandler(enabled = isDirty) { showBackAlert = true }
+
+    LaunchedEffect(missingRule) {
+        if (missingRule) {
+            snackbar.show(StringOrRes.Direct("The rule no longer exists."))
+            onBackPress()
+        }
+    }
 
     val windowInsets = WindowInsets.safeDrawing
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()

@@ -40,7 +40,7 @@ internal class AppListViewModel(
             val cachedApps = cachedApps
             for ((packageName, packageInfo) in cachedApps) {
                 if (packages.contains(packageName)) {
-                    proxiedUids.add(packageInfo.applicationInfo!!.uid)
+                    packageInfo.applicationInfo?.uid?.let(proxiedUids::add)
                 }
             }
             reload(cachedApps)
@@ -73,7 +73,7 @@ internal class AppListViewModel(
 
     fun allPackages(): ArrayList<String> {
         return cachedApps.mapNotNullTo(ArrayList()) { (packageName, packageInfo) ->
-            val uid = packageInfo.applicationInfo!!.uid
+            val uid = packageInfo.applicationInfo?.uid ?: return@mapNotNullTo null
             if (uid in proxiedUids) packageName else null
         }
     }

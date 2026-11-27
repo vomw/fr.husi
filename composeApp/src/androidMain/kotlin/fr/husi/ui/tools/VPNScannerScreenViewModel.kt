@@ -96,9 +96,13 @@ internal class VPNScannerScreenViewModel(
      * Scroll in the LazyColumn will load icons frequently, so we cache them here.
      */
     private val iconCache = mutableMapOf<String, Drawable>()
-    private fun loadIcon(packageManager: PackageManager, packageInfo: PackageInfo): Drawable {
-        return iconCache.getOrPut(packageInfo.packageName) {
-            packageInfo.applicationInfo!!.loadIcon(packageManager)
+    private fun loadIcon(
+        packageManager: PackageManager,
+        packageName: String,
+        applicationInfo: android.content.pm.ApplicationInfo,
+    ): Drawable {
+        return iconCache[packageName] ?: applicationInfo.loadIcon(packageManager).also { icon ->
+            iconCache[packageName] = icon
         }
     }
 
@@ -125,18 +129,21 @@ internal class VPNScannerScreenViewModel(
 
         val foundApps = mutableListOf<AppInfo>()
         for ((i, packageInfo) in vpnAppList.withIndex()) {
-            val appType = runCatching { getVPNAppType(packageInfo) }.getOrNull()
-            val coreType = getVPNCoreType(packageInfo)
-
-            val appInfo = AppInfo(
-                packageInfo = packageInfo,
-                label = PackageCache.loadLabel(packageManager, packageInfo.packageName),
-                icon = loadIcon(packageManager, packageInfo),
-                vpnType = VPNType(
-                    appType = appType,
-                    coreType = coreType,
-                ),
-            )
+            val applicationInfo = packageInfo.applicationInfo ?: continue
+            val appInfo = runCatching {
+                AppInfo(
+                    packageInfo = packageInfo,
+                    label = PackageCache.loadLabel(packageManager, packageInfo.packageName),
+                    icon = loadIcon(packageManager, packageInfo.packageName, applicationInfo),
+                    vpnType = VPNType(
+                        appType = getVPNAppType(applicationInfo),
+                        coreType = getVPNCoreType(packageInfo),
+                    ),
+                )
+            }.getOrElse { error ->
+                Logs.d("Skip unavailable VPN package ${packageInfo.packageName}", error)
+                null
+            } ?: continue
             foundApps.add(appInfo)
             val progress = ((i + 1).toDouble() / vpnAppList.size.toDouble()).toFloat()
             uiState.emit(uiState.value.copy(appInfos = foundApps.toList(), progress = progress))
@@ -147,8 +154,8 @@ internal class VPNScannerScreenViewModel(
         uiState.emit(uiState.value.copy(progress = null))
     }
 
-    private fun getVPNAppType(packageInfo: PackageInfo): String? {
-        ZipFile(File(packageInfo.applicationInfo!!.publicSourceDir)).use { packageFile ->
+    private fun getVPNAppType(applicationInfo: android.content.pm.ApplicationInfo): String? {
+        ZipFile(File(applicationInfo.publicSourceDir)).use { packageFile ->
             var type: String? = null
             for (packageEntry in packageFile.entries()) {
                 if (

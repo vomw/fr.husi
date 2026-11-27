@@ -17,7 +17,6 @@ import fr.husi.ktx.b64EncodeUrlSafe
 import fr.husi.ktx.fileNameTimestamp
 import fr.husi.ktx.kxs
 import fr.husi.ktx.readableMessage
-import fr.husi.ktx.runOnDefaultDispatcher
 import fr.husi.net.WebDAVClient
 import fr.husi.net.WebDAVEntry
 import fr.husi.net.WebDAVServer
@@ -77,6 +76,7 @@ internal data class BackupUiState(
     val exported: String? = null,
     val inputResult: BackupPayload? = null,
     val isImporting: Boolean = false,
+    val importError: String? = null,
     val webdav: WebDAVConfig = WebDAVConfig(),
     val webdavBackups: WebDAVBackups? = null,
     val isWebDAVBusy: Boolean = false,
@@ -291,49 +291,42 @@ internal class BackupViewModel(
         profile: Boolean,
         rule: Boolean,
         setting: Boolean,
-    ) = runOnDefaultDispatcher {
+    ) = viewModelScope.launch(ioDispatcher) {
         uiState.update { state ->
             state.copy(
                 inputResult = null,
                 isImporting = true,
+                importError = null,
             )
         }
-        if (profile && content.profiles != null) {
-            val profiles = mutableListOf<ProxyEntity>()
-            for (entry in content.profiles) {
-                val data = entry.b64Decode()
-                profiles.add(BeanConverters.deserialize(ProxyEntity(), data))
-            }
-            withContext(ioDispatcher) {
+        try {
+            if (profile && content.profiles != null) {
+                val profiles = mutableListOf<ProxyEntity>()
+                for (entry in content.profiles) {
+                    val data = entry.b64Decode()
+                    profiles.add(BeanConverters.deserialize(ProxyEntity(), data))
+                }
                 SagerDatabase.proxyDao.reset()
                 SagerDatabase.proxyDao.insert(profiles)
-            }
 
-            val groups = mutableListOf<ProxyGroup>()
-            for (entry in content.groups.orEmpty()) {
-                val data = entry.b64Decode()
-                groups.add(BeanConverters.deserialize(ProxyGroup(), data))
-            }
-            withContext(ioDispatcher) {
+                val groups = mutableListOf<ProxyGroup>()
+                for (entry in content.groups.orEmpty()) {
+                    val data = entry.b64Decode()
+                    groups.add(BeanConverters.deserialize(ProxyGroup(), data))
+                }
                 SagerDatabase.groupDao.reset()
                 SagerDatabase.groupDao.insert(groups)
             }
-        }
-        if (rule && content.rules != null) {
-            val rules = content.rules
-            withContext(ioDispatcher) {
+            if (rule && content.rules != null) {
+                val rules = content.rules
                 SagerDatabase.rulesDao.reset()
                 SagerDatabase.rulesDao.insert(rules)
-            }
 
-            val assets = content.assets.orEmpty()
-            withContext(ioDispatcher) {
+                val assets = content.assets.orEmpty()
                 SagerDatabase.assetDao.reset()
                 SagerDatabase.assetDao.insert(assets)
             }
-        }
-        if (setting && content.settings != null) {
-            withContext(ioDispatcher) {
+            if (setting && content.settings != null) {
                 when (val rawSettings = content.settings) {
                     is JsonArray -> {
                         importLegacySettingPairs(rawSettings)
@@ -348,10 +341,16 @@ internal class BackupViewModel(
                     }
                 }
             }
+        } catch (e: Exception) {
+            Logs.e(e)
+            uiState.update { state -> state.copy(importError = e.readableMessage) }
+        } finally {
+            uiState.update { state -> state.copy(isImporting = false) }
         }
-        uiState.update { state ->
-            state.copy(isImporting = false)
-        }
+    }
+
+    fun consumeImportError() {
+        uiState.update { state -> state.copy(importError = null) }
     }
 
     fun postExport() {

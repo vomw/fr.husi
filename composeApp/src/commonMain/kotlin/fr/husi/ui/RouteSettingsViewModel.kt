@@ -16,7 +16,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -103,6 +104,9 @@ internal class RouteSettingsViewModel(
     private var editingId = -1L
     val isNew get() = editingId < 0L
 
+    val missingRule: StateFlow<Boolean>
+        field = MutableStateFlow(false)
+
     private val initialState = MutableStateFlow<RouteSettingsUiState?>(null)
     val isDirty = combine(uiState, initialState) { currentState, initialState ->
         initialState?.let {
@@ -134,13 +138,19 @@ internal class RouteSettingsViewModel(
 
     fun loadRule(id: Long) {
         editingId = id
-        val entity = if (isNew) {
-            RuleEntity()
-        } else {
-            runBlocking { SagerDatabase.rulesDao.getById(id) }!!
-        }
-        uiState.update { state ->
-            state.copy(
+        missingRule.value = false
+        viewModelScope.launch {
+            val entity = if (isNew) {
+                RuleEntity()
+            } else {
+                withContext(Dispatchers.IO) { SagerDatabase.rulesDao.getById(id) }
+            }
+            if (entity == null) {
+                missingRule.value = true
+                return@launch
+            }
+            uiState.update { state ->
+                state.copy(
                 name = entity.name,
                 invert = entity.invert,
                 action = entity.action,
@@ -184,8 +194,9 @@ internal class RouteSettingsViewModel(
 
                 customConfig = entity.customConfig,
                 customDnsConfig = entity.customDnsConfig,
-            ).also {
-                initialState.value = it
+                ).also {
+                    initialState.value = it
+                }
             }
         }
     }

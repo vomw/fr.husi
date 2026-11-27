@@ -56,22 +56,19 @@ class VpnRequestActivity : PrivacyModeActivity() {
     }
 
     class StartService : ActivityResultContract<Void?, Boolean>() {
-        private var cachedIntent: Intent? = null
-
         override fun getSynchronousResult(
             context: Context,
             input: Void?,
         ): SynchronousResult<Boolean>? {
-            if (DataStore.serviceMode.getBlocking() == Key.MODE_VPN) VpnService.prepare(context)?.let { intent ->
-                cachedIntent = intent
-                return null
+            if (DataStore.serviceMode.getBlocking() == Key.MODE_VPN) {
+                if (VpnService.prepare(context) != null) return null
             }
             resolveRepository().startService()
             return SynchronousResult(false)
         }
 
-        override fun createIntent(context: Context, input: Void?) =
-            cachedIntent!!.also { cachedIntent = null }
+        override fun createIntent(context: Context, input: Void?): Intent =
+            VpnService.prepare(context) ?: Intent(context, VpnRequestActivity::class.java)
 
         override fun parseResult(resultCode: Int, intent: Intent?) =
             if (resultCode == RESULT_OK) {

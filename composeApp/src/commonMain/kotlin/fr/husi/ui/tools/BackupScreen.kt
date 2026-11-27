@@ -144,17 +144,31 @@ internal fun BackupScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var errorDialog by remember { mutableStateOf<String?>(null) }
     var showWebDAVConfig by rememberSaveable { mutableStateOf(false) }
+    var pendingExport by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(uiState.importError) {
+        uiState.importError?.let { message ->
+            showSnackbar(message)
+            viewModel.consumeImportError()
+        }
+    }
 
     val exportFileLauncher = rememberFileSaverLauncher(
         dialogSettings = FileKitDialogSettings.createDefault(),
     ) { file ->
+        val exported = pendingExport
+        pendingExport = null
         if (file == null) {
+            viewModel.postExport()
+            return@rememberFileSaverLauncher
+        }
+        if (exported == null) {
             viewModel.postExport()
             return@rememberFileSaverLauncher
         }
         lifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             try {
-                file.write(uiState.exported!!.encodeToByteArray())
+                file.write(exported.encodeToByteArray())
                 showSnackbar(resolveRepository().getString(Res.string.action_export_msg))
             } catch (e: Exception) {
                 Logs.e(e)
@@ -165,7 +179,8 @@ internal fun BackupScreen(
         }
     }
     LaunchedEffect(uiState.exported) {
-        uiState.exported?.let {
+        uiState.exported?.let { exported ->
+            pendingExport = exported
             exportFileLauncher.launch(
                 suggestedName = BackupViewModel.backupFileBaseName(),
                 defaultExtension = BackupViewModel.BACKUP_FILE_EXTENSION,

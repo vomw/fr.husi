@@ -69,6 +69,7 @@ import fr.husi.compose.material3.Text
 import fr.husi.compose.setPlainText
 import fr.husi.compose.withNavigation
 import fr.husi.ktx.blankAsNull
+import fr.husi.ktx.Logs
 import fr.husi.resources.Res
 import fr.husi.resources.action_copy
 import fr.husi.resources.action_import
@@ -123,9 +124,9 @@ internal abstract class BaseAppListViewModel : ViewModel() {
     }
 
     private val iconCache = mutableMapOf<String, Drawable>()
-    private fun loadIcon(packageInfo: PackageInfo): Drawable {
-        return iconCache.getOrPut(packageInfo.packageName) {
-            packageInfo.applicationInfo!!.loadIcon(packageManager)
+    private fun loadIcon(packageName: String, applicationInfo: ApplicationInfo): Drawable {
+        return iconCache[packageName] ?: applicationInfo.loadIcon(packageManager).also { icon ->
+            iconCache[packageName] = icon
         }
     }
 
@@ -154,17 +155,20 @@ internal abstract class BaseAppListViewModel : ViewModel() {
         for ((packageName, packageInfo) in cachedApps) {
             currentCoroutineContext()[Job]!!.ensureActive()
 
-            val applicationInfo = packageInfo.applicationInfo!!
-            val name = applicationInfo.loadLabel(packageManager).toString()
-            allApps.add(
+            val applicationInfo = packageInfo.applicationInfo ?: continue
+            val app = runCatching {
                 ProxiedApp(
                     appInfo = applicationInfo,
                     packageName = packageName,
                     isProxied = proxiedUids.contains(applicationInfo.uid),
-                    icon = loadIcon(packageInfo),
-                    name = name,
-                ),
-            )
+                    icon = loadIcon(packageName, applicationInfo),
+                    name = applicationInfo.loadLabel(packageManager).toString(),
+                )
+            }.getOrElse { error ->
+                Logs.d("Skip unavailable package $packageName", error)
+                null
+            } ?: continue
+            allApps.add(app)
         }
         allApps.sortWith(compareBy({ !it.isProxied }, { it.name }))
 
@@ -186,7 +190,7 @@ internal abstract class BaseAppListViewModel : ViewModel() {
         val cachedApps = cachedApps
         val allUids = ArraySet<Int>()
         for ((_, packageInfo) in cachedApps) {
-            allUids.add(packageInfo.applicationInfo!!.uid)
+            packageInfo.applicationInfo?.uid?.let(allUids::add)
         }
         proxiedUids.clear()
         proxiedUids.ensureCapacity(cachedApps.size - current.size)
@@ -232,13 +236,13 @@ internal abstract class BaseAppListViewModel : ViewModel() {
             val bypassSet = apps.toSet()
             for ((packageName, packageInfo) in cachedApps) {
                 if (packageName !in bypassSet) {
-                    proxiedUids.add(packageInfo.applicationInfo!!.uid)
+                    packageInfo.applicationInfo?.uid?.let(proxiedUids::add)
                 }
             }
         } else {
             for (packageName in apps) {
                 val info = cachedApps[packageName] ?: continue
-                proxiedUids.add(info.applicationInfo!!.uid)
+                info.applicationInfo?.uid?.let(proxiedUids::add)
             }
         }
     }

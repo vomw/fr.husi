@@ -482,6 +482,7 @@ internal fun <T : AbstractBean> ProfileSettingsScreenScaffold(
             modifier = Modifier.hazeSource(hazeState),
             contentPadding = innerPadding.withNavigation(),
             viewModel = viewModel,
+            onInvalidState = { onResult(false) },
             settings = settings,
         )
     }
@@ -551,6 +552,7 @@ internal fun <T : AbstractBean> ProfileSettingsScreenScaffold(
 private fun <T : AbstractBean> ProfileSettingsMainColumn(
     contentPadding: PaddingValues,
     viewModel: ProfileEditorViewModel<T>,
+    onInvalidState: () -> Unit,
     modifier: Modifier = Modifier,
     settings: (
         scope: LazyListScope,
@@ -585,8 +587,14 @@ private fun <T : AbstractBean> ProfileSettingsMainColumn(
                 state = listState,
                 contentPadding = contentPadding,
             ) {
-                settings(this, uiState) { key ->
-                    scrollToKey = key
+                try {
+                    settings(this, uiState) { key ->
+                        scrollToKey = key
+                    }
+                } catch (_: ClassCastException) {
+                    item("invalid-profile-editor-state") {
+                        ProfileEditorStateMismatch(onInvalidState)
+                    }
                 }
             }
 
@@ -601,6 +609,14 @@ private fun <T : AbstractBean> ProfileSettingsMainColumn(
             )
         }
     }
+}
+
+@Composable
+private fun ProfileEditorStateMismatch(onInvalidState: () -> Unit) {
+    LaunchedEffect(Unit) {
+        onInvalidState()
+    }
+    Text("This profile no longer matches the selected editor.")
 }
 
 @Composable

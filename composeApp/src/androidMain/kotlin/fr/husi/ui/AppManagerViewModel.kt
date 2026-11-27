@@ -6,6 +6,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
 import androidx.lifecycle.viewModelScope
 import fr.husi.database.DataStore
+import fr.husi.ktx.Logs
 import fr.husi.utils.AppScanner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -66,11 +67,11 @@ internal class AppManagerViewModel(
         }
         viewModelScope.launch(singleThreadContext) {
             DataStore.packages.flow().collect { packages ->
-                proxiedUids.clear()
-                val cachedApps = cachedApps
-                for ((packageName, packageInfo) in cachedApps) {
-                    if (packages.contains(packageName)) {
-                        proxiedUids.add(packageInfo.applicationInfo!!.uid)
+                    proxiedUids.clear()
+                    val cachedApps = cachedApps
+                    for ((packageName, packageInfo) in cachedApps) {
+                        if (packages.contains(packageName)) {
+                            packageInfo.applicationInfo?.uid?.let(proxiedUids::add)
                     }
                 }
                 reload(cachedApps)
@@ -138,19 +139,29 @@ internal class AppManagerViewModel(
         val scanDispatcher = Dispatchers.IO.limitedParallelism(
             Runtime.getRuntime().availableProcessors(),
         )
-        apps.map { (packageName, packageInfo) ->
-            async(scanDispatcher) {
-                val isChinaApp = AppScanner.isChinaApp(packageName, packageManager)
+        apps.mapNotNull { (packageName, packageInfo) ->
+            val applicationInfo = packageInfo.applicationInfo ?: return@mapNotNull null
+            async<Pair<Int, Boolean>?>(scanDispatcher) {
+                val scanResult = runCatching {
+                    AppScanner.isChinaApp(packageName, packageManager)
+                }
+                val isChinaApp = scanResult.getOrNull() ?: run {
+                    Logs.d(
+                        "Skip unavailable package $packageName",
+                        requireNotNull(scanResult.exceptionOrNull()),
+                    )
+                    return@async null
+                }
                 uiState.update { state ->
-                    val scanned = state.scanned!! + packageName
+                    val scanned = state.scanned.orEmpty() + packageName
                     state.copy(
                         scanned = scanned,
                         scanProcess = scanned.size.toFloat() / apps.size,
                     )
                 }
-                packageInfo.applicationInfo!!.uid to isChinaApp
+                applicationInfo.uid to isChinaApp
             }
-        }.awaitAll()
+        }.awaitAll().filterNotNull()
     }
 
     fun cancelScan() {
@@ -161,7 +172,7 @@ internal class AppManagerViewModel(
     private suspend fun writeToDataStore() {
         DataStore.packages.set(
             cachedApps.values.asSequence()
-                .filter { it.applicationInfo!!.uid in proxiedUids }
+                .filter { it.applicationInfo?.uid in proxiedUids }
                 .map { it.packageName }
                 .toCollection(LinkedHashSet()),
         )

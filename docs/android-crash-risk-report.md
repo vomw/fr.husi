@@ -8,20 +8,21 @@ reachable without instrumentation tests and crash telemetry.
 
 ## Findings
 
-| ID | Severity | Trigger | Failure |
-|---|---|---|---|
-| CR-0 | Critical — confirmed | Creating `GroupScreenViewModel` while its first group/count flow emits synchronously. | Main-thread NPE while locking an uninitialized `Mutex`; the Group screen crashes. |
-| CR-1 | High | A rule is deleted while its editor route remains in the navigation back stack, or state restoration opens a removed rule. | Null-pointer exception while creating `RouteSettingsViewModel`. |
-| CR-2 | High | Importing a syntactically valid backup containing corrupt legacy settings parcel data. | An uncaught exception from a global coroutine; the import remains marked as running and may terminate the process through the uncaught-exception handler. |
-| CR-3 | Medium | A package is removed, disabled, or becomes unavailable while the App Manager or VPN scanner processes a cached `PackageInfo`. | Null-pointer exception or package-resource exception in the UI/background scan. |
-| CR-4 | Medium | Android recreates or otherwise re-enters a VPN consent launch without the contract's in-memory cached intent. | Null-pointer exception in `StartService.createIntent`. |
-| CR-5 | Low | The settings composable is hosted by a non-`Activity` `Context` (for example, a test, preview, or unusual context wrapper). | Null-pointer exception after changing the theme. |
-| CR-6 | Low | The export callback runs after the backing exported value was cleared or replaced. | Null-pointer exception while writing the selected backup file. |
-| CR-7 | Low | A profile screen is restored with a route/type mismatch after database migration, data corruption, or an invalid deep link. | `ClassCastException` in a profile settings composable. |
+| ID | Status | Severity | Trigger | Failure |
+|---|---|---|---|---|
+| CR-0 | Fixed — source verified | Critical — confirmed | Creating `GroupScreenViewModel` while its first group/count flow emits synchronously. | Main-thread NPE while locking an uninitialized `Mutex`; the Group screen crashes. |
+| CR-1 | Fixed — source verified | High | A rule is deleted while its editor route remains in the navigation back stack, or state restoration opens a removed rule. | Null-pointer exception while creating `RouteSettingsViewModel`. |
+| CR-2 | Fixed — source verified | High | Importing a syntactically valid backup containing corrupt legacy settings parcel data. | An uncaught exception from a global coroutine; the import remains marked as running and may terminate the process through the uncaught-exception handler. |
+| CR-3 | Fixed — source verified | Medium | A package is removed, disabled, or becomes unavailable while the App Manager or VPN scanner processes a cached `PackageInfo`. | Null-pointer exception or package-resource exception in the UI/background scan. |
+| CR-4 | Fixed — source verified | Medium | Android recreates or otherwise re-enters a VPN consent launch without the contract's in-memory cached intent. | Null-pointer exception in `StartService.createIntent`. |
+| CR-5 | Fixed — source verified | Low | The settings composable is hosted by a non-`Activity` `Context` (for example, a test, preview, or unusual context wrapper). | Null-pointer exception after changing the theme. |
+| CR-6 | Fixed — source verified | Low | The export callback runs after the backing exported value was cleared or replaced. | Null-pointer exception while writing the selected backup file. |
+| CR-7 | Fixed — source verified | Low | A profile screen is restored with a route/type mismatch after database migration, data corruption, or an invalid deep link. | `ClassCastException` in a profile settings composable. |
 
 ## CR-0: Group screen launches a coroutine before its mutex is initialized
 
-**Status:** confirmed by `husi_crash67249205038270596.log` on Android 15
+**Status:** fixed — source verified. The supplied
+`husi_crash67249205038270596.log` confirmed this issue on Android 15
 (Redmi Note 8, app 2.3.4 / version code 551).
 
 The fatal exception is on the main thread:
@@ -60,6 +61,9 @@ that it publishes its first `GroupUiState` without an uncaught exception.
 
 ## CR-1: stale route editor dereferences a missing rule
 
+**Status:** fixed — source verified. Rule loading is lifecycle-owned and a missing rule displays a
+message before leaving the stale editor route.
+
 **Evidence:** `composeApp/src/commonMain/kotlin/fr/husi/ui/RouteSettingsViewModel.kt:135-141`
 loads an existing entity with:
 
@@ -78,6 +82,9 @@ during ViewModel construction.
 before constructing/recreating the editor for its ID.
 
 ## CR-2: legacy settings import trusts parcel payloads and uses an unowned coroutine
+
+**Status:** fixed — source verified. Import work is lifecycle-owned, validates legacy entries,
+recycles Parcels in `finally`, reports errors, and clears its busy state in `finally`.
 
 **Evidence:**
 
@@ -102,6 +109,9 @@ settings fixtures (bad Base64, wrong JSON shape, truncated Parcel).
 
 ## CR-3: package scans dereference mutable package-manager snapshots
 
+**Status:** fixed — source verified. Incomplete or unavailable package entries are skipped and
+per-package label, icon, APK, and scan failures do not abort the remaining scan.
+
 **Evidence:**
 
 - `composeApp/src/androidMain/kotlin/fr/husi/ui/AbstractAppList.kt:129-190` and
@@ -124,6 +134,9 @@ throws `NameNotFoundException` during icon access.
 
 ## CR-4: VPN consent contract depends on volatile cached state
 
+**Status:** fixed — source verified. The contract no longer retains a consent `Intent`; it obtains
+a fresh intent when Android creates the consent launch.
+
 **Evidence:** `composeApp/src/androidMain/kotlin/fr/husi/ui/VpnRequestActivity.kt:58-75` stores
 the system consent `Intent` in `cachedIntent`, then `createIntent` executes
 `cachedIntent!!`.
@@ -142,6 +155,9 @@ pending.
 
 ## CR-5: theme changes assume an Activity context
 
+**Status:** fixed — source verified. Theme application now recreates an Activity only when one is
+available from the current context.
+
 **Evidence:** `composeApp/src/androidMain/kotlin/fr/husi/ui/SettingsScreenPlatform.android.kt:115`
 uses `context.findActivity<Activity>()!!.recreate()`.
 
@@ -156,6 +172,9 @@ non-Activity context wrapper.
 
 ## CR-6: backup export callback reads a non-null value twice
 
+**Status:** fixed — source verified. The file-saver callback uses the payload captured for that
+specific export request and treats a missing payload as cancellation.
+
 **Evidence:** `composeApp/src/commonMain/kotlin/fr/husi/ui/tools/BackupScreen.kt:147-166`
 launches the file-saver callback and later evaluates `uiState.exported!!`.
 The value is independently cleared by `postExport`; lifecycle changes or a
@@ -166,6 +185,9 @@ callback/state object tied to that request. In the callback, treat a missing
 payload as cancellation rather than asserting non-null.
 
 ## CR-7: profile settings rely on unchecked UI-state casts
+
+**Status:** fixed — source verified. The shared profile editor scaffold catches a stale editor-state
+cast and renders a recoverable error instead of allowing a Compose `ClassCastException` to escape.
 
 **Evidence:** examples include
 `uiState as WireGuardUiState` in
